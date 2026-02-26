@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+    <Document id="1">
+        <Placemark id="3">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/24463545/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="2">
+                <coordinates>28.2992936,57.8224295,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="5">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/33814160/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="4">
+                <coordinates>28.2986314,57.8322937,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="7">
+            <name>Бомбоубежище под элеватором (ru)</name>
+            <description>http://wikimapia.org/43247656/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5-%D0%BF%D0%BE%D0%B4-%D1%8D%D0%BB%D0%B5%D0%B2%D0%B0%D1%82%D0%BE%D1%80%D0%BE%D0%BC</description>
+            <Point id="6">
+                <coordinates>28.3519799,57.7976701,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="9">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/27116622/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="8">
+                <coordinates>28.3726715,57.7962696,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="11">
+            <name>Бомбоубежище ЖБИ-3 (ru)</name>
+            <description>http://wikimapia.org/25723646/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5-%D0%96%D0%91%D0%98-3</description>
+            <Point id="10">
+                <coordinates>28.3829962,57.8340208,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="13">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/30525078/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="12">
+                <coordinates>28.3748261,57.8195685,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="15">
+            <name>Убежище №1 ЖБК (ru)</name>
+            <description>http://wikimapia.org/27559746/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5-%E2%84%961-%D0%96%D0%91%D0%9A</description>
+            <Point id="14">
+                <coordinates>28.4002104,57.8202818,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="17">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/21795810/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="16">
+                <coordinates>28.3693088,57.8100475,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="19">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/26501935/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="18">
+                <coordinates>28.349828,57.8298517,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="21">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/27588186/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="20">
+                <coordinates>28.2894568,57.8115909,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="23">
+            <name>Убежище завода (ru)</name>
+            <description>http://wikimapia.org/27933492/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5-%D0%B7%D0%B0%D0%B2%D0%BE%D0%B4%D0%B0</description>
+            <Point id="22">
+                <coordinates>28.3119498,57.8261719,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="25">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/25081989/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="24">
+                <coordinates>28.3369898,57.8035489,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="27">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/36625484/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="26">
+                <coordinates>28.3744534,57.8229748,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="29">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/33814153/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="28">
+                <coordinates>28.2946864,57.8290551,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="31">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/30430244/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="30">
+                <coordinates>28.3356927,57.8085002,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="33">
+            <name>Заброшенное бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/27578685/ru/%D0%97%D0%B0%D0%B1%D1%80%D0%BE%D1%88%D0%B5%D0%BD%D0%BD%D0%BE%D0%B5-%D0%B1%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="32">
+                <coordinates>28.3089309,57.8522373,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="35">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/25140273/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="34">
+                <coordinates>28.3592465,57.8021578,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="37">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/28058496/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="36">
+                <coordinates>28.3985851,57.8076242,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="39">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/29787061/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="38">
+                <coordinates>28.4526974,57.8267069,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="41">
+            <name>Заброшенный подземный туннель (ru)</name>
+            <description>http://wikimapia.org/26813852/ru/%D0%97%D0%B0%D0%B1%D1%80%D0%BE%D1%88%D0%B5%D0%BD%D0%BD%D1%8B%D0%B9-%D0%BF%D0%BE%D0%B4%D0%B7%D0%B5%D0%BC%D0%BD%D1%8B%D0%B9-%D1%82%D1%83%D0%BD%D0%BD%D0%B5%D0%BB%D1%8C</description>
+            <Point id="40">
+                <coordinates>28.2949018,57.834704,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="43">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/27961124/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="42">
+                <coordinates>28.2930751,57.8332996,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="45">
+            <name>Убежище № 22 (ru)</name>
+            <description>http://wikimapia.org/27550012/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5-%E2%84%96-22</description>
+            <Point id="44">
+                <coordinates>28.2795421,57.8110877,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="47">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/27933749/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="46">
+                <coordinates>28.3220808,57.8228912,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="49">
+            <name>Заброшенное бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/27238733/ru/%D0%97%D0%B0%D0%B1%D1%80%D0%BE%D1%88%D0%B5%D0%BD%D0%BD%D0%BE%D0%B5-%D0%B1%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="48">
+                <coordinates>28.2933072,57.796245,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="51">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/27960814/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="50">
+                <coordinates>28.3149137,57.8250151,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="53">
+            <name>Заброшенное бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/43070153/ru/%D0%97%D0%B0%D0%B1%D1%80%D0%BE%D1%88%D0%B5%D0%BD%D0%BD%D0%BE%D0%B5-%D0%B1%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="52">
+                <coordinates>28.3183756,57.8175762,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="55">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/41643052/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="54">
+                <coordinates>28.2898272,57.8114534,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="57">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/29085149/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="56">
+                <coordinates>28.3496107,57.8191786,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="59">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/30077723/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="58">
+                <coordinates>28.3629601,57.8032892,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="61">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/32855071/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="60">
+                <coordinates>28.3130244,57.8341673,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="63">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/26804251/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="62">
+                <coordinates>28.3583521,57.8008796,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="65">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/24598832/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="64">
+                <coordinates>28.3132843,57.833964,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="67">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/28062643/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="66">
+                <coordinates>28.366015,57.8025775,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="69">
+            <name>Бывшее убежище завода АТС (ru)</name>
+            <description>http://wikimapia.org/43247654/ru/%D0%91%D1%8B%D0%B2%D1%88%D0%B5%D0%B5-%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5-%D0%B7%D0%B0%D0%B2%D0%BE%D0%B4%D0%B0-%D0%90%D0%A2%D0%A1</description>
+            <Point id="68">
+                <coordinates>28.3493131,57.8111009,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="71">
+            <name>Бомбоубежище (ru)</name>
+            <description>http://wikimapia.org/39110988/ru/%D0%91%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="70">
+                <coordinates>28.4553187,57.8270684,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="73">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/32842111/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="72">
+                <coordinates>28.3138234,57.835508,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="75">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/28037118/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="74">
+                <coordinates>28.31359,57.8354665,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="77">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/34972111/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="76">
+                <coordinates>28.3457954,57.8117774,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="79">
+            <name>Убежище (ru)</name>
+            <description>http://wikimapia.org/35710480/ru/%D0%A3%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="78">
+                <coordinates>28.3649076,57.8036932,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="81">
+            <name>Наклонный вход в убежище (ru)</name>
+            <description>http://wikimapia.org/43247666/ru/%D0%9D%D0%B0%D0%BA%D0%BB%D0%BE%D0%BD%D0%BD%D1%8B%D0%B9-%D0%B2%D1%85%D0%BE%D0%B4-%D0%B2-%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B5</description>
+            <Point id="80">
+                <coordinates>28.349246,57.8105979,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="83">
+            <name>Вентиляционная шахта бомбоубежища (ru)</name>
+            <description>http://wikimapia.org/43070186/ru/%D0%92%D0%B5%D0%BD%D1%82%D0%B8%D0%BB%D1%8F%D1%86%D0%B8%D0%BE%D0%BD%D0%BD%D0%B0%D1%8F-%D1%88%D0%B0%D1%85%D1%82%D0%B0-%D0%B1%D0%BE%D0%BC%D0%B1%D0%BE%D1%83%D0%B1%D0%B5%D0%B6%D0%B8%D1%89%D0%B0</description>
+            <Point id="82">
+                <coordinates>28.3450503,57.8147913,0.0</coordinates>
+            </Point>
+        </Placemark>
+    </Document>
+</kml>

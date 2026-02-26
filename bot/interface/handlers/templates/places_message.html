@@ -1,0 +1,12 @@
+{% if search %}🔎 Поиск: <b>{{search}}</b> {% endif %}
+📋<em>{{message_answer}}</em>
+
+{% for place in places %}
+<b>🏠 {{ place.name }}</b>
+{% if place.distance_km %}🛣️ <ins>расстояние: </ins> {{place.distance_km | human_distance}} {% endif %}
+🏷️ <ins>Категория:</ins> {{place.category}}
+⭐ <ins>Рейтинг:</ins> {% if place.rating_count > 0 %}{{ place.rating_avg }} ({{ place.rating_count }}){% else %}нет оценок{% endif %}
+🧭 <ins>Координаты:</ins> <code>{{place.latitude | cut_coord}}, {{place.longitude | cut_coord}}</code>
+🌍 <a href="https://yandex.ru/maps/?ll={{place.longitude}}%2C{{place.latitude}}&z=20">Перейти на карту</a>
+📌<ins>Подробнее:</ins> /place_{{place.id}} 
+{% endfor %}

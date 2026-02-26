@@ -1,0 +1,71 @@
+version: "3.9"
+
+services:
+  bot:
+    build:
+      context: ./bot
+    container_name: aiogram_bot
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    volumes:
+      - ./bot:/app
+    depends_on:
+      - db
+      - elasticsearch
+      - loki
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.11
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15
+    container_name: postgres_db
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  loki:
+    image: grafana/loki:2.8.2
+    container_name: loki
+    ports:
+      - "3110:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    volumes:
+      - ./loki_data:/loki
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./.env
+    restart: unless-stopped
+    depends_on:
+      - loki
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  postgres_data:
+  es_data:
+  loki_data:
+  grafana_data:

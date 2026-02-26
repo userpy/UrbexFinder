@@ -1,0 +1,12 @@
+{% if search %}
+<b>🔎: {{search}} </b>
+{%endif%}
+🏠 <b>{{name}}</b>
+
+📍 <code>{{full_address}}</code>
+⭐ {% if rating_count > 0 %}<b>Рейтинг:</b>{{ rating_avg }} ({{ rating_count }} оценок){% else %}пока нет оценок{% endif %}{% if user_rating %}
+👤 <i>Ваша оценка: {{ user_rating }}/5</i>{% endif %}
+📷 <b>Фото:</b> {{ photos_count }}
+💬 <b>Отзывы:</b> {{ reviews_count }}
+
+📝<i>{{description}}</i>
