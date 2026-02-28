@@ -1,32 +1,25 @@
 from __future__ import annotations
 
-import os
 from logging.config import fileConfig
-from pathlib import Path
 
 from alembic import context
-from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 from domain.models import Base
+from infrastructure.core.settings import get_database_settings
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-project_root = Path(__file__).resolve().parents[2]
-load_dotenv(project_root / ".env")
-
-db_user = os.getenv("POSTGRES_USER", "postgres")
-db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
-db_name = os.getenv("POSTGRES_DB", "postgres")
-db_host = os.getenv("POSTGRES_HOST", "db")
-db_port = os.getenv("POSTGRES_PORT", "5432")
+settings = get_database_settings()
 
 config.set_main_option(
     "sqlalchemy.url",
-    f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}",
+    "postgresql+psycopg2://"
+    f"{settings.postgres_user}:{settings.postgres_password}"
+    f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}",
 )
 
 target_metadata = Base.metadata

@@ -31,11 +31,13 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 - `POSTGRES_USER`
 - `POSTGRES_PASSWORD`
 - `POSTGRES_DB`
+- `ELASTIC_PASSWORD`
 
 Примечания:
 - Для Docker путь `KMZ_PATH` должен быть внутри контейнера,
   например: `/app/geo_data/Покинутые_индустриальные_объекты.kmz`.
 - `docker-compose.yml` использует `.env` для конфигурации Postgres и Grafana.
+- Elasticsearch запускается с включенной security, пользователь `elastic`.
 
 Быстрый старт (Docker)
 ----------------------
@@ -83,6 +85,11 @@ Alembic читает настройки Postgres из `.env`:
 - `POSTGRES_DB`
 - `POSTGRES_HOST` (по умолчанию: `db`)
 - `POSTGRES_PORT` (по умолчанию: `5432`)
+
+Elasticsearch читает настройки из `.env`:
+- `ELASTIC_URL` (по умолчанию: `http://elasticsearch:9200`)
+- `ELASTIC_USER` (по умолчанию: `elastic`)
+- `ELASTIC_PASSWORD`
 
 Операционные заметки
 --------------------

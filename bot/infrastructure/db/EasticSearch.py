@@ -3,9 +3,19 @@ from elasticsearch.helpers import async_bulk, async_scan
 
 from infrastructure.db.PgDb import AsyncDatabase
 
-ES_URL = "http://elasticsearch:9200"
+
 INDEX_NAME = "places"
 BATCH_SIZE = 500
+
+
+def _create_client(
+    es_url,
+    es_user,
+    es_password,
+) -> AsyncElasticsearch:
+    if es_password:
+        return AsyncElasticsearch(es_url, basic_auth=(es_user, es_password))
+    return AsyncElasticsearch(es_url)
 
 
 class ElasticPlacesIndexer:
@@ -21,9 +31,15 @@ class ElasticPlacesIndexer:
         }
     }
 
-    def __init__(self, db: AsyncDatabase = None, es_url: str = ES_URL):
+    def __init__(
+        self,
+        db: AsyncDatabase = None,
+        es_url: str = None,
+        es_user: str = None,
+        es_password: str = None,
+    ):
         self.db = db
-        self.es = AsyncElasticsearch(es_url)
+        self.es = _create_client(es_url=es_url, es_user=es_user, es_password=es_password)
 
     def to_bulk_actions(self, rows):
         """Генерирует документы для bulk"""
@@ -112,10 +128,8 @@ class ElasticPlacesIndexer:
         """
         Ищет в Elasticsearch места по ключевому слову и возвращает только id
         """
-        es = AsyncElasticsearch(ES_URL)
-
         # Elasticsearch search
-        resp = await es.search(
+        resp = await self.es.search(
             index=INDEX_NAME,
             body={
               "_source": ["id"],
@@ -155,7 +169,6 @@ class ElasticPlacesIndexer:
               }
             }
         )
-        await es.close()
 
         # Составляем список id
         ids = [hit["_source"]["id"] for hit in resp["hits"]["hits"]]
