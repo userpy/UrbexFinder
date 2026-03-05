@@ -31,7 +31,7 @@ class AsyncDatabase:
         self.pg_database = pg_database
         self.pg_user = pg_user
         self.pg_password = pg_password
-        self.pg_host = pg_host or ("db" if os.path.exists("/.dockerenv") else "localhost")
+        self.pg_host = pg_host 
         self.pg_port = int(pg_port) if pg_port is not None else 5432
 
         self.engine = None

@@ -60,7 +60,7 @@ def upgrade() -> None:
                existing_type=sa.TEXT(),
                type_=sa.String(),
                existing_nullable=False)
-    op.drop_constraint(op.f('users_role_id_fkey'), 'users', type_='foreignkey')
+    op.execute(sa.text("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_id_fkey"))
     # ### end Alembic commands ###
 
 

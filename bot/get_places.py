@@ -10,7 +10,7 @@ API_KEY = "DE78E139-2B064BBC-857C77B0-714E47D2-61E51FEC-9F388503-07F10D5D-49DBD4
 # Категория Wikimapia (ID)
 CATEGORY_ID = 44690  # Бомбоубежища
 #CATEGORY_ID = 2390 # Заброшенное
-# TOP_POINT — сверху слева (lat, lon)
+#TOP_POINT — сверху слева (lat, lon)
 TOP_POINT = [56.0, 37.0]
 
 # BOTTOM_POINT — снизу справа (lat, lon)
@@ -20,7 +20,7 @@ MAX_PAGES = 10
 RESULTS_PER_PAGE = 100
 REQUEST_DELAY = 1.0  # секунды
 
-OUTPUT_FILE = "wikimapia_places.kml"
+OUTPUT_FILE = f"wikimapia_{CATEGORY_ID}_{TOP_POINT}_{BOTTOM_POINT}.kml"
 
 # ===============================================
 

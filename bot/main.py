@@ -20,6 +20,7 @@ from application.startup.on_startup_places import (
     seed_places_from_kml,
     update_place_full_addres,
 )
+from application.startup.make_migrations import make_migrations
 
 logger = setup_logger()
 
@@ -37,6 +38,7 @@ async def main() -> None:
         pg_host=settings.postgres_host,
         pg_port=settings.postgres_port,
     )
+    await make_migrations()
     await db.connect()
     elastic = ElasticPlacesIndexer(
         db=db,
