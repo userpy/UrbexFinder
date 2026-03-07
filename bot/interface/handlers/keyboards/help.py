@@ -8,9 +8,7 @@ from interface.handlers.enums.help import Help
 from interface.handlers.enums.resources import Resources
 
 async def get_help_btn(message : Message, db: AsyncDatabase) -> ReplyKeyboardMarkup:
-    logger.info(f"get_help_btn {message.from_user.id}")
     user_role = await db.users.get_user_role(message.from_user.id)
-    logger.info(f"user_role {user_role}")
     kb = ReplyKeyboardBuilder()
     kb.button(text=Places.ABANDONED_PLACES)
     kb.button(text=Help.COMMAND)

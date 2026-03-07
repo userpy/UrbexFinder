@@ -10,7 +10,6 @@ from infrastructure.db.PgDb import AsyncDatabase
 from interface.handlers.enums.help import Help
 from infrastructure.core.logger_config import setup_logger
 
-logger = setup_logger()
 router = Router()
 
 
@@ -18,7 +17,6 @@ router = Router()
 @router.message(F.text == Help.COMMAND.value)
 @router.message(Command("help"))
 async def cmd_help(message: Message, db: AsyncDatabase, state: FSMContext):
-    logger.info(f"[Handler] {message.from_user.id} ({message.from_user.username}): {message.text}")
     await state.clear()
     renderer = TemplateRenderer()
     rendered_html = renderer.render(template_name="help.html", params={})
