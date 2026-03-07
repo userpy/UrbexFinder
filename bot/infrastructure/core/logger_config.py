@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import tempfile
 
@@ -64,7 +65,7 @@ def setup_logger() -> logger:
 
         # Цветной вывод в консоль
         logger.add(
-            lambda msg: print(msg, end=""),
+            sys.stdout,
             colorize=True,
             level="INFO",
             enqueue=True,

@@ -2,6 +2,7 @@ import requests
 import simplekml
 import time
 import sys
+from loguru import logger
 
 # ================== НАСТРОЙКИ ==================
 
@@ -63,27 +64,27 @@ def main():
     try:
         bbox = build_bbox(TOP_POINT, BOTTOM_POINT)
     except ValueError as e:
-        print(f"Ошибка координат: {e}")
+        logger.info(f"Ошибка координат: {e}")
         sys.exit(1)
 
-    print(f"Используем bbox: {bbox}")
-    print("Начинаю загрузку данных...")
+    logger.info(f"Используем bbox: {bbox}")
+    logger.info("Начинаю загрузку данных...")
 
     kml = simplekml.Kml()
     total = 0
 
     for page in range(1, MAX_PAGES + 1):
-        print(f"  Страница {page}")
+        logger.info(f"  Страница {page}")
 
         try:
             data = fetch_page(page, bbox)
         except Exception as e:
-            print(f"  Ошибка запроса: {e}")
+            logger.info(f"  Ошибка запроса: {e}")
             break
 
         places = data.get("places", [])
         if not places:
-            print("  Больше объектов нет")
+            logger.info("  Больше объектов нет")
             break
 
         for place in places:
@@ -119,8 +120,8 @@ def main():
         time.sleep(REQUEST_DELAY)
 
     kml.save(OUTPUT_FILE)
-    print(f"Готово. Сохранено объектов: {total}")
-    print(f"Файл: {OUTPUT_FILE}")
+    logger.info(f"Готово. Сохранено объектов: {total}")
+    logger.info(f"Файл: {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":

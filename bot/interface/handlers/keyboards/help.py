@@ -1,5 +1,6 @@
 from aiogram.types import ReplyKeyboardMarkup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from loguru import logger
 from infrastructure.db.PgDb import AsyncDatabase
 from aiogram.types import Message
 from interface.handlers.enums.places import Places
@@ -7,9 +8,9 @@ from interface.handlers.enums.help import Help
 from interface.handlers.enums.resources import Resources
 
 async def get_help_btn(message : Message, db: AsyncDatabase) -> ReplyKeyboardMarkup:
-    print("get_help_btn", message.from_user.id)
+    logger.info(f"get_help_btn {message.from_user.id}")
     user_role = await db.users.get_user_role(message.from_user.id)
-    print("user_role", user_role)
+    logger.info(f"user_role {user_role}")
     kb = ReplyKeyboardBuilder()
     kb.button(text=Places.ABANDONED_PLACES)
     kb.button(text=Help.COMMAND)

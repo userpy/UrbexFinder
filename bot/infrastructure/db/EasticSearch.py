@@ -1,5 +1,6 @@
 from elasticsearch import AsyncElasticsearch
 from elasticsearch.helpers import async_bulk, async_scan
+from loguru import logger
 
 from infrastructure.db.PgDb import AsyncDatabase
 
@@ -65,9 +66,9 @@ class ElasticPlacesIndexer:
         exists = await self.es.indices.exists(index=INDEX_NAME)
         if not exists:
             await self.es.indices.create(index=INDEX_NAME, body=self.INDEX_BODY)
-            print(f"Created index '{INDEX_NAME}'")
+            logger.info(f"Created index '{INDEX_NAME}'")
         else:
-            print(f"Index '{INDEX_NAME}' already exists")
+            logger.info(f"Index '{INDEX_NAME}' already exists")
 
         # bulk индексация
         indexed_count = 0
@@ -82,10 +83,10 @@ class ElasticPlacesIndexer:
             pg_ids.update(row["id"] for row in rows)
             indexed_count += len(rows)
             offset += BATCH_SIZE
-            print(f"Indexed {indexed_count} places")
+            logger.info(f"Indexed {indexed_count} places")
 
         deleted_count = await self._delete_stale_documents(pg_ids)
-        print(f"Deleted {deleted_count} stale places from index")
+        logger.info(f"Deleted {deleted_count} stale places from index")
 
     async def _iter_es_ids(self):
         """Итерирует по id документов из Elasticsearch."""

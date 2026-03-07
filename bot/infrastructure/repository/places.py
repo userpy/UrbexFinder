@@ -1,6 +1,7 @@
 import asyncio
 from typing import Optional, TypedDict
 
+from loguru import logger
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -62,10 +63,10 @@ class PlacesRepository:
                     )
                     await session.execute(stmt)
                     await session.commit()
-                    print(f"[INFO] updated full_address {place.id}")
+                    logger.info(f"[INFO] updated full_address {place.id}")
                 await asyncio.sleep(1)
             except Exception as e:
-                print(f"[ERROR] place_id={place.id}: {e}")
+                logger.info(f"[ERROR] place_id={place.id}: {e}")
 
     async def add_or_update_place(
         self,
@@ -89,7 +90,7 @@ class PlacesRepository:
                 res = await session.execute(q)
                 existing = res.scalars().first()
                 if existing:
-                    print(f"[INFO] updated place * {existing.latitude} > {Decimal6(latitude)}")
+                    logger.info(f"[INFO] updated place * {existing.latitude} > {Decimal6(latitude)}")
                     existing.name = name
                     existing.description = description
                     existing.type = type_
@@ -104,7 +105,7 @@ class PlacesRepository:
                     .where(PlaceModel.latitude == latitude)
                     .where(PlaceModel.longitude == longitude)
                 )
-                print(f"[INFO] created place {name}")
+                logger.info(f"[INFO] created place {name}")
                 new_place = PlaceModel(
                     name=name,
                     description=description,

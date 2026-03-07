@@ -1,3 +1,4 @@
+import logging
 import queue
 import threading
 import time
@@ -11,6 +12,7 @@ LOKI_QUEUE_MAXSIZE = 5000
 _queue: "queue.Queue[dict]" = queue.Queue(maxsize=LOKI_QUEUE_MAXSIZE)
 _thread_started = False
 _thread_lock = threading.Lock()
+logger = logging.getLogger(__name__)
 
 
 def _build_payload(message: str, level: str) -> dict:
@@ -32,7 +34,7 @@ def _loki_worker() -> None:
         try:
             session.post(LOKI_URL, json=payload, timeout=2)
         except Exception as error:
-            print(f"Ошибка при отправке в Loki: {error}")
+            logger.info("Ошибка при отправке в Loki: %s", error)
         finally:
             _queue.task_done()
 
