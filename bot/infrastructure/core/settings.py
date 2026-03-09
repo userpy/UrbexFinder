@@ -30,6 +30,7 @@ class AppSettings(DatabaseSettings):
     elastic_url: str
     elastic_user: str
     elastic_password: str
+    seed_places: bool
 
 
 @lru_cache(maxsize=1)

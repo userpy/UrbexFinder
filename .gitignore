@@ -9,3 +9,4 @@ local.py
 bot/logs/
 **/__pycache__/
 **/*.pyc
+bot/logs/

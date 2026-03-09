@@ -51,7 +51,7 @@ async def main() -> None:
     dp.update.middleware(DBMiddleware(db))
     dp.update.middleware(ElasticMiddleware(elastic))
     dp.update.middleware(EventBusMiddleware(event_bus))
-    await seed_places_from_kml(db, settings.kmz_path)
+    await seed_places_from_kml(db, settings.kmz_path, settings.seed_places)
     await deduplicate_places(db)
     await update_place_full_addres(db)
     await indexing_places_elastic_search(elastic)
@@ -64,7 +64,7 @@ async def main() -> None:
     )
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Bot start")
+        logger.info(F"Bot start {settings.seed_places}")
         await dp.start_polling(bot)
     finally:
         # Закрываем базу и сессию бота при остановке

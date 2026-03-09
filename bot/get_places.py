@@ -6,7 +6,7 @@ from loguru import logger
 
 # ================== НАСТРОЙКИ ==================
 
-API_KEY = "DE78E139-2B064BBC-857C77B0-714E47D2-61E51FEC-9F388503-07F10D5D-49DBD4E"
+WIKIMAPIA_API_KEY = "DE78E139-2B064BBC-857C77B0-714E47D2-61E51FEC-9F388503-07F10D5D-49DBD4E"
 
 # Категория Wikimapia (ID)
 CATEGORY_ID = 44690  # Бомбоубежища

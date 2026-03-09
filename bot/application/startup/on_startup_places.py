@@ -3,10 +3,12 @@ from infrastructure.services.kmz_reader import KmzReader
 from infrastructure.services.places_deduplicator import PlacesDeduplicationService
 from infrastructure.db.EasticSearch import ElasticPlacesIndexer
 
-async def seed_places_from_kml(db: AsyncDatabase, kml_path: str):
+
+async def seed_places_from_kml(db: AsyncDatabase, kml_path: str, is_run_seeding: bool):
     """Заполняет таблицу Places данными из KML, если таблица пуста"""
-    kmz = KmzReader(db=db, file_path=kml_path)
-    await kmz.read()
+    if is_run_seeding:
+        kmz = KmzReader(db=db, file_path=kml_path)
+        await kmz.read()
 
 
 async def update_place_full_addres(db: AsyncDatabase):
