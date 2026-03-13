@@ -23,19 +23,24 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 
 Переменные окружения
 --------------------
-Создайте файл `.env` в корне репозитория. Минимально нужны:
+Создайте файл `.env` в корне репозитория. Полный пример есть в `.env-example`.
+
+Обязательные переменные приложения:
 - `TOKEN` - токен Telegram-бота.
 - `ADMIN_NAME` - имя администратора.
 - `ADMIN_ID` - Telegram ID администратора.
 - `KMZ_PATH` - путь к KMZ-файлу с местами.
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-- `POSTGRES_DB`
-- `ELASTIC_PASSWORD`
+- `SEED_PLACES` - запуск первичного сидинга мест (`True`/`False`).
+- `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_HOST`, `POSTGRES_PORT`.
+- `ELASTIC_URL`, `ELASTIC_USER`, `ELASTIC_PASSWORD`.
+
+Дополнительно:
+- `TG_CHANNEL_ID` - ID Telegram-канала.
+- `GF_SECURITY_ADMIN_USER`, `GF_SECURITY_ADMIN_PASSWORD` - учётные данные Grafana.
 
 Примечания:
 - Для Docker путь `KMZ_PATH` должен быть внутри контейнера,
-  например: `/app/geo_data/Покинутые_индустриальные_объекты.kmz`.
+  например: `geo_data/Покинутые_индустриальные_объекты.kmz`.
 - `docker-compose.yml` использует `.env` для конфигурации Postgres и Grafana.
 - Elasticsearch запускается с включенной security, пользователь `elastic`.
 
@@ -49,7 +54,7 @@ Elasticsearch и логированием в Grafana Loki. Код организ
    - Postgres: `localhost:5432`.
    - Elasticsearch: `localhost:9200`.
    - Grafana: `localhost:3000`.
-   - Loki: `localhost:3100`.
+   - Loki: `localhost:3110`.
 
 Локальный запуск (Poetry)
 -------------------------
@@ -87,9 +92,17 @@ Alembic читает настройки Postgres из `.env`:
 - `POSTGRES_PORT` (по умолчанию: `5432`)
 
 Elasticsearch читает настройки из `.env`:
-- `ELASTIC_URL` (по умолчанию: `http://elasticsearch:9200`)
-- `ELASTIC_USER` (по умолчанию: `elastic`)
+- `ELASTIC_URL` (например: `http://elasticsearch:9200`)
+- `ELASTIC_USER` (например: `elastic`)
 - `ELASTIC_PASSWORD`
+
+Экспорт адресов в CSV
+---------------------
+Для выгрузки колонок `lat,lon,full_address` используйте скрипт:
+- `bash scripts/export_lat_lon_full_address.sh`
+
+С указанием имени файла:
+- `bash scripts/export_lat_lon_full_address.sh lat_lon_full_address.csv`
 
 Операционные заметки
 --------------------
