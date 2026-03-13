@@ -47,9 +47,13 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 Быстрый старт (Docker)
 ----------------------
 1. Создайте `.env` в корне репозитория.
-2. Соберите и запустите сервисы:
+2. Создайте локальные папки данных для bind-mount:
+   `mkdir -p postgres_data loki_data`
+   Если при старте Postgres видите `Permission denied`, назначьте права на каталог данных:
+   `sudo chown -R 999:999 postgres_data`
+3. Соберите и запустите сервисы:
    `docker compose up --build`
-3. Сервисы будут доступны:
+4. Сервисы будут доступны:
    - Бот в контейнере `aiogram_bot`.
    - Postgres: `localhost:5432`.
    - Elasticsearch: `localhost:9200`.

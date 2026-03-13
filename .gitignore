@@ -2,9 +2,9 @@ bot/.env
 .venv
 .env
 .idea
-postgres_data/
-loki_data/
-es_data/
+postgres_data/*
+loki_data/*
+es_data/*
 local.py
 bot/logs/
 **/__pycache__/
