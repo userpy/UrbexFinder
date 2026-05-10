@@ -41,12 +41,15 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 Примечания:
 - Для Docker путь `KMZ_PATH` должен быть внутри контейнера,
   например: `geo_data/Покинутые_индустриальные_объекты.kmz`.
+- При первом запуске не забудьте включить сидирование мест:
+  установите `SEED_PLACES=True` в `.env`, чтобы бот загрузил места из KMZ.
 - `docker-compose.yml` использует `.env` для конфигурации Postgres и Grafana.
 - Elasticsearch запускается с включенной security, пользователь `elastic`.
 
 Быстрый старт (Docker)
 ----------------------
 1. Создайте `.env` в корне репозитория.
+   Для первого запуска установите `SEED_PLACES=True`, чтобы загрузить места из KMZ.
 2. Создайте локальные папки данных для bind-mount:
    `mkdir -p postgres_data loki_data`
    Если при старте Postgres видите `Permission denied`, назначьте права на каталог данных:
@@ -65,6 +68,7 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 1. Установите зависимости:
    `cd bot`
    `poetry install`
+   Для первого запуска установите `SEED_PLACES=True` в `.env`, чтобы загрузить места из KMZ.
 2. Примените миграции БД:
    `poetry run alembic upgrade head`
 3. Запустите бота:
@@ -115,3 +119,5 @@ Elasticsearch читает настройки из `.env`:
   - загружает места из KMZ;
   - обновляет отсутствующие адреса через reverse geocoding;
   - переиндексирует данные в Elasticsearch.
+- Перед reverse geocoding бот пытается восстановить отсутствующие `full_address`
+  из `bot/geo_data/lat_lon_full_address.csv` по координатам `lat/lon`.

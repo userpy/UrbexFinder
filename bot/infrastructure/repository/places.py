@@ -1,8 +1,10 @@
 import asyncio
+import csv
+from pathlib import Path
 from typing import Optional, TypedDict
 
 from loguru import logger
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -34,6 +36,56 @@ class PlacesRepository:
 
     def __init__(self, async_session: async_sessionmaker[AsyncSession]):
         self.async_session = async_session
+
+    async def update_full_addresses_from_csv(self, csv_path: str | Path) -> int:
+        rows = await asyncio.to_thread(self._read_full_address_csv, Path(csv_path))
+        if not rows:
+            return 0
+
+        updated_count = 0
+        async with self.async_session() as session:
+            async with session.begin():
+                for lat, lon, full_address in rows:
+                    stmt = (
+                        update(PlaceModel)
+                        .where(PlaceModel.latitude == lat)
+                        .where(PlaceModel.longitude == lon)
+                        .where(
+                            (PlaceModel.full_address.is_(None))
+                            | (PlaceModel.full_address == "")
+                        )
+                        .values(full_address=full_address)
+                    )
+                    result = await session.execute(stmt)
+                    updated_count += result.rowcount or 0
+
+        return updated_count
+
+    @staticmethod
+    def _read_full_address_csv(csv_path: Path) -> list[tuple[object, object, str]]:
+        if not csv_path.exists():
+            logger.info(f"[INFO] full_address csv not found: {csv_path}")
+            return []
+
+        rows: list[tuple[object, object, str]] = []
+        with csv_path.open(newline="", encoding="utf-8") as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row_number, row in enumerate(reader, start=2):
+                try:
+                    full_address = (row.get("full_address") or "").strip()
+                    if not full_address:
+                        continue
+
+                    lat = Decimal6(row.get("lat"))
+                    lon = Decimal6(row.get("lon"))
+                    if lat is None or lon is None:
+                        continue
+
+                    rows.append((lat, lon, full_address))
+                except Exception as e:
+                    logger.info(f"[ERROR] invalid full_address csv row={row_number}: {e}")
+
+        return rows
 
     async def update_all_full_addresses(self, batch_size: int = 50) -> None:
         async with self.async_session() as session:
@@ -569,6 +621,11 @@ class PlacesRepository:
                     .order_by(dist.asc())
                 )
             else:
+                ordering = case(
+                    {place_id: index for index, place_id in enumerate(ids)},
+                    value=PlaceModel.id,
+                    else_=len(ids),
+                )
                 total = await session.scalar(
                     select(func.count())
                     .select_from(PlaceModel)
@@ -577,7 +634,7 @@ class PlacesRepository:
                 stmt = (
                     select(PlaceModel)
                     .where(PlaceModel.id.in_(ids))
-                    .order_by(PlaceModel.id.asc())
+                    .order_by(ordering)
                 )
 
             if limit is not None:

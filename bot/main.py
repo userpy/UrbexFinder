@@ -55,13 +55,14 @@ async def main() -> None:
     await deduplicate_places(db)
     await update_place_full_addres(db)
     await indexing_places_elastic_search(elastic)
-    dp.include_routers(
+    routers = [
         places.router,
         places_social.router,
         help.router,
         start.router,
         resources.router,
-    )
+    ]
+    dp.include_routers(*routers)
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         logger.info(F"Bot start {settings.seed_places}")
