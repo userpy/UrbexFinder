@@ -18,6 +18,7 @@ async def seed_places_from_kml(db: AsyncDatabase, kml_path: str, is_run_seeding:
 
 
 async def update_place_full_addres(db: AsyncDatabase, csv_path: str):
+    """Обновляет поле full_address в таблице Places данными из csv файла"""
     full_address_csv = Path(csv_path)
     if not full_address_csv.is_absolute():
         full_address_csv = APP_DIR / full_address_csv
@@ -28,10 +29,12 @@ async def update_place_full_addres(db: AsyncDatabase, csv_path: str):
 
 
 async def deduplicate_places(db: AsyncDatabase):
+    """Дедупликация мест в таблице Places"""
     service = PlacesDeduplicationService(db=db)
     await service.run()
 
 
 async def indexing_places_elastic_search(indexer: ElasticPlacesIndexer):
+    """Индексация мест в ElasticSearch"""
     await indexer.reindex()
     await indexer.close()
