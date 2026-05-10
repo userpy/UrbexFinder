@@ -53,7 +53,7 @@ async def main() -> None:
     dp.update.middleware(EventBusMiddleware(event_bus))
     await seed_places_from_kml(db, settings.kmz_path, settings.seed_places)
     await deduplicate_places(db)
-    await update_place_full_addres(db)
+    await update_place_full_addres(db, settings.csv_path)
     await indexing_places_elastic_search(elastic)
     routers = [
         places.router,

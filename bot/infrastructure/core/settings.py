@@ -27,6 +27,7 @@ class AppSettings(DatabaseSettings):
     admin_name: str
     admin_id: str
     kmz_path: str
+    csv_path: str
     elastic_url: str
     elastic_user: str
     elastic_password: str

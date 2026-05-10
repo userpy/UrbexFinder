@@ -30,6 +30,7 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 - `ADMIN_NAME` - имя администратора.
 - `ADMIN_ID` - Telegram ID администратора.
 - `KMZ_PATH` - путь к KMZ-файлу с местами.
+- `CSV_PATH` - путь к CSV-файлу с адресами мест.
 - `SEED_PLACES` - запуск первичного сидинга мест (`True`/`False`).
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_HOST`, `POSTGRES_PORT`.
 - `ELASTIC_URL`, `ELASTIC_USER`, `ELASTIC_PASSWORD`.
