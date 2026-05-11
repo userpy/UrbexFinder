@@ -22,7 +22,7 @@ async def update_place_full_addres(db: AsyncDatabase, csv_path: str):
     full_address_csv = Path(csv_path)
     if not full_address_csv.is_absolute():
         full_address_csv = APP_DIR / full_address_csv
-
+    # Получаем полный путь к csv файлу и обновляем full_address в таблице Places
     updated_count = await db.places.update_full_addresses_from_csv(full_address_csv)
     logger.info(f"[INFO] updated full_address from csv: {updated_count}")
     await db.places.update_all_full_addresses()
