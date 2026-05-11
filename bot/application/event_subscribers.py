@@ -17,6 +17,8 @@ def register_event_subscribers(event_bus: EventBus) -> None:
         "place.review.deleted_bulk",
         "place.photo.added",
         "place.photo.deleted_bulk",
+        "place.nonexistent.reported",
+        "place.nonexistent.report.canceled",
     ]
     for event_name in event_names:
         event_bus.subscribe(event_name, log_event)

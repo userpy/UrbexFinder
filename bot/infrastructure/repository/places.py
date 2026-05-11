@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from domain.models import Place as PlaceModel
+from domain.models import PlaceNonexistentReport as PlaceNonexistentReportModel
 from domain.models import PlacePhoto as PlacePhotoModel
 from domain.models import PlaceRating as PlaceRatingModel
 from domain.models import PlaceReview as PlaceReviewModel
@@ -29,10 +30,12 @@ class Place(TypedDict):
     rating_avg: float
     rating_count: int
     rating_score: float
+    nonexistent_reports_count: int
 
 
 class PlacesRepository:
     _MERGE_FIELDS = ("name", "description", "type", "category", "full_address")
+    _NONEXISTENT_REPORTS_HIDE_THRESHOLD = 10
 
     def __init__(self, async_session: async_sessionmaker[AsyncSession]):
         self.async_session = async_session
@@ -225,10 +228,15 @@ class PlacesRepository:
             rating_avg=float(place.rating_avg or 0),
             rating_count=int(place.rating_count or 0),
             rating_score=float(place.rating_score or 0),
+            nonexistent_reports_count=int(place.nonexistent_reports_count or 0),
         )
         if distance_km is not None:
             payload["distance_km"] = float(distance_km)
         return payload
+
+    @classmethod
+    def _visible_places_filter(cls):
+        return PlaceModel.nonexistent_reports_count < cls._NONEXISTENT_REPORTS_HIDE_THRESHOLD
 
     async def _recalculate_place_rating(self, session: AsyncSession, place_id: int) -> None:
         ratings_stats = await session.execute(
@@ -299,6 +307,107 @@ class PlacesRepository:
                 .where(PlaceRatingModel.place_id == place_id)
                 .where(PlaceRatingModel.user_id == user_id)
             )
+
+    async def report_place_nonexistent(self, place_id: int, user_id: int) -> dict:
+        async with self.async_session() as session:
+            async with session.begin():
+                place_exists = await session.scalar(
+                    select(PlaceModel.id).where(PlaceModel.id == place_id)
+                )
+                if place_exists is None:
+                    return {"added": False, "count": 0, "hidden": False, "not_found": True}
+
+                stmt = (
+                    insert(PlaceNonexistentReportModel)
+                    .values(place_id=place_id, user_id=user_id)
+                    .on_conflict_do_nothing(
+                        constraint="uq_place_nonexistent_reports_place_user",
+                    )
+                )
+                result = await session.execute(stmt)
+                added = bool(result.rowcount)
+
+                if added:
+                    count = int(
+                        await session.scalar(
+                            update(PlaceModel)
+                            .where(PlaceModel.id == place_id)
+                            .values(
+                                nonexistent_reports_count=PlaceModel.nonexistent_reports_count + 1
+                            )
+                            .returning(PlaceModel.nonexistent_reports_count)
+                        )
+                        or 0
+                    )
+                else:
+                    count = int(
+                        await session.scalar(
+                            select(PlaceModel.nonexistent_reports_count).where(PlaceModel.id == place_id)
+                        )
+                        or 0
+                    )
+
+                return {
+                    "added": added,
+                    "count": count,
+                    "hidden": count >= self._NONEXISTENT_REPORTS_HIDE_THRESHOLD,
+                    "not_found": False,
+                }
+
+    async def user_reported_place_nonexistent(self, place_id: int, user_id: int) -> bool:
+        async with self.async_session() as session:
+            report_id = await session.scalar(
+                select(PlaceNonexistentReportModel.id)
+                .where(PlaceNonexistentReportModel.place_id == place_id)
+                .where(PlaceNonexistentReportModel.user_id == user_id)
+            )
+            return report_id is not None
+
+    async def cancel_place_nonexistent_report(self, place_id: int, user_id: int) -> dict:
+        async with self.async_session() as session:
+            async with session.begin():
+                place_exists = await session.scalar(
+                    select(PlaceModel.id).where(PlaceModel.id == place_id)
+                )
+                if place_exists is None:
+                    return {"deleted": False, "count": 0, "hidden": False, "not_found": True}
+
+                result = await session.execute(
+                    delete(PlaceNonexistentReportModel)
+                    .where(PlaceNonexistentReportModel.place_id == place_id)
+                    .where(PlaceNonexistentReportModel.user_id == user_id)
+                )
+                deleted = bool(result.rowcount)
+
+                if deleted:
+                    count = int(
+                        await session.scalar(
+                            update(PlaceModel)
+                            .where(PlaceModel.id == place_id)
+                            .values(
+                                nonexistent_reports_count=func.greatest(
+                                    PlaceModel.nonexistent_reports_count - 1,
+                                    0,
+                                )
+                            )
+                            .returning(PlaceModel.nonexistent_reports_count)
+                        )
+                        or 0
+                    )
+                else:
+                    count = int(
+                        await session.scalar(
+                            select(PlaceModel.nonexistent_reports_count).where(PlaceModel.id == place_id)
+                        )
+                        or 0
+                    )
+
+                return {
+                    "deleted": deleted,
+                    "count": count,
+                    "hidden": count >= self._NONEXISTENT_REPORTS_HIDE_THRESHOLD,
+                    "not_found": False,
+                }
 
     async def add_place_review(
         self,
@@ -544,6 +653,7 @@ class PlacesRepository:
                     select(PlaceModel, dist.label("distance_km"))
                     .where(PlaceModel.latitude.isnot(None))
                     .where(PlaceModel.longitude.isnot(None))
+                    .where(self._visible_places_filter())
                     .order_by(dist.asc())
                 )
                 if limit is not None:
@@ -554,7 +664,7 @@ class PlacesRepository:
                     rows.append(self._serialize_place(place=place, distance_km=distance))
                 return rows
 
-            stmt = select(PlaceModel).order_by(
+            stmt = select(PlaceModel).where(self._visible_places_filter()).order_by(
                 PlaceModel.id.desc(),
             )
             if limit is not None:
@@ -565,7 +675,9 @@ class PlacesRepository:
     async def get_place_by_id(self, place_id: int) -> Optional[Place]:
         async with self.async_session() as session:
             res = await session.execute(
-                select(PlaceModel).where(PlaceModel.id == place_id)
+                select(PlaceModel)
+                .where(PlaceModel.id == place_id)
+                .where(self._visible_places_filter())
             )
             p = res.scalars().first()
             if not p:
@@ -582,6 +694,7 @@ class PlacesRepository:
                 rating_avg=float(p.rating_avg or 0),
                 rating_count=int(p.rating_count or 0),
                 rating_score=float(p.rating_score or 0),
+                nonexistent_reports_count=int(p.nonexistent_reports_count or 0),
             )
 
     async def get_places_by_ids(
@@ -603,6 +716,7 @@ class PlacesRepository:
                     .where(PlaceModel.id.in_(ids))
                     .where(PlaceModel.latitude.isnot(None))
                     .where(PlaceModel.longitude.isnot(None))
+                    .where(self._visible_places_filter())
                 )
                 lat = location["latitude"]
                 lon = location["longitude"]
@@ -618,6 +732,7 @@ class PlacesRepository:
                     .where(PlaceModel.id.in_(ids))
                     .where(PlaceModel.latitude.isnot(None))
                     .where(PlaceModel.longitude.isnot(None))
+                    .where(self._visible_places_filter())
                     .order_by(dist.asc())
                 )
             else:
@@ -630,10 +745,12 @@ class PlacesRepository:
                     select(func.count())
                     .select_from(PlaceModel)
                     .where(PlaceModel.id.in_(ids))
+                    .where(self._visible_places_filter())
                 )
                 stmt = (
                     select(PlaceModel)
                     .where(PlaceModel.id.in_(ids))
+                    .where(self._visible_places_filter())
                     .order_by(ordering)
                 )
 
@@ -656,5 +773,6 @@ class PlacesRepository:
             return int(
                 await session.scalar(
                     select(func.count()).select_from(PlaceModel)
+                    .where(self._visible_places_filter())
                 )
             )

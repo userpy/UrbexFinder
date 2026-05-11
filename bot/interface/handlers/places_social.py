@@ -57,6 +57,122 @@ async def rate_place(callback: CallbackQuery, state: FSMContext, db: AsyncDataba
         await callback.answer(f"Оценка {score}/5 сохранена")
 
 
+@router.callback_query(
+    F.data.startswith("place_missing_cancel_"),
+    StateFilter(PlacesState.industrial_and_abandoned_places),
+)
+@catch_handler_errors()
+async def cancel_place_missing_report(
+    callback: CallbackQuery,
+    state: FSMContext,
+    db: AsyncDatabase,
+    event_bus: EventBus,
+):
+    place_id = int(callback.data.split("_")[3])
+    result = await db.places.cancel_place_nonexistent_report(
+        place_id=place_id,
+        user_id=callback.from_user.id,
+    )
+    if result["not_found"]:
+        await callback.answer("Место не найдено", show_alert=True)
+        return
+
+    await event_bus.publish(
+        "place.nonexistent.report.canceled",
+        {
+            "place_id": place_id,
+            "user_id": callback.from_user.id,
+            "count": result["count"],
+            "hidden": result["hidden"],
+            "deleted": result["deleted"],
+        },
+    )
+
+    if not result["deleted"]:
+        await callback.answer("Отметка уже отменена", show_alert=True)
+        return
+
+    info = await state.get_data()
+    callback_data = PlaceSocialService.normalize_back_callback_data(info.get("callback_data"))
+    search = info.get("search")
+    try:
+        await PlacesView.edit_place_description(
+            message=callback.message,
+            place_id=place_id,
+            callback_data=callback_data,
+            db=db,
+            search=search,
+            user_id=callback.from_user.id,
+        )
+    except TelegramBadRequest as error:
+        if "message is not modified" not in str(error):
+            raise
+
+    await callback.answer(f"Отметка отменена. Отметок: {result['count']}/10")
+
+
+@router.callback_query(F.data.startswith("place_missing_"), StateFilter(PlacesState.industrial_and_abandoned_places))
+@catch_handler_errors()
+async def report_place_missing(callback: CallbackQuery, state: FSMContext, db: AsyncDatabase, event_bus: EventBus):
+    place_id = int(callback.data.split("_")[2])
+    result = await db.places.report_place_nonexistent(
+        place_id=place_id,
+        user_id=callback.from_user.id,
+    )
+    if result["not_found"]:
+        await callback.answer("Место не найдено", show_alert=True)
+        return
+
+    await event_bus.publish(
+        "place.nonexistent.reported",
+        {
+            "place_id": place_id,
+            "user_id": callback.from_user.id,
+            "count": result["count"],
+            "hidden": result["hidden"],
+            "added": result["added"],
+        },
+    )
+
+    if not result["added"]:
+        await callback.answer("Вы уже отмечали это место", show_alert=True)
+        return
+
+    info = await state.get_data()
+    callback_data = PlaceSocialService.normalize_back_callback_data(info.get("callback_data"))
+    search = info.get("search")
+    if result["hidden"]:
+        try:
+            await PlacesView.edit_place_description(
+                message=callback.message,
+                place_id=place_id,
+                callback_data=callback_data,
+                db=db,
+                search=search,
+                user_id=callback.from_user.id,
+            )
+        except TelegramBadRequest as error:
+            if "message is not modified" not in str(error):
+                raise
+        await callback.answer("Спасибо! Место скрыто из поиска")
+        return
+
+    try:
+        await PlacesView.edit_place_description(
+            message=callback.message,
+            place_id=place_id,
+            callback_data=callback_data,
+            db=db,
+            search=search,
+            user_id=callback.from_user.id,
+        )
+    except TelegramBadRequest as error:
+        if "message is not modified" not in str(error):
+            raise
+
+    await callback.answer(f"Спасибо! Отметок: {result['count']}/10")
+
+
 @router.callback_query(F.data.startswith("review_show_"), StateFilter(PlacesState.industrial_and_abandoned_places))
 @catch_handler_errors()
 async def show_place_reviews(callback: CallbackQuery, db: AsyncDatabase):

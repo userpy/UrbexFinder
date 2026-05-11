@@ -81,6 +81,7 @@ class PlacesView:
         place_id: int,
         reviews_count: int,
         photos_count: int,
+        user_reported_nonexistent: bool,
     ) -> InlineKeyboardMarkup:
         review_row = []
         if reviews_count > 0:
@@ -89,6 +90,18 @@ class PlacesView:
         photo_row = [InlineKeyboardButton(text="➕ Отзыв/Фото", callback_data=f"photo_open_{place_id}")]
         if photos_count > 0:
             photo_row.append(InlineKeyboardButton(text="🖼 Фото", callback_data=f"photo_show_{place_id}_0"))
+
+        nonexistent_report_row = [
+            InlineKeyboardButton(
+                text="Отменить отметку",
+                callback_data=f"place_missing_cancel_{place_id}",
+            )
+            if user_reported_nonexistent
+            else InlineKeyboardButton(
+                text="Не существует 📡❌",
+                callback_data=f"place_missing_{place_id}",
+            )
+        ]
 
         return InlineKeyboardMarkup(
             inline_keyboard=[
@@ -102,6 +115,7 @@ class PlacesView:
                 ],
                 *([review_row] if review_row else []),
                 photo_row,
+                nonexistent_report_row,
                 [InlineKeyboardButton(text="Обратно", callback_data=callback_data)],
             ]
         )
@@ -131,8 +145,13 @@ class PlacesView:
         rating_avg = place.get("rating_avg", 0)
         rating_count = place.get("rating_count", 0)
         user_rating = None
+        user_reported_nonexistent = False
         if user_id is not None:
             user_rating = await db.places.get_user_place_rating(place_id=place_id, user_id=user_id)
+            user_reported_nonexistent = await db.places.user_reported_place_nonexistent(
+                place_id=place_id,
+                user_id=user_id,
+            )
         reviews_count = await db.places.get_reviews_count(place_id=place_id)
         photos_count = await db.places.get_place_photos_count(place_id=place_id)
 
@@ -152,6 +171,7 @@ class PlacesView:
             place_id=place_id,
             reviews_count=reviews_count,
             photos_count=photos_count,
+            user_reported_nonexistent=user_reported_nonexistent,
         )
         return html_place_description, keyboard
 
