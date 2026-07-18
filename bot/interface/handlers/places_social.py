@@ -7,7 +7,6 @@ from aiogram.types import CallbackQuery, Message
 from application.place_social_service import PlaceSocialService
 from application.places_view import PlacesView
 from infrastructure.core.error_handler import catch_handler_errors
-from infrastructure.core.event_bus import EventBus
 from infrastructure.db.PgDb import AsyncDatabase
 from interface.handlers.places import PAGE_SIZE, PlacesState
 
@@ -16,7 +15,7 @@ router = Router()
 
 @router.callback_query(F.data.startswith("rate_"), StateFilter(PlacesState.industrial_and_abandoned_places))
 @catch_handler_errors()
-async def rate_place(callback: CallbackQuery, state: FSMContext, db: AsyncDatabase, event_bus: EventBus):
+async def rate_place(callback: CallbackQuery, state: FSMContext, db: AsyncDatabase):
     _, place_id_raw, score_raw = callback.data.split("_")
     place_id = int(place_id_raw)
     score = int(score_raw)
@@ -47,10 +46,6 @@ async def rate_place(callback: CallbackQuery, state: FSMContext, db: AsyncDataba
         if "message is not modified" not in str(error):
             raise
 
-    await event_bus.publish(
-        "place.rating.changed",
-        {"place_id": place_id, "user_id": callback.from_user.id, "score": score},
-    )
     if score == 0:
         await callback.answer("Оценка удалена")
     else:
@@ -66,7 +61,6 @@ async def cancel_place_missing_report(
     callback: CallbackQuery,
     state: FSMContext,
     db: AsyncDatabase,
-    event_bus: EventBus,
 ):
     place_id = int(callback.data.split("_")[3])
     result = await db.places.cancel_place_nonexistent_report(
@@ -76,17 +70,6 @@ async def cancel_place_missing_report(
     if result["not_found"]:
         await callback.answer("Место не найдено", show_alert=True)
         return
-
-    await event_bus.publish(
-        "place.nonexistent.report.canceled",
-        {
-            "place_id": place_id,
-            "user_id": callback.from_user.id,
-            "count": result["count"],
-            "hidden": result["hidden"],
-            "deleted": result["deleted"],
-        },
-    )
 
     if not result["deleted"]:
         await callback.answer("Отметка уже отменена", show_alert=True)
@@ -113,7 +96,7 @@ async def cancel_place_missing_report(
 
 @router.callback_query(F.data.startswith("place_missing_"), StateFilter(PlacesState.industrial_and_abandoned_places))
 @catch_handler_errors()
-async def report_place_missing(callback: CallbackQuery, state: FSMContext, db: AsyncDatabase, event_bus: EventBus):
+async def report_place_missing(callback: CallbackQuery, state: FSMContext, db: AsyncDatabase):
     place_id = int(callback.data.split("_")[2])
     result = await db.places.report_place_nonexistent(
         place_id=place_id,
@@ -122,17 +105,6 @@ async def report_place_missing(callback: CallbackQuery, state: FSMContext, db: A
     if result["not_found"]:
         await callback.answer("Место не найдено", show_alert=True)
         return
-
-    await event_bus.publish(
-        "place.nonexistent.reported",
-        {
-            "place_id": place_id,
-            "user_id": callback.from_user.id,
-            "count": result["count"],
-            "hidden": result["hidden"],
-            "added": result["added"],
-        },
-    )
 
     if not result["added"]:
         await callback.answer("Вы уже отмечали это место", show_alert=True)
@@ -193,7 +165,7 @@ async def show_place_reviews(callback: CallbackQuery, db: AsyncDatabase):
 
 @router.callback_query(F.data.startswith("review_del_all_"), StateFilter(PlacesState.industrial_and_abandoned_places))
 @catch_handler_errors()
-async def delete_all_my_reviews(callback: CallbackQuery, db: AsyncDatabase, event_bus: EventBus):
+async def delete_all_my_reviews(callback: CallbackQuery, db: AsyncDatabase):
     _, _, _, place_id_raw, offset_raw = callback.data.split("_")
     place_id = int(place_id_raw)
     offset = max(0, int(offset_raw))
@@ -214,16 +186,12 @@ async def delete_all_my_reviews(callback: CallbackQuery, db: AsyncDatabase, even
         include_bulk_delete=True,
         include_single_delete=False,
     )
-    await event_bus.publish(
-        "place.review.deleted_bulk",
-        {"place_id": place_id, "user_id": callback.from_user.id, "deleted_count": deleted_count},
-    )
     await callback.answer(f"Удалено отзывов: {deleted_count}")
 
 
 @router.callback_query(F.data.startswith("review_del_"), StateFilter(PlacesState.industrial_and_abandoned_places))
 @catch_handler_errors()
-async def delete_my_review(callback: CallbackQuery, db: AsyncDatabase, event_bus: EventBus):
+async def delete_my_review(callback: CallbackQuery, db: AsyncDatabase):
     _, _, place_id_raw, review_id_raw, offset_raw = callback.data.split("_")
     place_id = int(place_id_raw)
     review_id = int(review_id_raw)
@@ -244,10 +212,6 @@ async def delete_my_review(callback: CallbackQuery, db: AsyncDatabase, event_bus
         include_bulk_delete=False,
         include_single_delete=True,
         normalize_offset=True,
-    )
-    await event_bus.publish(
-        "place.review.deleted",
-        {"place_id": place_id, "review_id": review_id, "user_id": callback.from_user.id},
     )
     await callback.answer("Отзыв удален")
 
@@ -310,7 +274,6 @@ async def delete_all_my_photos(
     callback: CallbackQuery,
     state: FSMContext,
     db: AsyncDatabase,
-    event_bus: EventBus,
 ):
     _, _, _, place_id_raw, _ = callback.data.split("_")
     place_id = int(place_id_raw)
@@ -325,10 +288,6 @@ async def delete_all_my_photos(
     info = await state.get_data()
     callback_data = PlaceSocialService.normalize_back_callback_data(info.get("callback_data"))
     search = info.get("search")
-    await event_bus.publish(
-        "place.photo.deleted_bulk",
-        {"place_id": place_id, "user_id": callback.from_user.id, "deleted_count": deleted_count},
-    )
     try:
         await PlacesView.edit_place_description(
             message=callback.message,
@@ -405,7 +364,7 @@ async def cancel_social_action_callback(callback: CallbackQuery, state: FSMConte
 
 @router.message(StateFilter(PlacesState.awaiting_social_input), F.text)
 @catch_handler_errors()
-async def save_review(message: Message, state: FSMContext, db: AsyncDatabase, event_bus: EventBus):
+async def save_review(message: Message, state: FSMContext, db: AsyncDatabase):
     info = await state.get_data()
     place_id = info.get("social_place_id")
     social_message_id = info.get("social_message_id")
@@ -434,10 +393,6 @@ async def save_review(message: Message, state: FSMContext, db: AsyncDatabase, ev
     if social_prompt_message_id is not None:
         await PlaceSocialService.delete_message_by_id_safely(message=message, message_id=int(social_prompt_message_id))
     await PlaceSocialService.delete_chat_message_safely(message=message)
-    await event_bus.publish(
-        "place.review.added",
-        {"place_id": int(place_id), "user_id": message.from_user.id},
-    )
     if social_message_id is not None and social_chat_id is not None:
         try:
             await PlacesView.edit_place_description_by_ids(
@@ -467,7 +422,7 @@ async def save_review(message: Message, state: FSMContext, db: AsyncDatabase, ev
 
 @router.message(StateFilter(PlacesState.awaiting_social_input), F.photo)
 @catch_handler_errors()
-async def save_photo(message: Message, state: FSMContext, db: AsyncDatabase, event_bus: EventBus):
+async def save_photo(message: Message, state: FSMContext, db: AsyncDatabase):
     info = await state.get_data()
     place_id = info.get("social_place_id")
     social_message_id = info.get("social_message_id")
@@ -493,11 +448,6 @@ async def save_photo(message: Message, state: FSMContext, db: AsyncDatabase, eve
     if social_prompt_message_id is not None:
         await PlaceSocialService.delete_message_by_id_safely(message=message, message_id=int(social_prompt_message_id))
     await PlaceSocialService.delete_chat_message_safely(message=message)
-    await event_bus.publish(
-        "place.photo.added",
-        {"place_id": int(place_id), "user_id": message.from_user.id, "file_id": file_id},
-    )
-
     if social_message_id is not None and social_chat_id is not None:
         try:
             await PlacesView.edit_place_description_by_ids(

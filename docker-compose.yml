@@ -10,9 +10,53 @@ services:
     volumes:
       - ./bot:/app
     depends_on:
-      - db
-      - elasticsearch
-      - loki
+      db:
+        condition: service_started
+      elasticsearch:
+        condition: service_started
+      loki:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-topology:
+        condition: service_completed_successfully
+
+  places-worker:
+    build:
+      context: ./bot
+    restart: unless-stopped
+    command: ["python", "-m", "application.workers.places_bootstrap_worker"]
+    env_file:
+      - ./.env
+    volumes:
+      - ./bot:/app
+    depends_on:
+      db:
+        condition: service_started
+      elasticsearch:
+        condition: service_started
+      loki:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-topology:
+        condition: service_completed_successfully
+
+  rabbitmq-topology:
+    build:
+      context: ./bot
+    restart: "no"
+    command:
+      - "python"
+      - "-m"
+      - "infrastructure.messaging.rabbitmq.exchange_queue_topology"
+    env_file:
+      - ./.env
+    volumes:
+      - ./bot:/app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.17.11
@@ -37,10 +81,25 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env
-    volumes:
-      - ./postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   loki:
     image: grafana/loki:2.8.2
@@ -67,7 +126,6 @@ services:
       - grafana_data:/var/lib/grafana
 
 volumes:
-  postgres_data:
   es_data:
   loki_data:
   grafana_data:

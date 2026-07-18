@@ -25,6 +25,7 @@ async def update_place_full_addres(db: AsyncDatabase, csv_path: str):
     # Получаем полный путь к csv файлу и обновляем full_address в таблице Places
     updated_count = await db.places.update_full_addresses_from_csv(full_address_csv)
     logger.info(f"[INFO] updated full_address from csv: {updated_count}")
+    # Обновляем full_address для всех мест, у которых оно не было заполнено из csv файла
     await db.places.update_all_full_addresses()
 
 
@@ -34,7 +35,13 @@ async def deduplicate_places(db: AsyncDatabase):
     await service.run()
 
 
-async def indexing_places_elastic_search(indexer: ElasticPlacesIndexer):
+async def indexing_places_elastic_search(
+    indexer: ElasticPlacesIndexer,
+    close_indexer: bool = True,
+):
     """Индексация мест в ElasticSearch"""
-    await indexer.reindex()
-    await indexer.close()
+    try:
+        await indexer.reindex()
+    finally:
+        if close_indexer:
+            await indexer.close()

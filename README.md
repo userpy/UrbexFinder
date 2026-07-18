@@ -34,6 +34,14 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 - `SEED_PLACES` - запуск первичного сидинга мест (`True`/`False`).
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_HOST`, `POSTGRES_PORT`.
 - `ELASTIC_URL`, `ELASTIC_USER`, `ELASTIC_PASSWORD`.
+- `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_HOST`, `RABBITMQ_PORT`.
+
+RabbitMQ topology для стартовой синхронизации мест:
+- topic exchange: `bot.commands`;
+- queue: `places.bootstrap.commands`;
+- routing/binding key: `places.bootstrap.requested`;
+- модуль `exchange_queue_topology.py` создаёт topology до запуска bot и worker;
+- `ENQUEUE_PLACES_SYNC_ON_STARTUP` включает публикацию startup-команды.
 
 Дополнительно:
 - `TG_CHANNEL_ID` - ID Telegram-канала.
@@ -51,14 +59,19 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 ----------------------
 1. Создайте `.env` в корне репозитория.
    Для первого запуска установите `SEED_PLACES=True`, чтобы загрузить места из KMZ.
-2. Создайте локальные папки данных для bind-mount:
-   `mkdir -p postgres_data loki_data`
-   Если при старте Postgres видите `Permission denied`, назначьте права на каталог данных:
-   `sudo chown -R 999:999 postgres_data`
-3. Соберите и запустите сервисы:
+2. Создайте локальную папку данных Loki для bind-mount:
+   `mkdir -p loki_data`
+3. Примените миграции вручную. Миграции не запускаются вместе с ботом:
+   `docker compose up -d db`
+   `docker compose build bot`
+   Примените миграции:
+   `docker compose run --rm --no-deps bot alembic upgrade head`
+4. Соберите и запустите остальные сервисы:
    `docker compose up --build`
-4. Сервисы будут доступны:
+5. Сервисы будут доступны:
    - Бот в контейнере `aiogram_bot`.
+   - Worker стартовой синхронизации в сервисе `places-worker`.
+   - RabbitMQ AMQP: `localhost:5672`, Management UI: `localhost:15672`.
    - Postgres: `localhost:5432`.
    - Elasticsearch: `localhost:9200`.
    - Grafana: `localhost:3000`.
@@ -74,16 +87,20 @@ Elasticsearch и логированием в Grafana Loki. Код организ
    `poetry run alembic upgrade head`
 3. Запустите бота:
    `poetry run python main.py`
+4. В отдельном терминале запустите worker:
+   `poetry run python -m application.workers.places_bootstrap_worker`
 
 Миграции базы данных (Alembic)
 ------------------------------
-Внутри Docker-контейнера:
+Миграции применяются только вручную и не запускаются при старте бота.
+
+Для Docker:
 - Применить все миграции:
-  `docker compose exec bot poetry run alembic upgrade head`
+  `docker compose run --rm --no-deps bot alembic upgrade head`
 - Создать новую миграцию по изменениям моделей:
-  `docker compose exec bot poetry run alembic revision --autogenerate -m "описание изменений"`
+  `docker compose run --rm --no-deps bot alembic revision --autogenerate -m "описание изменений"`
 - Откатить одну миграцию:
-  `docker compose exec bot poetry run alembic downgrade -1`
+  `docker compose run --rm --no-deps bot alembic downgrade -1`
 
 Из директории `bot/` (без Docker):
 - Применить все миграции:
@@ -117,8 +134,9 @@ Elasticsearch читает настройки из `.env`:
 --------------------
 - Логи пишутся в `bot/logs/`.
 - При старте бот:
-  - загружает места из KMZ;
-  - обновляет отсутствующие адреса через reverse geocoding;
-  - переиндексирует данные в Elasticsearch.
+  - публикует в RabbitMQ команду `places.bootstrap.requested`;
+  - `places-worker` загружает места из KMZ;
+  - worker обновляет адреса и переиндексирует Elasticsearch;
+  - consumer отправляет ACK только после успешной обработки.
 - Перед reverse geocoding бот пытается восстановить отсутствующие `full_address`
   из `bot/geo_data/lat_lon_full_address.csv` по координатам `lat/lon`.

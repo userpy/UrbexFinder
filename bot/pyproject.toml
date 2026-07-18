@@ -23,6 +23,7 @@ dependencies = [
     "sqlalchemy (>=2.0.46,<3.0.0)",
     "alembic (>=1.14.1,<2.0.0)",
     "requests (>=2.32.0,<3.0.0)",
+    "aio-pika (>=9.6.1,<10.0.0)",
 ]
 [tool.poetry.dependencies]
 python = ">=3.10,<3.15"
