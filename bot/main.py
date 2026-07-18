@@ -58,8 +58,8 @@ async def main() -> None:
 
         if settings.enqueue_places_sync_on_startup:
             await publish_message(
-                exchange_name=settings.rabbitmq_exchange,
-                routing_key=settings.rabbitmq_startup_routing_key,
+                exchange_name="bot.commands",
+                routing_key="places.bootstrap.requested",
                 message={"seed_places": settings.seed_places},
             )
         else:

@@ -12,7 +12,7 @@ from infrastructure.core.settings import AppSettings, get_app_settings
 
 
 async def declare_startup_topology(settings: AppSettings) -> None:
-    """Создать exchange, очередь и binding стартовой команды мест."""
+    """Создать exchange, единую очередь и bindings команд мест."""
     connection = await aio_pika.connect_robust(
         host=settings.rabbitmq_host,
         port=settings.rabbitmq_port,
@@ -25,26 +25,27 @@ async def declare_startup_topology(settings: AppSettings) -> None:
     async with connection:
         channel = await connection.channel()
         exchange = await channel.declare_exchange(
-            settings.rabbitmq_exchange,
+            "bot.commands",
             type=aio_pika.ExchangeType.TOPIC,
             durable=True,
         )
+
         queue = await channel.declare_queue(
-            settings.rabbitmq_startup_queue,
+            "places.bootstrap.commands",
             durable=True,
         )
-        await queue.bind(
-            exchange,
-            routing_key=settings.rabbitmq_startup_routing_key,
+        routing_keys = (
+            "places.bootstrap.requested",
+            "places.bootstrap.test1",
+            "places.bootstrap.test2",
         )
-
-    logger.info(
-        "RabbitMQ topology is ready: exchange='{}', queue='{}', "
-        "binding_key='{}'.",
-        settings.rabbitmq_exchange,
-        settings.rabbitmq_startup_queue,
-        settings.rabbitmq_startup_routing_key,
-    )
+        for routing_key in routing_keys:
+            await queue.bind(exchange, routing_key=routing_key)
+            logger.info(
+                "RabbitMQ topology is ready: exchange='bot.commands', "
+                "queue='places.bootstrap.commands', binding_key='{}'.",
+                routing_key,
+            )
 
 
 async def main() -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from typing import Any
 
 import aio_pika
@@ -18,12 +18,16 @@ async def consume_topic(
     *,
     settings: AppSettings,
     queue_name: str,
+    routing_keys: Collection[str],
     message_handler: MessageHandler,
     prefetch_count: int = 1,
 ) -> None:
     """Подключиться к существующей очереди и слушать сообщения."""
-    if not queue_name:
-        raise ValueError("queue_name must not be empty.")
+    accepted_routing_keys = frozenset(routing_keys)
+    if not queue_name or not accepted_routing_keys:
+        raise ValueError("queue_name and routing_keys must not be empty.")
+    if any(not routing_key for routing_key in accepted_routing_keys):
+        raise ValueError("routing_keys must not contain empty values.")
     if prefetch_count < 1:
         raise ValueError("prefetch_count must be greater than zero.")
 
@@ -43,14 +47,23 @@ async def consume_topic(
         queue = await channel.get_queue(queue_name, ensure=True)
 
         logger.info(
-            "RabbitMQ consumer listens existing queue '{}'.",
+            "RabbitMQ consumer listens queue '{}' with routing keys {}.",
             queue_name,
+            sorted(accepted_routing_keys),
         )
 
         async with queue.iterator() as queue_iterator:
             async for incoming_message in queue_iterator:
                 try:
                     async with incoming_message.process(requeue=False):
+                        if (
+                            incoming_message.routing_key
+                            not in accepted_routing_keys
+                        ):
+                            raise ValueError(
+                                "Unsupported routing key: "
+                                f"{incoming_message.routing_key!r}."
+                            )
                         payload = _decode_message(incoming_message.body)
                         await message_handler(
                             payload,
