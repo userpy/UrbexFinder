@@ -55,7 +55,7 @@ async def consume_topic(
         async with queue.iterator() as queue_iterator:
             async for incoming_message in queue_iterator:
                 try:
-                    async with incoming_message.process(requeue=False):
+                    async with incoming_message.process(requeue=True):
                         if (
                             incoming_message.routing_key
                             not in accepted_routing_keys
