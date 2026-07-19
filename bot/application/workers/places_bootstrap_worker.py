@@ -26,7 +26,7 @@ async def consume_topic(
         message: dict[str, Any],
         incoming_routing_key: str,
     ) -> None:
-        if incoming_routing_key == "places.bootstrap.requested":
+        if incoming_routing_key == settings.rabbitmq_startup_routing_key:
             await handle_places_bootstrap(
                 message,
                 incoming_routing_key,
@@ -51,9 +51,9 @@ async def consume_topic(
 
     await consume_rabbitmq_topic(
         settings=settings,
-        queue_name="bot.commands",
+        queue_name=settings.rabbitmq_startup_queue,
         routing_keys=(
-            "places.bootstrap.requested",
+            settings.rabbitmq_startup_routing_key,
             "places.bootstrap.test1",
             "places.bootstrap.test2",
         ),

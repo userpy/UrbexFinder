@@ -25,25 +25,27 @@ async def declare_startup_topology(settings: AppSettings) -> None:
     async with connection:
         channel = await connection.channel()
         exchange = await channel.declare_exchange(
-            "bot.commands",
+            settings.rabbitmq_exchange,
             type=aio_pika.ExchangeType.TOPIC,
             durable=True,
         )
 
         queue = await channel.declare_queue(
-            "places.bootstrap.commands",
+            settings.rabbitmq_startup_queue,
             durable=True,
         )
         routing_keys = (
-            "places.bootstrap.requested",
+            settings.rabbitmq_startup_routing_key,
             "places.bootstrap.test1",
             "places.bootstrap.test2",
         )
         for routing_key in routing_keys:
             await queue.bind(exchange, routing_key=routing_key)
             logger.info(
-                "RabbitMQ topology is ready: exchange='bot.commands', "
-                "queue='places.bootstrap.commands', binding_key='{}'.",
+                "RabbitMQ topology is ready: exchange='{}', "
+                "queue='{}', binding_key='{}'.",
+                settings.rabbitmq_exchange,
+                settings.rabbitmq_startup_queue,
                 routing_key,
             )
 

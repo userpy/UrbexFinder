@@ -38,7 +38,7 @@ class AppSettings(DatabaseSettings):
     rabbitmq_port: int
     rabbitmq_vhost: str = "/"
     rabbitmq_exchange: str = "bot.commands"
-    rabbitmq_startup_queue: str = "places.bootstrap.commands"
+    rabbitmq_startup_queue: str = "bot.commands"
     rabbitmq_startup_routing_key: str = "places.bootstrap.requested"
     rabbitmq_connect_timeout: float = 3.0
     enqueue_places_sync_on_startup: bool = True

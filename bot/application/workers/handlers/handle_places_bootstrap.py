@@ -24,7 +24,7 @@ async def handle_places_bootstrap(
     settings: AppSettings,
 ) -> None:
     """Выполнить команду синхронизации мест."""
-    if routing_key != "places.bootstrap.requested":
+    if routing_key != settings.rabbitmq_startup_routing_key:
         raise ValueError(f"Unsupported routing key: {routing_key!r}.")
 
     should_seed_places = message.get(

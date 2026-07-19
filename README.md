@@ -38,7 +38,7 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 
 RabbitMQ topology для стартовой синхронизации мест:
 - topic exchange: `bot.commands`;
-- queue: `places.bootstrap.commands`;
+- queue: `bot.commands`;
 - routing/binding key: `places.bootstrap.requested`;
 - модуль `exchange_queue_topology.py` создаёт topology до запуска bot и worker;
 - `ENQUEUE_PLACES_SYNC_ON_STARTUP` включает публикацию startup-команды.
