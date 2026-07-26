@@ -32,15 +32,9 @@ async def consume_topic(
                 incoming_routing_key,
                 settings=settings,
             )
-        elif incoming_routing_key == "places.bootstrap.test1":
+        elif incoming_routing_key == "places.bootstrap.test":
             logger.info(
-                "Hello world: routing_key='places.bootstrap.test1', "
-                "message={}.",
-                message,
-            )
-        elif incoming_routing_key == "places.bootstrap.test2":
-            logger.info(
-                "Hello world: routing_key='places.bootstrap.test2', "
+                "Hello world: routing_key='places.bootstrap.test', "
                 "message={}.",
                 message,
             )
@@ -54,8 +48,7 @@ async def consume_topic(
         queue_name="bot.commands",
         routing_keys=(
             "places.bootstrap.requested",
-            "places.bootstrap.test1",
-            "places.bootstrap.test2",
+            "places.bootstrap.test",
         ),
         message_handler=dispatch_message,
         prefetch_count=1,
