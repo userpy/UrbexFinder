@@ -10,6 +10,9 @@ import aio_pika
 from loguru import logger
 
 from infrastructure.core.settings import AppSettings
+from infrastructure.messaging.rabbitmq.constants import (
+    CONNECTION_TIMEOUT_SECONDS,
+)
 
 MessageHandler = Callable[[dict[str, Any], str], Awaitable[None]]
 
@@ -37,7 +40,7 @@ async def consume_topic(
         login=settings.rabbitmq_user,
         password=settings.rabbitmq_password,
         virtualhost=settings.rabbitmq_vhost,
-        timeout=settings.rabbitmq_connect_timeout,
+        timeout=CONNECTION_TIMEOUT_SECONDS,
     )
 
     async with connection:

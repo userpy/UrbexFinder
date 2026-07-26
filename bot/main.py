@@ -11,6 +11,10 @@ from infrastructure.core.logger_config import setup_logger
 from infrastructure.core.settings import get_app_settings
 from infrastructure.db.EasticSearch import ElasticPlacesIndexer
 from infrastructure.db.PgDb import AsyncDatabase
+from infrastructure.messaging.rabbitmq.constants import (
+    EXCHANGE_NAME,
+    PLACES_BOOTSTRAP_ROUTING_KEY,
+)
 from infrastructure.messaging.rabbitmq.producer import publish_message
 from interface.handlers import help, places, places_social, resources, start
 from interface.middleware.db_middleware import DBMiddleware
@@ -82,8 +86,8 @@ async def main() -> None:
 
         if settings.enqueue_places_sync_on_startup:
             await publish_message(
-                exchange_name="bot.commands.exchange",
-                routing_key="places.bootstrap.requested",
+                exchange_name=EXCHANGE_NAME,
+                routing_key=PLACES_BOOTSTRAP_ROUTING_KEY,
                 message={"seed_places": settings.seed_places},
             )
         else:

@@ -9,6 +9,11 @@ from loguru import logger
 
 from infrastructure.core.logger_config import setup_logger
 from infrastructure.core.settings import AppSettings, get_app_settings
+from infrastructure.messaging.rabbitmq.constants import (
+    CONNECTION_TIMEOUT_SECONDS,
+    EXCHANGE_NAME,
+    STARTUP_QUEUE_NAME,
+)
 
 
 async def declare_startup_topology(settings: AppSettings) -> None:
@@ -19,19 +24,19 @@ async def declare_startup_topology(settings: AppSettings) -> None:
         login=settings.rabbitmq_user,
         password=settings.rabbitmq_password,
         virtualhost=settings.rabbitmq_vhost,
-        timeout=settings.rabbitmq_connect_timeout,
+        timeout=CONNECTION_TIMEOUT_SECONDS,
     )
 
     async with connection:
         channel = await connection.channel()
         exchange = await channel.declare_exchange(
-            "bot.commands.exchange",
+            EXCHANGE_NAME,
             type=aio_pika.ExchangeType.TOPIC,
             durable=True,
         )
 
         queue = await channel.declare_queue(
-            "bot.commands",
+            STARTUP_QUEUE_NAME,
             durable=True,
         )
         routing_keys = (
@@ -42,8 +47,8 @@ async def declare_startup_topology(settings: AppSettings) -> None:
             logger.info(
                 "RabbitMQ topology is ready: exchange='{}', "
                 "queue='{}', binding_key='{}'.",
-                settings.rabbitmq_exchange,
-                settings.rabbitmq_startup_queue,
+                EXCHANGE_NAME,
+                STARTUP_QUEUE_NAME,
                 routing_key,
             )
 

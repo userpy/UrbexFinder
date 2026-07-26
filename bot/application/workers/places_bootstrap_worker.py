@@ -12,6 +12,10 @@ from application.workers.handlers.handle_places_bootstrap import (
 )
 from infrastructure.core.logger_config import setup_logger
 from infrastructure.core.settings import AppSettings, get_app_settings
+from infrastructure.messaging.rabbitmq.constants import (
+    PLACES_BOOTSTRAP_ROUTING_KEY,
+    STARTUP_QUEUE_NAME,
+)
 from infrastructure.messaging.rabbitmq.consumer import (
     consume_topic as consume_rabbitmq_topic,
 )
@@ -26,7 +30,7 @@ async def consume_topic(
         message: dict[str, Any],
         incoming_routing_key: str,
     ) -> None:
-        if incoming_routing_key == "places.bootstrap.requested":
+        if incoming_routing_key == PLACES_BOOTSTRAP_ROUTING_KEY:
             await handle_places_bootstrap(
                 message,
                 incoming_routing_key,
@@ -45,9 +49,9 @@ async def consume_topic(
 
     await consume_rabbitmq_topic(
         settings=settings,
-        queue_name="bot.commands",
+        queue_name=STARTUP_QUEUE_NAME,
         routing_keys=(
-            "places.bootstrap.requested",
+            PLACES_BOOTSTRAP_ROUTING_KEY,
             "places.bootstrap.test",
         ),
         message_handler=dispatch_message,

@@ -15,6 +15,9 @@ from application.startup.on_startup_places import (
 from infrastructure.core.settings import AppSettings
 from infrastructure.db.EasticSearch import ElasticPlacesIndexer
 from infrastructure.db.PgDb import AsyncDatabase
+from infrastructure.messaging.rabbitmq.constants import (
+    PLACES_BOOTSTRAP_ROUTING_KEY,
+)
 
 
 async def handle_places_bootstrap(
@@ -24,7 +27,7 @@ async def handle_places_bootstrap(
     settings: AppSettings,
 ) -> None:
     """Выполнить команду синхронизации мест."""
-    if routing_key != settings.rabbitmq_startup_routing_key:
+    if routing_key != PLACES_BOOTSTRAP_ROUTING_KEY:
         raise ValueError(f"Unsupported routing key: {routing_key!r}.")
 
     should_seed_places = message.get(

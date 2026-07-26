@@ -8,6 +8,9 @@ from typing import Any
 import aio_pika
 
 from infrastructure.core.settings import get_app_settings
+from infrastructure.messaging.rabbitmq.constants import (
+    CONNECTION_TIMEOUT_SECONDS,
+)
 
 
 async def publish_message(
@@ -32,7 +35,7 @@ async def publish_message(
         login=settings.rabbitmq_user,
         password=settings.rabbitmq_password,
         virtualhost=settings.rabbitmq_vhost,
-        timeout=settings.rabbitmq_connect_timeout,
+        timeout=CONNECTION_TIMEOUT_SECONDS,
     )
 
     async with connection:
