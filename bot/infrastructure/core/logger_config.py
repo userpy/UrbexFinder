@@ -50,6 +50,7 @@ def setup_logger() -> logger:
             compression="zip",
             level="INFO",
             enqueue=True,
+            diagnose=False,
             format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
         )
 
@@ -60,6 +61,7 @@ def setup_logger() -> logger:
             compression="zip",
             level="ERROR",
             enqueue=True,
+            diagnose=False,
             format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
         )
 
@@ -69,6 +71,7 @@ def setup_logger() -> logger:
             colorize=True,
             level="INFO",
             enqueue=True,
+            diagnose=False,
             format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | <cyan>{message}</cyan>",
         )
 
@@ -77,6 +80,7 @@ def setup_logger() -> logger:
             lambda msg: send_to_loki(msg, level=msg.record["level"].name),
             level="INFO",
             enqueue=True,
+            diagnose=False,
         )
 
         _LOGGER_CONFIGURED = True

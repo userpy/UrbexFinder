@@ -2,6 +2,7 @@ bot/.env
 .venv
 .env
 .idea
+.codex
 loki_data/*
 es_data/*
 local.py

@@ -155,11 +155,6 @@ class PlacesRepository:
                     await session.flush()
                     return existing.id
 
-                await session.execute(
-                    delete(PlaceModel)
-                    .where(PlaceModel.latitude == latitude)
-                    .where(PlaceModel.longitude == longitude)
-                )
                 logger.info(f"[INFO] created place {name}")
                 new_place = PlaceModel(
                     name=name,

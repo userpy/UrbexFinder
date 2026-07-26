@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramNetworkError
 
 from infrastructure.core.logger_config import setup_logger
 from infrastructure.core.settings import get_app_settings
@@ -16,6 +17,29 @@ from interface.middleware.db_middleware import DBMiddleware
 from interface.middleware.elastic_middleware import ElasticMiddleware
 
 logger = setup_logger()
+
+
+async def _delete_webhook_with_retry(
+    bot: Bot,
+    *,
+    initial_retry_delay: float = 1.0,
+    max_retry_delay: float = 30.0,
+) -> None:
+    """Delete the webhook, retrying transient Telegram network failures."""
+    retry_delay = initial_retry_delay
+    while True:
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            return
+        except TelegramNetworkError as exc:
+            logger.warning(
+                "Telegram API is unavailable while deleting the webhook; "
+                "retrying in {} seconds: {}",
+                retry_delay,
+                exc,
+            )
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, max_retry_delay)
 
 
 async def main() -> None:
@@ -54,12 +78,12 @@ async def main() -> None:
     dp.include_routers(*routers)
 
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
+        await _delete_webhook_with_retry(bot)
 
         if settings.enqueue_places_sync_on_startup:
             await publish_message(
-                exchange_name=settings.rabbitmq_exchange,
-                routing_key=settings.rabbitmq_startup_routing_key,
+                exchange_name="bot.commands.exchange",
+                routing_key="places.bootstrap.requested",
                 message={"seed_places": settings.seed_places},
             )
         else:
