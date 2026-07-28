@@ -23,7 +23,7 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 
 Переменные окружения
 --------------------
-Создайте файл `.env` в корне репозитория. Полный пример есть в `.env-example`.
+Создайте файл `.env` в корне репозитория. Полный пример есть в `.env.example`.
 
 Обязательные переменные приложения:
 - `TOKEN` - токен Telegram-бота.
@@ -33,15 +33,24 @@ Elasticsearch и логированием в Grafana Loki. Код организ
 - `CSV_PATH` - путь к CSV-файлу с адресами мест.
 - `SEED_PLACES` - запуск первичного сидинга мест (`True`/`False`).
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_HOST`, `POSTGRES_PORT`.
-- `ELASTIC_URL`, `ELASTIC_USER`, `ELASTIC_PASSWORD`.
+- `ELASTICSEARCH_HOST`, `ELASTICSEARCH_USER`, `ELASTICSEARCH_PASSWORD`.
 - `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_HOST`, `RABBITMQ_PORT`.
 
 RabbitMQ topology для стартовой синхронизации мест:
-- topic exchange: `bot.commands`;
+- topic exchange: `bot.commands.exchange`;
 - queue: `bot.commands`;
 - routing/binding key: `places.bootstrap.requested`;
+- retry exchange/queue: `bot.commands.retry.exchange` / `bot.commands.retry`;
+- dead-letter exchange/queue: `bot.commands.dead.exchange` / `bot.commands.dead`;
+- `RABBITMQ_MAX_RETRY_ATTEMPTS` задаёт число повторов временно упавшей команды;
+- `RABBITMQ_RETRY_DELAY_MS` задаёт задержку между попытками;
 - модуль `exchange_queue_topology.py` создаёт topology до запуска bot и worker;
 - `ENQUEUE_PLACES_SYNC_ON_STARTUP` включает публикацию startup-команды.
+
+Некорректные JSON-сообщения и неизвестные routing key сразу попадают
+в dead-letter queue. Ошибки бизнес-обработчика повторяются с задержкой, а после
+исчерпания лимита перемещаются в `bot.commands.dead`.
+RabbitMQ хранит свои данные в named volume `rabbitmq_data`.
 
 Дополнительно:
 - `TG_CHANNEL_ID` - ID Telegram-канала.
@@ -118,9 +127,9 @@ Alembic читает настройки Postgres из `.env`:
 - `POSTGRES_PORT` (по умолчанию: `5432`)
 
 Elasticsearch читает настройки из `.env`:
-- `ELASTIC_URL` (например: `http://elasticsearch:9200`)
-- `ELASTIC_USER` (например: `elastic`)
-- `ELASTIC_PASSWORD`
+- `ELASTICSEARCH_HOST` (например: `http://elasticsearch:9200`)
+- `ELASTICSEARCH_USER` (например: `elastic`)
+- `ELASTICSEARCH_PASSWORD`
 
 Экспорт адресов в CSV
 ---------------------

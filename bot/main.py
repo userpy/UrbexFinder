@@ -1,21 +1,16 @@
 """Main entry point for telegram bot."""
 
 import asyncio
-from datetime import datetime, timezone
-from uuid import uuid4
+from contextlib import AsyncExitStack
 
 from aiogram import Bot, Dispatcher
-from aiogram.exceptions import TelegramNetworkError
 
 from infrastructure.core.logger_config import setup_logger
 from infrastructure.core.settings import get_app_settings
 from infrastructure.db.EasticSearch import ElasticPlacesIndexer
 from infrastructure.db.PgDb import AsyncDatabase
-from infrastructure.messaging.rabbitmq.constants import (
-    EXCHANGE_NAME,
-    PLACES_BOOTSTRAP_ROUTING_KEY,
-)
 from infrastructure.messaging.rabbitmq.producer import publish_message
+from infrastructure.telegram.webhook import delete_webhook_with_retry
 from interface.handlers import help, places, places_social, resources, start
 from interface.middleware.db_middleware import DBMiddleware
 from interface.middleware.elastic_middleware import ElasticMiddleware
@@ -23,71 +18,51 @@ from interface.middleware.elastic_middleware import ElasticMiddleware
 logger = setup_logger()
 
 
-async def _delete_webhook_with_retry(
-    bot: Bot,
-    *,
-    initial_retry_delay: float = 1.0,
-    max_retry_delay: float = 30.0,
-) -> None:
-    """Delete the webhook, retrying transient Telegram network failures."""
-    retry_delay = initial_retry_delay
-    while True:
-        try:
-            await bot.delete_webhook(drop_pending_updates=True)
-            return
-        except TelegramNetworkError as exc:
-            logger.warning(
-                "Telegram API is unavailable while deleting the webhook; "
-                "retrying in {} seconds: {}",
-                retry_delay,
-                exc,
-            )
-            await asyncio.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, max_retry_delay)
-
-
 async def main() -> None:
     """Initialize and run the telegram bot."""
     settings = get_app_settings()
-    bot = Bot(token=settings.token)
-    dp = Dispatcher()
 
-    db = AsyncDatabase(
-        user_admin_name=settings.admin_name,
-        user_admin_id=settings.admin_id,
-        pg_user=settings.postgres_user,
-        pg_password=settings.postgres_password,
-        pg_database=settings.postgres_db,
-        pg_host=settings.postgres_host,
-        pg_port=settings.postgres_port,
-    )
-    await db.connect()
+    async with AsyncExitStack() as stack:
+        bot = Bot(token=settings.token)
+        stack.push_async_callback(bot.session.close)
 
-    elastic = ElasticPlacesIndexer(
-        db=db,
-        es_url=settings.elastic_url,
-        es_user=settings.elastic_user,
-        es_password=settings.elastic_password,
-    )
-    dp.update.middleware(DBMiddleware(db))
-    dp.update.middleware(ElasticMiddleware(elastic))
+        db = AsyncDatabase(
+            user_admin_name=settings.admin_name,
+            user_admin_id=settings.admin_id,
+            pg_user=settings.postgres_user,
+            pg_password=settings.postgres_password,
+            pg_database=settings.postgres_db,
+            pg_host=settings.postgres_host,
+            pg_port=settings.postgres_port,
+        )
+        stack.push_async_callback(db.close)
+        await db.connect()
 
-    routers = [
-        places.router,
-        places_social.router,
-        help.router,
-        start.router,
-        resources.router,
-    ]
-    dp.include_routers(*routers)
+        elastic = ElasticPlacesIndexer(
+            db=db,
+            es_url=settings.elasticsearch_host,
+            es_user=settings.elasticsearch_user,
+            es_password=settings.elasticsearch_password,
+        )
+        stack.push_async_callback(elastic.close)
 
-    try:
-        await _delete_webhook_with_retry(bot)
+        dp = Dispatcher()
+        dp.update.middleware(DBMiddleware(db))
+        dp.update.middleware(ElasticMiddleware(elastic))
+        dp.include_routers(
+            places.router,
+            places_social.router,
+            help.router,
+            start.router,
+            resources.router,
+        )
+
+        await delete_webhook_with_retry(bot)
 
         if settings.enqueue_places_sync_on_startup:
             await publish_message(
-                exchange_name=EXCHANGE_NAME,
-                routing_key=PLACES_BOOTSTRAP_ROUTING_KEY,
+                exchange_name="bot.commands.exchange",
+                routing_key="places.bootstrap.requested",
                 message={"seed_places": settings.seed_places},
             )
         else:
@@ -97,10 +72,6 @@ async def main() -> None:
             )
 
         await dp.start_polling(bot)
-    finally:
-        await db.close()
-        await bot.session.close()
-        await elastic.close()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
@@ -28,15 +29,17 @@ class AppSettings(DatabaseSettings):
     admin_id: str
     kmz_path: str
     csv_path: str
-    elastic_url: str
-    elastic_user: str
-    elastic_password: str
+    elasticsearch_host: str
+    elasticsearch_user: str
+    elasticsearch_password: str
     seed_places: bool
     rabbitmq_user: str
     rabbitmq_password: str
     rabbitmq_host: str
     rabbitmq_port: int
     rabbitmq_vhost: str = "/"
+    rabbitmq_max_retry_attempts: int = Field(default=3, ge=0)
+    rabbitmq_retry_delay_ms: int = Field(default=5_000, gt=0)
     enqueue_places_sync_on_startup: bool = True
 
 

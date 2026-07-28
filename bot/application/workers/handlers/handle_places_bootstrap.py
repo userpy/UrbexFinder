@@ -57,9 +57,9 @@ async def handle_places_bootstrap(
     try:
         indexer = ElasticPlacesIndexer(
             db=db,
-            es_url=settings.elastic_url,
-            es_user=settings.elastic_user,
-            es_password=settings.elastic_password,
+            es_url=settings.elasticsearch_host,
+            es_user=settings.elasticsearch_user,
+            es_password=settings.elasticsearch_password,
         )
 
         try:
