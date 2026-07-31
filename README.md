@@ -99,6 +99,25 @@ RabbitMQ хранит свои данные в named volume `rabbitmq_data`.
 4. В отдельном терминале запустите worker:
    `poetry run python -m application.workers.places_bootstrap_worker`
 
+Тесты
+-----
+Тесты запускаются в отдельном Compose-проекте и используют временную PostgreSQL
+в `tmpfs`. Рабочий `.env` и основная база данных не подключаются.
+
+Запустить весь набор:
+`docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests`
+
+Остановить и удалить тестовые контейнеры:
+`docker compose -f docker-compose.test.yml down --remove-orphans`
+
+Для быстрого локального запуска только unit-тестов:
+`cd bot`
+`poetry install --with dev`
+`poetry run pytest tests/unit`
+
+Отчёт о покрытии:
+`poetry run pytest --cov=. --cov-report=term-missing`
+
 Миграции базы данных (Alembic)
 ------------------------------
 Миграции применяются только вручную и не запускаются при старте бота.

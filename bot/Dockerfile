@@ -1,7 +1,7 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS base
 
-# Не буферизовать вывод
 ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
     POETRY_VIRTUALENVS_CREATE=false \
     POETRY_NO_INTERACTION=1 \
     POETRY_REQUESTS_TIMEOUT=120 \
@@ -9,19 +9,23 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Установка Poetry
-RUN pip install --no-cache-dir poetry
+ARG POETRY_VERSION=2.4.1
+RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
 
-# Копируем файлы зависимостей
 COPY pyproject.toml poetry.lock* ./
 
-# Устанавливаем зависимости
-RUN poetry install --no-root
+FROM base AS test
 
-# Копируем код бота
+RUN poetry install --no-root --with dev
+
 COPY . .
 
-# Информация
+CMD ["pytest"]
 
-# Запуск бота
+FROM base AS production
+
+RUN poetry install --no-root --only main
+
+COPY . .
+
 CMD ["python", "main.py"]

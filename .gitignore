@@ -10,3 +10,6 @@ bot/logs/
 **/__pycache__/
 **/*.pyc
 bot/logs/
+.coverage
+htmlcov/
+.pytest_cache/
