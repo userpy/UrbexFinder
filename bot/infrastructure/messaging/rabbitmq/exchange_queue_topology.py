@@ -5,11 +5,18 @@ from __future__ import annotations
 import asyncio
 
 import aio_pika
+from aio_pika.abc import AbstractRobustConnection
+from aio_pika.exceptions import (
+    AMQPConnectionError,
+    AuthenticationError,
+    ProbableAuthenticationError,
+)
 from loguru import logger
 
 from infrastructure.core.logger_config import setup_logger
 from infrastructure.core.settings import AppSettings, get_app_settings
 from infrastructure.messaging.rabbitmq.constants import (
+    CONNECTION_MAX_RETRY_DELAY_SECONDS,
     CONNECTION_TIMEOUT_SECONDS,
     DEAD_LETTER_EXCHANGE_NAME,
     DEAD_LETTER_QUEUE_NAME,
@@ -20,16 +27,54 @@ from infrastructure.messaging.rabbitmq.constants import (
 )
 
 
+async def _connect_with_retry(
+    settings: AppSettings,
+) -> AbstractRobustConnection:
+    """Подключиться к RabbitMQ с ограниченными повторами при старте."""
+    retry_delay_seconds = settings.rabbitmq_connection_retry_delay_ms / 1_000
+
+    for attempt in range(1, settings.rabbitmq_connection_max_attempts + 1):
+        try:
+            return await aio_pika.connect_robust(
+                host=settings.rabbitmq_host,
+                port=settings.rabbitmq_port,
+                login=settings.rabbitmq_user,
+                password=settings.rabbitmq_password,
+                virtualhost=settings.rabbitmq_vhost,
+                timeout=CONNECTION_TIMEOUT_SECONDS,
+            )
+        except (AuthenticationError, ProbableAuthenticationError):
+            raise
+        except (AMQPConnectionError, TimeoutError) as exc:
+            if attempt >= settings.rabbitmq_connection_max_attempts:
+                logger.error(
+                    "RabbitMQ connection failed after {}/{} attempts: {}",
+                    attempt,
+                    settings.rabbitmq_connection_max_attempts,
+                    exc,
+                )
+                raise
+
+            logger.warning(
+                "RabbitMQ connection attempt {}/{} failed; retrying in "
+                "{:.3f} seconds: {}",
+                attempt,
+                settings.rabbitmq_connection_max_attempts,
+                retry_delay_seconds,
+                exc,
+            )
+            await asyncio.sleep(retry_delay_seconds)
+            retry_delay_seconds = min(
+                retry_delay_seconds * 2,
+                CONNECTION_MAX_RETRY_DELAY_SECONDS,
+            )
+
+    raise RuntimeError("RabbitMQ connection retry loop ended unexpectedly")
+
+
 async def declare_startup_topology(settings: AppSettings) -> None:
     """Создать основную, retry и dead-letter topology."""
-    connection = await aio_pika.connect_robust(
-        host=settings.rabbitmq_host,
-        port=settings.rabbitmq_port,
-        login=settings.rabbitmq_user,
-        password=settings.rabbitmq_password,
-        virtualhost=settings.rabbitmq_vhost,
-        timeout=CONNECTION_TIMEOUT_SECONDS,
-    )
+    connection = await _connect_with_retry(settings)
 
     async with connection:
         channel = await connection.channel()

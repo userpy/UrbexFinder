@@ -40,6 +40,8 @@ class AppSettings(DatabaseSettings):
     rabbitmq_vhost: str = "/"
     rabbitmq_max_retry_attempts: int = Field(default=3, ge=0)
     rabbitmq_retry_delay_ms: int = Field(default=5_000, gt=0)
+    rabbitmq_connection_max_attempts: int = Field(default=10, ge=1)
+    rabbitmq_connection_retry_delay_ms: int = Field(default=500, gt=0)
     enqueue_places_sync_on_startup: bool = True
 
 

@@ -8,3 +8,4 @@ RETRY_QUEUE_NAME = "bot.commands.retry"
 DEAD_LETTER_EXCHANGE_NAME = "bot.commands.dead.exchange"
 DEAD_LETTER_QUEUE_NAME = "bot.commands.dead"
 CONNECTION_TIMEOUT_SECONDS = 3.0
+CONNECTION_MAX_RETRY_DELAY_SECONDS = 5.0

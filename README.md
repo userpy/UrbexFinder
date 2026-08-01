@@ -44,6 +44,10 @@ RabbitMQ topology для стартовой синхронизации мест:
 - dead-letter exchange/queue: `bot.commands.dead.exchange` / `bot.commands.dead`;
 - `RABBITMQ_MAX_RETRY_ATTEMPTS` задаёт число повторов временно упавшей команды;
 - `RABBITMQ_RETRY_DELAY_MS` задаёт задержку между попытками;
+- `RABBITMQ_CONNECTION_MAX_ATTEMPTS` задаёт число попыток подключения
+  topology-сервиса при старте;
+- `RABBITMQ_CONNECTION_RETRY_DELAY_MS` задаёт начальную задержку между попытками
+  подключения (далее используется exponential backoff до 5 секунд);
 - модуль `exchange_queue_topology.py` создаёт topology до запуска bot и worker;
 - `ENQUEUE_PLACES_SYNC_ON_STARTUP` включает публикацию startup-команды.
 
@@ -70,14 +74,11 @@ RabbitMQ хранит свои данные в named volume `rabbitmq_data`.
    Для первого запуска установите `SEED_PLACES=True`, чтобы загрузить места из KMZ.
 2. Создайте локальную папку данных Loki для bind-mount:
    `mkdir -p loki_data`
-3. Примените миграции вручную. Миграции не запускаются вместе с ботом:
-   `docker compose up -d db`
-   `docker compose build bot`
-   Примените миграции:
-   `docker compose run --rm --no-deps bot alembic upgrade head`
-4. Соберите и запустите остальные сервисы:
+3. Соберите и запустите сервисы:
    `docker compose up --build`
-5. Сервисы будут доступны:
+   Одноразовый сервис `migrations` дождётся готовности PostgreSQL и применит
+   `alembic upgrade head` до запуска бота и worker.
+4. Сервисы будут доступны:
    - Бот в контейнере `aiogram_bot`.
    - Worker стартовой синхронизации в сервисе `places-worker`.
    - RabbitMQ AMQP: `localhost:5672`, Management UI: `localhost:15672`.
@@ -120,11 +121,13 @@ RabbitMQ хранит свои данные в named volume `rabbitmq_data`.
 
 Миграции базы данных (Alembic)
 ------------------------------
-Миграции применяются только вручную и не запускаются при старте бота.
+При запуске Docker Compose одноразовый сервис `migrations` автоматически
+применяет все миграции до старта `bot` и `places-worker`. Если миграция завершится
+с ошибкой, зависящие сервисы не запустятся.
 
 Для Docker:
-- Применить все миграции:
-  `docker compose run --rm --no-deps bot alembic upgrade head`
+- Повторно применить все миграции вручную:
+  `docker compose run --rm migrations`
 - Создать новую миграцию по изменениям моделей:
   `docker compose run --rm --no-deps bot alembic revision --autogenerate -m "описание изменений"`
 - Откатить одну миграцию:
