@@ -1,12 +1,19 @@
+import os
+import sys
+import time
+from pathlib import Path
+
 import requests
 import simplekml
-import time
-import sys
+from dotenv import load_dotenv
 from loguru import logger
 
 # ================== НАСТРОЙКИ ==================
 
-WIKIMAPIA_API_KEY = "DE78E139-2B064BBC-857C77B0-714E47D2-61E51FEC-9F388503-07F10D5D-49DBD4E"
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(ENV_FILE)
+
+WIKIMAPIA_API_KEY = os.getenv("WIKIMAPIA_API_KEY")
 
 # Категория Wikimapia (ID)
 CATEGORY_ID = 44690  # Бомбоубежища
@@ -46,7 +53,7 @@ def build_bbox(top_point, bottom_point):
 def fetch_page(page, bbox):
     url = "http://api.wikimapia.org/"
     params = {
-        "key": API_KEY,
+        "key": WIKIMAPIA_API_KEY,
         "function": "box",
         "bbox": bbox,
         "category": CATEGORY_ID,
@@ -61,6 +68,10 @@ def fetch_page(page, bbox):
 
 
 def main():
+    if not WIKIMAPIA_API_KEY:
+        logger.error("WIKIMAPIA_API_KEY не задан в .env")
+        sys.exit(1)
+
     try:
         bbox = build_bbox(TOP_POINT, BOTTOM_POINT)
     except ValueError as e:
