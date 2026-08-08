@@ -49,6 +49,8 @@ async def test_rating_lifecycle_recalculates_place_stats(
     assert place["rating_avg"] == 3.0
     assert place["rating_count"] == 2
     assert place["rating_score"] == 3.0
+    assert await database.places.get_user_ratings_count(user_id=1001) == 1
+    assert await database.places.get_user_ratings_count(user_id=1002) == 1
 
     assert await database.places.upsert_place_rating(
         place_id,
@@ -63,6 +65,7 @@ async def test_rating_lifecycle_recalculates_place_stats(
         place_id,
         user_id=1001,
     ) is None
+    assert await database.places.get_user_ratings_count(user_id=1001) == 0
 
 
 async def test_nonexistent_report_is_idempotent_and_can_be_cancelled(

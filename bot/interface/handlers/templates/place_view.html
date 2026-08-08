@@ -8,5 +8,7 @@
 👤 <i>Ваша оценка: {{ user_rating }}/5</i>{% endif %}
 📷 <b>Фото:</b> {{ photos_count }}
 💬 <b>Отзывы:</b> {{ reviews_count }}
+{% if nonexistent_reports_count > 0 %}⚠️ <b>Возможно, не существует — отметок:</b> {{ nonexistent_reports_count }}/10
+{% endif %}
 
 📝<i>{{description}}</i>

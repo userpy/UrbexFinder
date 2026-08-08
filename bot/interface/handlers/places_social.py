@@ -5,7 +5,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from application.place_social_service import PlaceSocialService
-from application.places_view import PlacesView
+from application.places_view import (
+    MIN_RATINGS_TO_REPORT_NONEXISTENT,
+    PlacesView,
+)
 from infrastructure.core.error_handler import catch_handler_errors
 from infrastructure.db.PgDb import AsyncDatabase
 from interface.handlers.places import PAGE_SIZE, PlacesState
@@ -98,6 +101,18 @@ async def cancel_place_missing_report(
 @catch_handler_errors()
 async def report_place_missing(callback: CallbackQuery, state: FSMContext, db: AsyncDatabase):
     place_id = int(callback.data.split("_")[2])
+    user_ratings_count = await db.places.get_user_ratings_count(
+        user_id=callback.from_user.id,
+    )
+    if user_ratings_count < MIN_RATINGS_TO_REPORT_NONEXISTENT:
+        await callback.answer(
+            "Чтобы отметить место как несуществующее, сначала оцените "
+            f"{MIN_RATINGS_TO_REPORT_NONEXISTENT} мест. "
+            f"Сейчас: {user_ratings_count}/{MIN_RATINGS_TO_REPORT_NONEXISTENT}",
+            show_alert=True,
+        )
+        return
+
     result = await db.places.report_place_nonexistent(
         place_id=place_id,
         user_id=callback.from_user.id,

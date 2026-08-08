@@ -15,6 +15,9 @@ from infrastructure.services.pagination_new import PaginationControl
 from infrastructure.services.template_renderer import TemplateRenderer
 
 
+MIN_RATINGS_TO_REPORT_NONEXISTENT = 10
+
+
 class PlacesView:
     @staticmethod
     async def __get_keyboard(buttons, page_state, start_line):
@@ -59,6 +62,7 @@ class PlacesView:
         user_rating: int | None,
         reviews_count: int,
         photos_count: int,
+        nonexistent_reports_count: int,
     ):
         params = {
             "description": description,
@@ -70,6 +74,7 @@ class PlacesView:
             "user_rating": user_rating,
             "reviews_count": reviews_count,
             "photos_count": photos_count,
+            "nonexistent_reports_count": nonexistent_reports_count,
         }
         renderer = TemplateRenderer()
         rendered_html = renderer.render(template_name="place_view.html", params=params)
@@ -82,6 +87,7 @@ class PlacesView:
         reviews_count: int,
         photos_count: int,
         user_reported_nonexistent: bool,
+        user_ratings_count: int,
     ) -> InlineKeyboardMarkup:
         review_row = []
         if reviews_count > 0:
@@ -91,17 +97,25 @@ class PlacesView:
         if photos_count > 0:
             photo_row.append(InlineKeyboardButton(text="🖼 Фото", callback_data=f"photo_show_{place_id}_0"))
 
-        nonexistent_report_row = [
-            InlineKeyboardButton(
+        if user_reported_nonexistent:
+            nonexistent_report_button = InlineKeyboardButton(
                 text="Отменить отметку",
                 callback_data=f"place_missing_cancel_{place_id}",
             )
-            if user_reported_nonexistent
-            else InlineKeyboardButton(
+        elif user_ratings_count < MIN_RATINGS_TO_REPORT_NONEXISTENT:
+            nonexistent_report_button = InlineKeyboardButton(
+                text=(
+                    f"Не существует 🔒 {user_ratings_count}/"
+                    f"{MIN_RATINGS_TO_REPORT_NONEXISTENT}"
+                ),
+                callback_data=f"place_missing_{place_id}",
+            )
+        else:
+            nonexistent_report_button = InlineKeyboardButton(
                 text="Не существует 📡❌",
                 callback_data=f"place_missing_{place_id}",
             )
-        ]
+        nonexistent_report_row = [nonexistent_report_button]
 
         return InlineKeyboardMarkup(
             inline_keyboard=[
@@ -144,14 +158,17 @@ class PlacesView:
 
         rating_avg = place.get("rating_avg", 0)
         rating_count = place.get("rating_count", 0)
+        nonexistent_reports_count = place.get("nonexistent_reports_count", 0)
         user_rating = None
         user_reported_nonexistent = False
+        user_ratings_count = 0
         if user_id is not None:
             user_rating = await db.places.get_user_place_rating(place_id=place_id, user_id=user_id)
             user_reported_nonexistent = await db.places.user_reported_place_nonexistent(
                 place_id=place_id,
                 user_id=user_id,
             )
+            user_ratings_count = await db.places.get_user_ratings_count(user_id=user_id)
         reviews_count = await db.places.get_reviews_count(place_id=place_id)
         photos_count = await db.places.get_place_photos_count(place_id=place_id)
 
@@ -165,6 +182,7 @@ class PlacesView:
             user_rating=user_rating,
             reviews_count=reviews_count,
             photos_count=photos_count,
+            nonexistent_reports_count=nonexistent_reports_count,
         )
         keyboard = PlacesView._place_rating_keyboard(
             callback_data=callback_data,
@@ -172,6 +190,7 @@ class PlacesView:
             reviews_count=reviews_count,
             photos_count=photos_count,
             user_reported_nonexistent=user_reported_nonexistent,
+            user_ratings_count=user_ratings_count,
         )
         return html_place_description, keyboard
 

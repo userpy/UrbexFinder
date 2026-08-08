@@ -303,6 +303,15 @@ class PlacesRepository:
                 .where(PlaceRatingModel.user_id == user_id)
             )
 
+    async def get_user_ratings_count(self, user_id: int) -> int:
+        async with self.async_session() as session:
+            count = await session.scalar(
+                select(func.count(PlaceRatingModel.id)).where(
+                    PlaceRatingModel.user_id == user_id
+                )
+            )
+            return int(count or 0)
+
     async def report_place_nonexistent(self, place_id: int, user_id: int) -> dict:
         async with self.async_session() as session:
             async with session.begin():
