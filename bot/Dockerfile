@@ -26,6 +26,14 @@ FROM base AS production
 
 RUN poetry install --no-root --only main
 
-COPY . .
+RUN groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid app --create-home --shell /usr/sbin/nologin app \
+    && chown app:app /app
+
+COPY --chown=app:app . .
+
+RUN install -d -o app -g app /app/logs
+
+USER app
 
 CMD ["python", "main.py"]

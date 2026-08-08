@@ -87,6 +87,24 @@ RabbitMQ хранит свои данные в named volume `rabbitmq_data`.
    - Grafana: `localhost:3000`.
    - Loki: `localhost:3110`.
 
+Простой запуск в production
+---------------------------
+Production-конфигурация находится в `docker-compose.prod.yml`. Она не
+монтирует исходный код внутрь контейнеров, сохраняет данные PostgreSQL в named
+volume и не публикует порты PostgreSQL, Elasticsearch, RabbitMQ AMQP и Loki.
+
+1. Заполните `.env` production-значениями и смените все стандартные пароли.
+2. Соберите и запустите стек:
+   `docker compose -f docker-compose.prod.yml up -d --build`
+3. Проверьте состояние:
+   `docker compose -f docker-compose.prod.yml ps`
+4. Посмотрите логи приложения:
+   `docker compose -f docker-compose.prod.yml logs -f bot places-worker`
+
+Grafana (`3000`) и RabbitMQ Management (`15672`) слушают только
+`127.0.0.1` сервера. Для доступа с рабочего компьютера используйте SSH-туннель
+или настройте отдельный HTTPS reverse proxy с авторизацией.
+
 Локальный запуск (Poetry)
 -------------------------
 1. Установите зависимости:

@@ -1,0 +1,173 @@
+name: telegram-bot-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app-build: &app-build
+  context: ./bot
+  target: production
+
+services:
+  bot:
+    build: *app-build
+    image: telegram-bot:prod
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./.env
+    volumes:
+      - bot_logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_started
+      loki:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-topology:
+        condition: service_completed_successfully
+    logging: *default-logging
+
+  places-worker:
+    build: *app-build
+    image: telegram-bot:prod
+    restart: unless-stopped
+    init: true
+    command: ["python", "-m", "application.workers.places_bootstrap_worker"]
+    env_file:
+      - ./.env
+    volumes:
+      - bot_logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_started
+      loki:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-topology:
+        condition: service_completed_successfully
+    logging: *default-logging
+
+  migrations:
+    build: *app-build
+    image: telegram-bot:prod
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *default-logging
+
+  rabbitmq-topology:
+    build: *app-build
+    image: telegram-bot:prod
+    restart: "no"
+    command:
+      - python
+      - -m
+      - infrastructure.messaging.rabbitmq.exchange_queue_topology
+    env_file:
+      - ./.env
+    volumes:
+      - bot_logs:/app/logs
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    logging: *default-logging
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.11
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      ELASTIC_PASSWORD: ${ELASTICSEARCH_PASSWORD}
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    logging: *default-logging
+
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *default-logging
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    logging: *default-logging
+
+  loki:
+    image: grafana/loki:2.8.2
+    user: "0:0"
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    volumes:
+      - loki_data:/loki
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - loki
+    volumes:
+      - grafana_data:/var/lib/grafana
+    logging: *default-logging
+
+volumes:
+  bot_logs:
+  postgres_data:
+  es_data:
+  loki_data:
+  grafana_data:
+  rabbitmq_data:
