@@ -87,6 +87,38 @@ RabbitMQ хранит свои данные в named volume `rabbitmq_data`.
    - Grafana: `localhost:3000`.
    - Loki: `localhost:3110`.
 
+Контейнеры Docker Compose
+----------------------------
+Команда `docker compose up` запускает девять контейнеров. Часть имён
+задана явно через `container_name`, а имена вида
+`telegram_bot2-<service>-1` Docker Compose формирует из имени проекта,
+сервиса и номера экземпляра.
+
+| Контейнер (сервис) | Что делает |
+|---|---|
+| `aiogram_bot` (`bot`) | Основной долгоживущий процесс Telegram-бота. Запускает `python main.py`, получает обновления Telegram через long polling, обрабатывает команды, читает и изменяет данные в PostgreSQL, ищет места через Elasticsearch и отправляет логи в Loki. При включённом `ENQUEUE_PLACES_SYNC_ON_STARTUP` публикует в RabbitMQ команду синхронизации мест. |
+| `telegram_bot2-places-worker-1` (`places-worker`) | Долгоживущий consumer RabbitMQ. По команде `places.bootstrap.requested` при необходимости загружает места из KMZ, удаляет дубликаты, дополняет адреса из CSV и пересоздаёт поисковый индекс Elasticsearch. При временной ошибке сообщение повторяется, а после исчерпания попыток попадает в dead-letter queue. |
+| `telegram_bot2-migrations-1` (`migrations`) | Одноразовый контейнер: после готовности PostgreSQL выполняет `alembic upgrade head` и завершается. `bot` и `places-worker` запускаются только после его успешного завершения. |
+| `telegram_bot2-rabbitmq-topology-1` (`rabbitmq-topology`) | Одноразовый контейнер: после готовности RabbitMQ создаёт durable exchange, основную очередь, retry-очередь, dead-letter-очередь и bindings, затем завершается. `bot` и `places-worker` ждут его успешного завершения. |
+| `postgres_db` (`db`) | PostgreSQL 15 — основное хранилище данных бота: пользователей, ролей, мест и ресурсов. Healthcheck не даёт зависимым сервисам стартовать до готовности БД. В локальном Compose порт `5432` опубликован на хост. |
+| `elasticsearch` (`elasticsearch`) | Одноузловой Elasticsearch 7.17.11 с включённой авторизацией. Хранит поисковый индекс мест для быстрого поиска; PostgreSQL остаётся основным источником данных. Порты `9200` (HTTP API) и `9300` (transport) опубликованы на хост, индекс хранится в volume `es_data`. |
+| `rabbitmq` (`rabbitmq`) | Брокер сообщений между `bot` и `places-worker`. AMQP доступен на порту `5672`, web-панель управления — на `15672`. Очереди и сообщения хранятся в volume `rabbitmq_data`. |
+| `loki` (`loki`) | Собирает и хранит логи приложения. Внутренний HTTP API `3100` доступен на хосте как `3110`; данные хранятся в локальной папке `./loki_data`. |
+| `grafana` (`grafana`) | Web-интерфейс для запроса и визуализации логов из Loki. Открывается на `http://localhost:3000`, а настройки, подключённые источники и dashboards хранятся в volume `grafana_data`. |
+
+Сервисы общаются по внутренней сети `telegram_bot2_default`, используя имена
+сервисов (`db`, `rabbitmq`, `elasticsearch`, `loki`) как DNS-имена. Это не
+контейнер: сеть создаётся `docker compose up` и удаляется
+`docker compose down`. Поэтому в примере вывода `down 10/10` означает
+девять удалённых контейнеров и одну удалённую сеть.
+
+`docker compose down` без флага `-v` не удаляет named volumes
+`es_data`, `rabbitmq_data` и `grafana_data`, а также не удаляет bind-mount
+`./loki_data`. Однако в локальном `docker-compose.yml` к PostgreSQL не
+подключён volume, поэтому удаление `postgres_db` также удаляет его
+локальные данные. В production-конфигурации PostgreSQL использует
+named volume `postgres_data`.
+
 Простой запуск в production
 ---------------------------
 Production-конфигурация находится в `docker-compose.prod.yml`. Она не
