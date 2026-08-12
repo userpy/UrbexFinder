@@ -41,6 +41,27 @@ def test_place_card_hides_nonexistent_notice_without_reports():
     assert "Возможно, не существует" not in rendered
 
 
+def test_place_card_does_not_render_none_address():
+    renderer = TemplateRenderer(template_dir=str(TEMPLATE_DIR))
+    rendered = renderer.render(
+        template_name="place_view.html",
+        params={
+            "description": "Описание",
+            "name": "Место",
+            "full_address": None,
+            "search": None,
+            "rating_avg": 0,
+            "rating_count": 0,
+            "user_rating": None,
+            "reviews_count": 0,
+            "photos_count": 0,
+            "nonexistent_reports_count": 0,
+        },
+    )
+
+    assert "None" not in rendered
+
+
 @pytest.mark.parametrize(
     ("user_ratings_count", "user_reported_nonexistent", "expected_text"),
     [

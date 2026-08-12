@@ -151,8 +151,8 @@ class PlacesView:
             )
             return "⚠️ Место не найдено или было удалено.", keyboard
 
-        place_name = place.get("name", "")
-        full_address = place.get("full_address", "")
+        place_name = place.get("name") or ""
+        full_address = place.get("full_address") or ""
         flush_description_img_html = clean_html_to_text(place.get("description", ""))
         place_description = html.escape(flush_description_img_html)
 

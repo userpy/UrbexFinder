@@ -29,7 +29,6 @@ async def consume_topic(
         if incoming_routing_key == "places.bootstrap.requested":
             await handle_places_bootstrap(
                 message,
-                incoming_routing_key,
                 settings=settings,
             )
         elif incoming_routing_key == "places.bootstrap.test":

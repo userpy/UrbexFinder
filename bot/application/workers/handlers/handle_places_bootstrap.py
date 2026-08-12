@@ -25,29 +25,35 @@ async def handle_places_bootstrap(
     """Выполнить команду синхронизации мест."""
     should_seed_places = message.get(
         "seed_places",
+        settings.seed_places,
     )
+    if not isinstance(should_seed_places, bool):
+        raise ValueError("seed_places must be a boolean.")
+
     logger.info(
         "Places bootstrap started, seed_places={}.",
         should_seed_places,
     )
+
+    db = AsyncDatabase(
+        user_admin_name=settings.admin_name,
+        user_admin_id=settings.admin_id,
+        pg_user=settings.postgres_user,
+        pg_password=settings.postgres_password,
+        pg_database=settings.postgres_db,
+        pg_host=settings.postgres_host,
+        pg_port=settings.postgres_port,
+    )
+    await db.connect()
+
     try:
-        if should_seed_places:
-            db = AsyncDatabase(
-                        user_admin_name=settings.admin_name,
-                        user_admin_id=settings.admin_id,
-                        pg_user=settings.postgres_user,
-                        pg_password=settings.postgres_password,
-                        pg_database=settings.postgres_db,
-                        pg_host=settings.postgres_host,
-                        pg_port=settings.postgres_port,
-                    )
-            await db.connect()
-            indexer = ElasticPlacesIndexer(
-                        db=db,
-                        es_url=settings.elasticsearch_host,
-                        es_user=settings.elasticsearch_user,
-                        es_password=settings.elasticsearch_password,
-                        )
+        indexer = ElasticPlacesIndexer(
+            db=db,
+            es_url=settings.elasticsearch_host,
+            es_user=settings.elasticsearch_user,
+            es_password=settings.elasticsearch_password,
+        )
+        try:
             await seed_places_from_kml(
                 db,
                 settings.kmz_path,
@@ -59,8 +65,9 @@ async def handle_places_bootstrap(
                 indexer,
                 close_indexer=False,
             )
+        finally:
+            await indexer.close()
     finally:
         await db.close()
-        await indexer.close()
 
     logger.info("Places bootstrap completed")

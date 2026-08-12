@@ -37,4 +37,5 @@ ORDER BY id
 ) TO STDOUT WITH CSV HEADER" > "${TMP_FILE}"
 
 mv "${TMP_FILE}" "${OUTPUT_FILE}"
+chmod 0644 "${OUTPUT_FILE}"
 echo "Готово: ${OUTPUT_FILE}"
