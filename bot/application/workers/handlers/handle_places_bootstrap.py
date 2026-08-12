@@ -36,8 +36,8 @@ async def handle_places_bootstrap(
     )
 
 
-    if should_seed_places:
-        try:
+
+    try:
             db = AsyncDatabase(
                     user_admin_name=settings.admin_name,
                     user_admin_id=settings.admin_id,
@@ -66,12 +66,9 @@ async def handle_places_bootstrap(
                     indexer,
                     close_indexer=False,
                 )
-        
                 
-        finally:
+    finally:
             await indexer.close()
             await db.close()
 
-        logger.info("Places bootstrap completed")
-    else:
-        logger.info("Places bootstrap skipped, seed_places is False.")
+    logger.info("Places bootstrap completed")
