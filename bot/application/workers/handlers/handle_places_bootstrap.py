@@ -72,4 +72,6 @@ async def handle_places_bootstrap(
             await indexer.close()
             await db.close()
 
-    logger.info("Places bootstrap completed")
+        logger.info("Places bootstrap completed")
+    else:
+        logger.info("Places bootstrap skipped, seed_places is False.")
