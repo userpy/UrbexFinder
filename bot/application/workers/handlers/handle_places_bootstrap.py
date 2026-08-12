@@ -35,39 +35,41 @@ async def handle_places_bootstrap(
         should_seed_places,
     )
 
-    db = AsyncDatabase(
-        user_admin_name=settings.admin_name,
-        user_admin_id=settings.admin_id,
-        pg_user=settings.postgres_user,
-        pg_password=settings.postgres_password,
-        pg_database=settings.postgres_db,
-        pg_host=settings.postgres_host,
-        pg_port=settings.postgres_port,
-    )
-    await db.connect()
 
-    try:
-        indexer = ElasticPlacesIndexer(
-            db=db,
-            es_url=settings.elasticsearch_host,
-            es_user=settings.elasticsearch_user,
-            es_password=settings.elasticsearch_password,
-        )
+    if should_seed_places:
         try:
-            await seed_places_from_kml(
-                db,
-                settings.kmz_path,
-                should_seed_places,
+            db = AsyncDatabase(
+                    user_admin_name=settings.admin_name,
+                    user_admin_id=settings.admin_id,
+                    pg_user=settings.postgres_user,
+                    pg_password=settings.postgres_password,
+                    pg_database=settings.postgres_db,
+                    pg_host=settings.postgres_host,
+                    pg_port=settings.postgres_port,
+                )
+            await db.connect()
+            indexer = ElasticPlacesIndexer(
+                db=db,
+                es_url=settings.elasticsearch_host,
+                es_user=settings.elasticsearch_user,
+                es_password=settings.elasticsearch_password,
             )
+            
+            await seed_places_from_kml(
+                    db,
+                    settings.kmz_path,
+                    should_seed_places,
+                )
             await deduplicate_places(db)
             await update_place_full_addres(db, settings.csv_path)
             await indexing_places_elastic_search(
-                indexer,
-                close_indexer=False,
-            )
+                    indexer,
+                    close_indexer=False,
+                )
+        
+                
         finally:
             await indexer.close()
-    finally:
-        await db.close()
+            await db.close()
 
     logger.info("Places bootstrap completed")
