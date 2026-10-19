@@ -38,7 +38,7 @@ async def handle_places_bootstrap(
 
 
     try:
-            db = AsyncDatabase(
+        db = AsyncDatabase(
                     user_admin_name=settings.admin_name,
                     user_admin_id=settings.admin_id,
                     pg_user=settings.postgres_user,
@@ -47,22 +47,22 @@ async def handle_places_bootstrap(
                     pg_host=settings.postgres_host,
                     pg_port=settings.postgres_port,
                 )
-            await db.connect()
-            indexer = ElasticPlacesIndexer(
+        await db.connect()
+        indexer = ElasticPlacesIndexer(
                 db=db,
                 es_url=settings.elasticsearch_host,
                 es_user=settings.elasticsearch_user,
                 es_password=settings.elasticsearch_password,
             )
             
-            await seed_places_from_kml(
+        await seed_places_from_kml(
                     db,
                     settings.kmz_path,
                     should_seed_places,
                 )
-            await deduplicate_places(db)
-            await update_place_full_addres(db, settings.csv_path)
-            await indexing_places_elastic_search(
+        await deduplicate_places(db)
+        await update_place_full_addres(db, settings.csv_path)
+        await indexing_places_elastic_search(
                     indexer,
                     close_indexer=False,
                 )
