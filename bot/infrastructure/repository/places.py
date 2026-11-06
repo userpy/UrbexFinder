@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Optional, TypedDict
 
 from loguru import logger
-from sqlalchemy import case, delete, func, select, update
+from urbex_shared.catalog import published_filter
+from sqlalchemy import case, delete, func, select, update, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -39,6 +40,37 @@ class PlacesRepository:
 
     def __init__(self, async_session: async_sessionmaker[AsyncSession]):
         self.async_session = async_session
+
+    async def import_places_csv(self, path, dry_run=False):
+        from infrastructure.services.places_csv import read_places
+        async with self.async_session() as session:
+            async with session.begin():
+                await session.execute(text('SELECT pg_advisory_xact_lock(734836210)'))
+                existing = set((await session.execute(select(PlaceModel.latitude, PlaceModel.longitude))).all())
+                categories = {}
+                inserted = skipped = 0
+                batch = []
+                for values in read_places(path):
+                    coordinates = (values['latitude'], values['longitude'])
+                    if coordinates in existing:
+                        skipped += 1
+                        continue
+                    existing.add(coordinates)
+                    inserted += 1
+                    if dry_run:
+                        continue
+                    category = values['category']
+                    if category not in categories:
+                        await session.execute(text('INSERT INTO web_categories(name) VALUES (:name) ON CONFLICT(name) DO NOTHING'), {'name':category})
+                        categories[category] = await session.scalar(text('SELECT id FROM web_categories WHERE name=:name'), {'name':category})
+                    values.update(category_id=categories[category], region=(values['full_address'] or 'Не указан')[:200], status='pending')
+                    batch.append(values)
+                    if len(batch) >= 500:
+                        await session.execute(insert(PlaceModel), batch)
+                        batch = []
+                if batch:
+                    await session.execute(insert(PlaceModel), batch)
+                return {'new':inserted, 'skipped':skipped, 'dry_run':dry_run}
 
     async def update_full_addresses_from_csv(self, csv_path: str | Path) -> int:
         rows = await asyncio.to_thread(self._read_full_address_csv, Path(csv_path))
@@ -79,8 +111,8 @@ class PlacesRepository:
                     if not full_address:
                         continue
 
-                    lat = Decimal6(row.get("lat"))
-                    lon = Decimal6(row.get("lon"))
+                    lat = Decimal6(row.get("lat") or row.get("latitude"))
+                    lon = Decimal6(row.get("lon") or row.get("longitude"))
                     if lat is None or lon is None:
                         continue
 
@@ -192,6 +224,26 @@ class PlacesRepository:
                         first_place_by_coords[coords] = place
                         continue
 
+                    if (first_place.status != place.status or first_place.author_id != place.author_id
+                            or first_place.telegram_author_id != place.telegram_author_id):
+                        continue
+                    # Never delete a record with photos, social data or web history.
+                    references = await session.execute(text("""SELECT c.conrelid::regclass::text AS table_name,
+                        a.attname AS column_name FROM pg_constraint c
+                        JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=ANY(c.conkey)
+                        WHERE c.contype='f' AND c.confrelid='places'::regclass"""))
+                    linked = False
+                    quote = session.bind.dialect.identifier_preparer.quote
+                    for ref in references:
+                        if await session.scalar(text(f'SELECT EXISTS(SELECT 1 FROM {quote(ref.table_name)} WHERE {quote(ref.column_name)}=:id)'), {'id': place.id}):
+                            linked = True
+                            break
+                    if not linked and await session.scalar(text("SELECT to_regclass('web_audit')")):
+                        linked = bool(await session.scalar(text("SELECT EXISTS(SELECT 1 FROM web_audit WHERE target=:target)"), {'target': f'places:{place.id}'}))
+                    if not linked and await session.scalar(text("SELECT to_regclass('web_reports')")):
+                        linked = bool(await session.scalar(text("SELECT EXISTS(SELECT 1 FROM web_reports WHERE target_type='places' AND target_id=:id)"), {'id': place.id}))
+                    if linked:
+                        continue
                     self._merge_missing_fields(target=first_place, source=place)
                     duplicate_ids.append(place.id)
 
@@ -231,7 +283,7 @@ class PlacesRepository:
 
     @classmethod
     def _visible_places_filter(cls):
-        return PlaceModel.nonexistent_reports_count < cls._NONEXISTENT_REPORTS_HIDE_THRESHOLD
+        return published_filter(PlaceModel)
 
     async def _recalculate_place_rating(self, session: AsyncSession, place_id: int) -> None:
         ratings_stats = await session.execute(
@@ -446,6 +498,7 @@ class PlacesRepository:
             res = await session.execute(
                 select(PlaceReviewModel)
                 .where(PlaceReviewModel.place_id == place_id)
+                .where(PlaceReviewModel.status == 'published')
                 .order_by(PlaceReviewModel.created_at.desc(), PlaceReviewModel.id.desc())
                 .limit(limit)
             )
@@ -469,6 +522,7 @@ class PlacesRepository:
                     select(func.count())
                     .select_from(PlaceReviewModel)
                     .where(PlaceReviewModel.place_id == place_id)
+                .where(PlaceReviewModel.status == 'published')
                 )
                 or 0
             )
@@ -481,12 +535,14 @@ class PlacesRepository:
                     select(func.count())
                     .select_from(PlaceReviewModel)
                     .where(PlaceReviewModel.place_id == place_id)
+                .where(PlaceReviewModel.status == 'published')
                 )
                 or 0
             )
             res = await session.execute(
                 select(PlaceReviewModel)
                 .where(PlaceReviewModel.place_id == place_id)
+                .where(PlaceReviewModel.status == 'published')
                 .order_by(PlaceReviewModel.created_at.desc(), PlaceReviewModel.id.desc())
                 .limit(limit)
                 .offset(offset)
@@ -564,7 +620,10 @@ class PlacesRepository:
         async with self.async_session() as session:
             res = await session.execute(
                 select(PlacePhotoModel)
+                .join(PlaceModel, PlaceModel.id == PlacePhotoModel.place_id)
+                .where(self._visible_places_filter())
                 .where(PlacePhotoModel.place_id == place_id)
+                .where(PlacePhotoModel.status == "published")
                 .order_by(PlacePhotoModel.created_at.desc(), PlacePhotoModel.id.desc())
                 .limit(limit)
             )
@@ -589,13 +648,19 @@ class PlacesRepository:
                 await session.scalar(
                     select(func.count())
                     .select_from(PlacePhotoModel)
+                    .join(PlaceModel, PlaceModel.id == PlacePhotoModel.place_id)
+                    .where(self._visible_places_filter())
                     .where(PlacePhotoModel.place_id == place_id)
+                    .where(PlacePhotoModel.status == "published")
                 )
                 or 0
             )
             res = await session.execute(
                 select(PlacePhotoModel)
+                .join(PlaceModel, PlaceModel.id == PlacePhotoModel.place_id)
+                .where(self._visible_places_filter())
                 .where(PlacePhotoModel.place_id == place_id)
+                .where(PlacePhotoModel.status == "published")
                 .order_by(PlacePhotoModel.created_at.desc(), PlacePhotoModel.id.desc())
                 .limit(limit)
                 .offset(offset)
@@ -620,7 +685,10 @@ class PlacesRepository:
                 await session.scalar(
                     select(func.count())
                     .select_from(PlacePhotoModel)
+                    .join(PlaceModel, PlaceModel.id == PlacePhotoModel.place_id)
+                    .where(self._visible_places_filter())
                     .where(PlacePhotoModel.place_id == place_id)
+                    .where(PlacePhotoModel.status == "published")
                 )
                 or 0
             )
@@ -634,6 +702,11 @@ class PlacesRepository:
                     .where(PlacePhotoModel.user_id == user_id)
                 )
                 return int(result.rowcount or 0)
+
+    @staticmethod
+    def _category_priority():
+        category = func.lower(func.trim(func.coalesce(PlaceModel.category, "")))
+        return case((category.in_(["geocaching", "геокешинг", "геокэшинг"]), 1), else_=0)
 
     async def get_places(
         self,
@@ -658,7 +731,7 @@ class PlacesRepository:
                     .where(PlaceModel.latitude.isnot(None))
                     .where(PlaceModel.longitude.isnot(None))
                     .where(self._visible_places_filter())
-                    .order_by(dist.asc())
+                    .order_by(self._category_priority(), dist.asc(), PlaceModel.id.asc())
                 )
                 if limit is not None:
                     stmt = stmt.limit(limit).offset(offset)
@@ -669,7 +742,7 @@ class PlacesRepository:
                 return rows
 
             stmt = select(PlaceModel).where(self._visible_places_filter()).order_by(
-                PlaceModel.id.desc(),
+                self._category_priority(), PlaceModel.id.desc(),
             )
             if limit is not None:
                 stmt = stmt.limit(limit).offset(offset)
@@ -737,7 +810,7 @@ class PlacesRepository:
                     .where(PlaceModel.latitude.isnot(None))
                     .where(PlaceModel.longitude.isnot(None))
                     .where(self._visible_places_filter())
-                    .order_by(dist.asc())
+                    .order_by(self._category_priority(), dist.asc(), PlaceModel.id.asc())
                 )
             else:
                 ordering = case(
@@ -755,7 +828,7 @@ class PlacesRepository:
                     select(PlaceModel)
                     .where(PlaceModel.id.in_(ids))
                     .where(self._visible_places_filter())
-                    .order_by(ordering)
+                    .order_by(self._category_priority(), ordering)
                 )
 
             if limit is not None:

@@ -1,0 +1,40 @@
+{
+  "name": "urbexfinder-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/with-env.mjs dev -p 3100",
+    "build": "node scripts/with-env.mjs build",
+    "start": "node scripts/with-env.mjs start -p 3100",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "test": "node scripts/run-e2e.mjs",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "format": "prettier --write app src tests *.ts *.mjs",
+    "prebuild": "node scripts/prepare-map-assets.mjs",
+    "predev": "node scripts/prepare-map-assets.mjs"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.2.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.468.0",
+    "maplibre-gl": "^6.16.0",
+    "next": "^16.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwind-merge": "^3.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.3",
+    "prettier": "^3.9.10",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}

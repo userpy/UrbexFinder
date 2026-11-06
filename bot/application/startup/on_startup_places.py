@@ -45,3 +45,12 @@ async def indexing_places_elastic_search(
     finally:
         if close_indexer:
             await indexer.close()
+
+
+async def seed_places_from_csv(db: AsyncDatabase, csv_path: str, dry_run: bool = False):
+    path = Path(csv_path)
+    if not path.is_absolute():
+        path = APP_DIR / path
+    result = await db.places.import_places_csv(path, dry_run=dry_run)
+    logger.info('CSV import: {}', result)
+    return result

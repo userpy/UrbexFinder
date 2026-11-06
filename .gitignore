@@ -14,3 +14,15 @@ bot/logs/
 .coverage
 htmlcov/
 .pytest_cache/
+frontend/node_modules/
+frontend/.next/
+frontend/*.tsbuildinfo
+api/.venv/
+frontend/test-results/
+frontend/playwright-report/
+
+shared/dist/
+shared/build/
+shared/*.egg-info/
+backups/
+frontend/public/vendor/maplibre/

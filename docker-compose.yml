@@ -1,167 +1,300 @@
-
+name: urbexfinder
 services:
-  bot:
-    build:
-      context: ./bot
-    container_name: aiogram_bot
-    restart: unless-stopped
-    env_file:
-      - ./.env
-    volumes:
-      - ./bot:/app
-    depends_on:
-      db:
-        condition: service_healthy
-      migrations:
-        condition: service_completed_successfully
-      elasticsearch:
-        condition: service_started
-      loki:
-        condition: service_started
-      rabbitmq:
-        condition: service_healthy
-      rabbitmq-topology:
-        condition: service_completed_successfully
-
-  places-worker:
-    build:
-      context: ./bot
-    restart: unless-stopped
-    command: ["python", "-m", "application.workers.places_bootstrap_worker"]
-    env_file:
-      - ./.env
-    volumes:
-      - ./bot:/app
-    depends_on:
-      db:
-        condition: service_healthy
-      migrations:
-        condition: service_completed_successfully
-      elasticsearch:
-        condition: service_started
-      loki:
-        condition: service_started
-      rabbitmq:
-        condition: service_healthy
-      rabbitmq-topology:
-        condition: service_completed_successfully
-
-  migrations:
-    build:
-      context: ./bot
-    restart: "no"
-    command: ["alembic", "upgrade", "head"]
-    env_file:
-      - ./.env
-    volumes:
-      - ./bot:/app
-    depends_on:
-      db:
-        condition: service_healthy
-
-  rabbitmq-topology:
-    build:
-      context: ./bot
-    restart: "no"
-    command:
-      - "python"
-      - "-m"
-      - "infrastructure.messaging.rabbitmq.exchange_queue_topology"
-    env_file:
-      - ./.env
-    volumes:
-      - ./bot:/app
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.17.11
-    container_name: elasticsearch
     environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=true
-      - ELASTIC_PASSWORD=${ELASTICSEARCH_PASSWORD}
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
-    ports:
-      - "9200:9200"
-      - "9300:9300"
+      discovery.type: single-node
+      xpack.security.enabled: 'false'
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
     volumes:
-      - es_data:/usr/share/elasticsearch/data
-    restart: unless-stopped
-    depends_on:
-      - db
-
-  db:
-    image: postgres:15
-    container_name: postgres_db
-    restart: unless-stopped
-    env_file:
-      - ./.env
-    environment:
-      PGDATA: /var/lib/postgresql/data/pgdata
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./pg_data:/var/lib/postgresql/data
+    - urbex_search:/usr/share/elasticsearch/data
     healthcheck:
       test:
-        - "CMD-SHELL"
-        - >-
-          pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
-      interval: 2s
-      timeout: 5s
+      - CMD-SHELL
+      - curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null
+      interval: 5s
+      timeout: 8s
       retries: 30
-
+  minio:
+    image: pgsty/minio@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${URBEX_S3_ACCESS_KEY:-local-minio}
+      MINIO_ROOT_PASSWORD: ${URBEX_S3_SECRET_KEY:-local-minio-change-me}
+    ports:
+    - 127.0.0.1:59000:9000
+    - 127.0.0.1:59001:9001
+    volumes:
+    - urbex_photos:/data
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:9000/minio/health/live
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  storage-init:
+    build: &id001
+      context: .
+      dockerfile: api/Dockerfile
+    environment: &id002
+      URBEX_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      URBEX_ORIGIN: ${URBEX_ORIGIN:-http://localhost:3100}
+      URBEX_SECURE_COOKIE: ${URBEX_SECURE_COOKIE:-false}
+      URBEX_ENVIRONMENT: ${URBEX_ENVIRONMENT:-development}
+      URBEX_S3_ENDPOINT: http://minio:9000
+      URBEX_S3_ACCESS_KEY: ${URBEX_S3_ACCESS_KEY:-local-minio}
+      URBEX_S3_SECRET_KEY: ${URBEX_S3_SECRET_KEY:-local-minio-change-me}
+      URBEX_S3_BUCKET: urbex-private
+      URBEX_ELASTICSEARCH_URL: ${URBEX_ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      URBEX_ELASTICSEARCH_INDEX: ${URBEX_ELASTICSEARCH_INDEX:-urbex_places_v1}
+      URBEX_ELASTICSEARCH_USER: ${URBEX_ELASTICSEARCH_USER:-elastic}
+      URBEX_ELASTICSEARCH_PASSWORD: ${URBEX_ELASTICSEARCH_PASSWORD:-}
+      URBEX_TELEGRAM_BOT_TOKEN: ${URBEX_TELEGRAM_BOT_TOKEN:-${TOKEN:-}}
+      URBEX_GEOCODER_URL: ${URBEX_GEOCODER_URL:-}
+      URBEX_TELEGRAM_BOT_USERNAME: ${URBEX_TELEGRAM_BOT_USERNAME:-}
+    command:
+    - python
+    - -m
+    - urbex.bootstrap.cli
+    - init-storage
+    depends_on:
+      minio:
+        condition: service_healthy
+    image: ${URBEX_API_IMAGE:-urbex-api:local}
+    volumes:
+    - ./api:/app:ro
+  api:
+    build: *id001
+    environment: *id002
+    ports:
+    - 127.0.0.1:58000:8000
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    image: ${URBEX_API_IMAGE:-urbex-api:local}
+    volumes:
+    - ./api:/app:ro
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_MAP_STYLE_URL: ${NEXT_PUBLIC_MAP_STYLE_URL:-}
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    ports:
+    - 127.0.0.1:3100:3100
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - node
+      - -e
+      - fetch('http://127.0.0.1:3100').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    restart: unless-stopped
+    env_file:
+    - ./.env
+    volumes:
+    - ./bot:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      loki:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-topology:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ELASTICSEARCH_HOST: ${URBEX_ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      ELASTIC_URL: ${URBEX_ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      ELASTICSEARCH_USER: ${URBEX_ELASTICSEARCH_USER:-elastic}
+      ELASTICSEARCH_PASSWORD: ${URBEX_ELASTICSEARCH_PASSWORD:-}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: '5432'
+    image: ${BOT_IMAGE:-telegram-bot:local}
+    command:
+    - python
+    - main.py
+  places-worker:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    restart: unless-stopped
+    env_file:
+    - ./.env
+    volumes:
+    - ./bot:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      loki:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-topology:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ELASTICSEARCH_HOST: ${URBEX_ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      ELASTIC_URL: ${URBEX_ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      ELASTICSEARCH_USER: ${URBEX_ELASTICSEARCH_USER:-elastic}
+      ELASTICSEARCH_PASSWORD: ${URBEX_ELASTICSEARCH_PASSWORD:-}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: '5432'
+    image: ${BOT_IMAGE:-telegram-bot:local}
+    command:
+    - python
+    - -m
+    - application.workers.places_bootstrap_worker
+  migrations:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      URBEX_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      URBEX_ORIGIN: ${URBEX_ORIGIN:-http://localhost:3100}
+      URBEX_SECURE_COOKIE: ${URBEX_SECURE_COOKIE:-false}
+      URBEX_ENVIRONMENT: ${URBEX_ENVIRONMENT:-development}
+      URBEX_S3_ENDPOINT: http://minio:9000
+      URBEX_S3_ACCESS_KEY: ${URBEX_S3_ACCESS_KEY:-local-minio}
+      URBEX_S3_SECRET_KEY: ${URBEX_S3_SECRET_KEY:-local-minio-change-me}
+      URBEX_S3_BUCKET: urbex-private
+      URBEX_ELASTICSEARCH_URL: ${URBEX_ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      URBEX_ELASTICSEARCH_INDEX: ${URBEX_ELASTICSEARCH_INDEX:-urbex_places_v1}
+      URBEX_ELASTICSEARCH_USER: ${URBEX_ELASTICSEARCH_USER:-elastic}
+      URBEX_ELASTICSEARCH_PASSWORD: ${URBEX_ELASTICSEARCH_PASSWORD:-}
+      URBEX_TELEGRAM_BOT_TOKEN: ${URBEX_TELEGRAM_BOT_TOKEN:-${TOKEN:-}}
+    command:
+    - python
+    - -m
+    - urbex.bootstrap.migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    image: ${URBEX_API_IMAGE:-urbex-api:local}
+    volumes:
+    - ./api:/app:ro
+  rabbitmq-topology:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    restart: 'no'
+    command:
+    - python
+    - -m
+    - infrastructure.messaging.rabbitmq.exchange_queue_topology
+    env_file:
+    - ./.env
+    volumes:
+    - ./bot:/app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    image: ${BOT_IMAGE:-telegram-bot:local}
+  db:
+    image: postgis/postgis:15-3.5
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-urbex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-urbex}
+    ports:
+    - 127.0.0.1:5432:5432
+    volumes:
+    - urbex_pg:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
   rabbitmq:
     image: rabbitmq:3-management
-    container_name: rabbitmq
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
     ports:
-      - "5672:5672"
-      - "15672:15672"
+    - 5672:5672
+    - 15672:15672
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+    - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test:
-        - "CMD"
-        - "rabbitmq-diagnostics"
-        - "-q"
-        - "check_port_connectivity"
+      - CMD
+      - rabbitmq-diagnostics
+      - -q
+      - check_port_connectivity
       interval: 5s
       timeout: 5s
       retries: 12
-
   loki:
     image: grafana/loki:2.8.2
-    container_name: loki
-    user: "0:0"
+    user: 0:0
     ports:
-      - "3110:3100"
+    - 3110:3100
     command: -config.file=/etc/loki/local-config.yaml
     restart: unless-stopped
     volumes:
-      - ./loki_data:/loki
-
+    - ./loki_data:/loki
   grafana:
     image: grafana/grafana:10.2.2
-    container_name: grafana
     ports:
-      - "3000:3000"
+    - 3000:3000
     env_file:
-      - ./.env
+    - ./.env
     restart: unless-stopped
     depends_on:
-      - loki
+    - loki
     volumes:
-      - grafana_data:/var/lib/grafana
-
+    - grafana_data:/var/lib/grafana
 volumes:
-  es_data:
+  urbex_pg: null
+  urbex_photos: null
+  urbex_search: null
   loki_data:
+    name: telegram_bot2_loki_data
   grafana_data:
+    name: telegram_bot2_grafana_data
   rabbitmq_data:
+    name: telegram_bot2_rabbitmq_data

@@ -132,3 +132,22 @@ async def test_bootstrap_updates_addresses_when_seeding_is_disabled(monkeypatch)
     reindex_places.assert_awaited_once_with(indexer, close_indexer=False)
     indexer.close.assert_awaited_once()
     database.close.assert_awaited_once()
+
+
+async def test_bootstrap_csv_source(monkeypatch):
+    settings=_settings()
+    settings.seed_places_source='csv'
+    settings.places_csv_path='geo_data/places.csv'
+    database=SimpleNamespace(connect=AsyncMock(),close=AsyncMock())
+    indexer=SimpleNamespace(close=AsyncMock())
+    monkeypatch.setattr(bootstrap_module,'AsyncDatabase',lambda **kwargs:database)
+    monkeypatch.setattr(bootstrap_module,'ElasticPlacesIndexer',lambda **kwargs:indexer)
+    csv_seed=AsyncMock(); kmz_seed=AsyncMock()
+    monkeypatch.setattr(bootstrap_module,'seed_places_from_csv',csv_seed)
+    monkeypatch.setattr(bootstrap_module,'seed_places_from_kml',kmz_seed)
+    monkeypatch.setattr(bootstrap_module,'deduplicate_places',AsyncMock())
+    monkeypatch.setattr(bootstrap_module,'update_place_full_addres',AsyncMock())
+    monkeypatch.setattr(bootstrap_module,'indexing_places_elastic_search',AsyncMock())
+    await bootstrap_module.handle_places_bootstrap({'seed_places':True},settings=settings)
+    csv_seed.assert_awaited_once_with(database,'geo_data/places.csv')
+    kmz_seed.assert_not_awaited()

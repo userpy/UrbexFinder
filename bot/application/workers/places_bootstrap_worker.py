@@ -58,7 +58,8 @@ async def main() -> None:
     """Настроить логирование и запустить consumer."""
     setup_logger()
     settings = get_app_settings()
-    await consume_topic(settings=settings)
+    from application.workers.catalog_index_sync import sync_catalog_index
+    await asyncio.gather(consume_topic(settings=settings), sync_catalog_index(settings))
 
 
 if __name__ == "__main__":

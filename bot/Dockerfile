@@ -12,13 +12,16 @@ WORKDIR /app
 ARG POETRY_VERSION=2.4.1
 RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
 
-COPY pyproject.toml poetry.lock* ./
+COPY bot/pyproject.toml bot/poetry.lock* ./
 
 FROM base AS test
 
 RUN poetry install --no-root --with dev
 
-COPY . .
+COPY shared /opt/shared
+RUN pip install --no-deps --no-build-isolation /opt/shared
+
+COPY bot .
 
 CMD ["pytest"]
 
@@ -30,7 +33,10 @@ RUN groupadd --gid 10001 app \
     && useradd --uid 10001 --gid app --create-home --shell /usr/sbin/nologin app \
     && chown app:app /app
 
-COPY --chown=app:app . .
+COPY shared /opt/shared
+RUN pip install --no-deps --no-build-isolation /opt/shared
+
+COPY --chown=app:app bot .
 
 RUN install -d -o app -g app /app/logs
 

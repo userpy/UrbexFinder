@@ -1,3 +1,34 @@
+## Запуск и конфигурация
+
+В репозитории три файла Docker Compose и два файла настроек:
+
+- `docker-compose.yml` — локальный сайт, Telegram-бот и их сервисы.
+- `docker-compose.prod.yml` — самостоятельный production-стек, без монтирования исходников.
+- `docker-compose.test.yml` — изолированные тесты API, бота, браузера и миграций.
+- `.env` — локальные настройки всех компонентов и секреты (не входит в Git).
+- `.env.example` — единый шаблон; копировать только при первом запуске, не поверх заполненного `.env`.
+
+```bash
+# Сайт и бот полностью в Docker
+docker compose up -d --build
+# API в Docker, frontend с горячей перезагрузкой
+docker compose up -d --build api
+npm --prefix frontend run dev
+# Production: задайте URBEX_PROD_ORIGIN и production-пароли в .env
+docker compose -f docker-compose.prod.yml up -d --build
+# Тесты
+docker compose -f docker-compose.test.yml run --build --rm tests
+docker compose -f docker-compose.test.yml run --build --rm bot-tests
+docker compose -f docker-compose.test.yml run --build --rm verify
+npm --prefix frontend test
+# Удаление только временного тестового окружения
+docker compose -f docker-compose.test.yml --profile '*' down
+```
+
+API-тесты используют профиль `api`, браузерные — `e2e`, бот — `bot`, совместимость миграций — `compat`. При `run` профиль выбранного сервиса активируется автоматически. Браузерный runner сам запускает отдельный проект `urbexfinder-e2e` и очищает его после тестов. Все тестовые базы временные; production-тома к ним не подключаются.
+
+Сайт и бот используют один сервис PostgreSQL/PostGIS `db`, одну базу и общие `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` из `.env`. Постоянные данные хранятся в томе `urbex_pg`. Миграциями управляет только API. Старый каталог `./pg_data` сохранён как архив и больше не подключается к сервисам. Frontend npm-скрипты читают только `API_INTERNAL_URL` и `NEXT_PUBLIC_MAP_STYLE_URL`.
+
 Telegram Bot Project
 ====================
 
@@ -77,31 +108,28 @@ RabbitMQ хранит свои данные в named volume `rabbitmq_data`.
 3. Соберите и запустите сервисы:
    `docker compose up --build`
    Одноразовый сервис `migrations` дождётся готовности PostgreSQL и применит
-   `alembic upgrade head` до запуска бота и worker.
+   миграции API до запуска бота и worker.
 4. Сервисы будут доступны:
-   - Бот в контейнере `aiogram_bot`.
+   - Бот в сервисе `bot`.
    - Worker стартовой синхронизации в сервисе `places-worker`.
    - RabbitMQ AMQP: `localhost:5672`, Management UI: `localhost:15672`.
    - Postgres: `localhost:5432`.
-   - Elasticsearch: `localhost:9200`.
+   - Elasticsearch: `http://elasticsearch:9200` внутри Docker (порт на хост не публикуется).
    - Grafana: `localhost:3000`.
    - Loki: `localhost:3110`.
 
 Контейнеры Docker Compose
 ----------------------------
-Команда `docker compose up` запускает девять контейнеров. Часть имён
-задана явно через `container_name`, а имена вида
-`telegram_bot2-<service>-1` Docker Compose формирует из имени проекта,
-сервиса и номера экземпляра.
+Compose формирует имена контейнеров из имени проекта и сервиса (`urbexfinder-<service>-1`). Следующие сервисы бота запускаются по умолчанию; сервисы сайта описаны в `URBEXFINDER.md`.
 
 | Контейнер (сервис) | Что делает |
 |---|---|
-| `aiogram_bot` (`bot`) | Основной долгоживущий процесс Telegram-бота. Запускает `python main.py`, получает обновления Telegram через long polling, обрабатывает команды, читает и изменяет данные в PostgreSQL, ищет места через Elasticsearch и отправляет логи в Loki. При включённом `ENQUEUE_PLACES_SYNC_ON_STARTUP` публикует в RabbitMQ команду синхронизации мест. |
-| `telegram_bot2-places-worker-1` (`places-worker`) | Долгоживущий consumer RabbitMQ. По команде `places.bootstrap.requested` при необходимости загружает места из KMZ, удаляет дубликаты, дополняет адреса из CSV и пересоздаёт поисковый индекс Elasticsearch. При временной ошибке сообщение повторяется, а после исчерпания попыток попадает в dead-letter queue. |
-| `telegram_bot2-migrations-1` (`migrations`) | Одноразовый контейнер: после готовности PostgreSQL выполняет `alembic upgrade head` и завершается. `bot` и `places-worker` запускаются только после его успешного завершения. |
-| `telegram_bot2-rabbitmq-topology-1` (`rabbitmq-topology`) | Одноразовый контейнер: после готовности RabbitMQ создаёт durable exchange, основную очередь, retry-очередь, dead-letter-очередь и bindings, затем завершается. `bot` и `places-worker` ждут его успешного завершения. |
-| `postgres_db` (`db`) | PostgreSQL 15 — основное хранилище данных бота: пользователей, ролей, мест и ресурсов. Healthcheck не даёт зависимым сервисам стартовать до готовности БД. В локальном Compose порт `5432` опубликован на хост. |
-| `elasticsearch` (`elasticsearch`) | Одноузловой Elasticsearch 7.17.11 с включённой авторизацией. Хранит поисковый индекс мест для быстрого поиска; PostgreSQL остаётся основным источником данных. Порты `9200` (HTTP API) и `9300` (transport) опубликованы на хост, индекс хранится в volume `es_data`. |
+| `bot` | Основной долгоживущий процесс Telegram-бота. Запускает `python main.py`, получает обновления Telegram через long polling, обрабатывает команды, читает и изменяет данные в PostgreSQL, ищет места через Elasticsearch и отправляет логи в Loki. При включённом `ENQUEUE_PLACES_SYNC_ON_STARTUP` публикует в RabbitMQ команду синхронизации мест. |
+| `places-worker` | Долгоживущий consumer RabbitMQ. По команде `places.bootstrap.requested` при необходимости загружает места из KMZ, удаляет дубликаты, дополняет адреса из CSV и пересоздаёт поисковый индекс Elasticsearch. При временной ошибке сообщение повторяется, а после исчерпания попыток попадает в dead-letter queue. |
+| `migrations` | Одноразовый контейнер: после готовности PostgreSQL выполняет `python -m urbex.bootstrap.migrate` и завершается. `bot` и `places-worker` запускаются только после его успешного завершения. |
+| `rabbitmq-topology` | Одноразовый контейнер: после готовности RabbitMQ создаёт durable exchange, основную очередь, retry-очередь, dead-letter-очередь и bindings, затем завершается. `bot` и `places-worker` ждут его успешного завершения. |
+| `db` | PostgreSQL 15 — основное хранилище данных бота: пользователей, ролей, мест и ресурсов. Healthcheck не даёт зависимым сервисам стартовать до готовности БД. В локальном Compose порт `5432` опубликован на хост. |
+| `elasticsearch` | Общий Elasticsearch 7.17.11 для бота и сайта. Индексы `places` и `urbex_places_v1`, данные в `urbex_search`. Доступ только внутри Docker. |
 | `rabbitmq` (`rabbitmq`) | Брокер сообщений между `bot` и `places-worker`. AMQP доступен на порту `5672`, web-панель управления — на `15672`. Очереди и сообщения хранятся в volume `rabbitmq_data`. |
 | `loki` (`loki`) | Собирает и хранит логи приложения. Внутренний HTTP API `3100` доступен на хосте как `3110`; данные хранятся в локальной папке `./loki_data`. |
 | `grafana` (`grafana`) | Web-интерфейс для запроса и визуализации логов из Loki. Открывается на `http://localhost:3000`, а настройки, подключённые источники и dashboards хранятся в volume `grafana_data`. |
@@ -109,15 +137,11 @@ RabbitMQ хранит свои данные в named volume `rabbitmq_data`.
 Сервисы общаются по внутренней сети `telegram_bot2_default`, используя имена
 сервисов (`db`, `rabbitmq`, `elasticsearch`, `loki`) как DNS-имена. Это не
 контейнер: сеть создаётся `docker compose up` и удаляется
-`docker compose down`. Поэтому в примере вывода `down 10/10` означает
-девять удалённых контейнеров и одну удалённую сеть.
+`docker compose down`. Число контейнеров зависит от активных профилей.
 
 `docker compose down` без флага `-v` не удаляет named volumes
-`es_data`, `rabbitmq_data` и `grafana_data`, а также не удаляет bind-mount
-`./loki_data`. Однако в локальном `docker-compose.yml` к PostgreSQL не
-подключён volume, поэтому удаление `postgres_db` также удаляет его
-локальные данные. В production-конфигурации PostgreSQL использует
-named volume `postgres_data`.
+`urbex_search`, `rabbitmq_data` и `grafana_data`, а также не удаляет bind-mount
+`./loki_data`. Общая база сохраняется в томе `urbex_pg` и в локальной, и в production-конфигурации.
 
 Простой запуск в production
 ---------------------------
@@ -144,7 +168,7 @@ Grafana (`3000`) и RabbitMQ Management (`15672`) слушают только
    `poetry install`
    Для первого запуска установите `SEED_PLACES=True` в `.env`, чтобы загрузить места из KMZ.
 2. Примените миграции БД:
-   `poetry run alembic upgrade head`
+   `docker compose run --rm migrations`
 3. Запустите бота:
    `poetry run python main.py`
 4. В отдельном терминале запустите worker:
@@ -156,7 +180,7 @@ Grafana (`3000`) и RabbitMQ Management (`15672`) слушают только
 в `tmpfs`. Рабочий `.env` и основная база данных не подключаются.
 
 Запустить весь набор:
-`docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests`
+`docker compose -f docker-compose.test.yml run --build --rm bot-tests`
 
 Остановить и удалить тестовые контейнеры:
 `docker compose -f docker-compose.test.yml down --remove-orphans`
@@ -169,34 +193,21 @@ Grafana (`3000`) и RabbitMQ Management (`15672`) слушают только
 Отчёт о покрытии:
 `poetry run pytest --cov=. --cov-report=term-missing`
 
-Миграции базы данных (Alembic)
-------------------------------
-При запуске Docker Compose одноразовый сервис `migrations` автоматически
-применяет все миграции до старта `bot` и `places-worker`. Если миграция завершится
-с ошибкой, зависящие сервисы не запустятся.
+Миграции базы данных (API)
+--------------------------
+Единственный владелец миграций — API. Все ревизии находятся в `api/migrations/versions`, включая исторические ревизии бота. Сервис `migrations` использует образ API и команду `python -m urbex.bootstrap.migrate`. Бот, worker и API ждут его успешного завершения.
 
-Для Docker:
-- Повторно применить все миграции вручную:
-  `docker compose run --rm migrations`
-- Создать новую миграцию по изменениям моделей:
-  `docker compose run --rm --no-deps bot alembic revision --autogenerate -m "описание изменений"`
-- Откатить одну миграцию:
-  `docker compose run --rm --no-deps bot alembic downgrade -1`
+```bash
+docker compose run --rm migrations
+# Новая ревизия создаётся только в API, изменения схемы задаются явно:
+docker compose run --rm --no-deps migrations alembic revision -m "описание изменений"
+```
 
-Из директории `bot/` (без Docker):
-- Применить все миграции:
-  `poetry run alembic upgrade head`
-- Создать новую миграцию по изменениям моделей:
-  `poetry run alembic revision --autogenerate -m "описание изменений"`
-- Откатить одну миграцию:
-  `poetry run alembic downgrade -1`
+История сайта продолжена после исторической цепочки бота. Старая `alembic_version` сохраняется как архивный маркер, активная версия — `web_alembic_version`. Миграция старой базы бота подхватывает её ревизию без повторного создания таблиц. Повторный запуск безопасен; параллельные запуски сериализуются блокировкой PostgreSQL.
 
-Alembic читает настройки Postgres из `.env`:
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-- `POSTGRES_DB`
-- `POSTGRES_HOST` (по умолчанию: `db`)
-- `POSTGRES_PORT` (по умолчанию: `5432`)
+Сервис `migrations` обновляет единственную базу через `URBEX_DATABASE_URL`, который Compose формирует из общих `POSTGRES_*`. Бот подключается к той же базе. Отдельного подключения для чтения рейтингов больше нет.
+
+Локально из `api/` команда та же: `python -m urbex.bootstrap.migrate`; передайте `URBEX_DATABASE_URL` через окружение. Автоматический откат общей схемы не предусмотрен: используйте резервную копию и проверенный план восстановления.
 
 Elasticsearch читает настройки из `.env`:
 - `ELASTICSEARCH_HOST` (например: `http://elasticsearch:9200`)
@@ -293,3 +304,55 @@ CSV должен быть в UTF-8 (BOM допустим), с разделите
   - consumer отправляет ACK только после успешной обработки.
 - Перед reverse geocoding бот пытается восстановить отсутствующие `full_address`
   из `bot/geo_data/lat_lon_full_address.csv` по координатам `lat/lon`.
+
+## Импорт мест из CSV
+
+Поддерживается `bot/geo_data/places.csv` в UTF-8 (в том числе BOM), с разделителем `,` или `;`. Обязательные колонки: `name,latitude,longitude` (также поддерживаются `lat,lon`). Дополнительные: `description,type,category,full_address` (или `address`). Числа с десятичной запятой должны быть корректно заключены в кавычки либо использовать `;` как разделитель.
+
+В `.env` и `.env.example` добавлены `PLACES_CSV_PATH=geo_data/places.csv` и `SEED_PLACES_SOURCE=kmz|csv|both`. `SEED_PLACES=True` включает импорт при стартовой задаче бота; `both` сначала обрабатывает KMZ, затем CSV. После изменения настроек пересоздайте бота и worker: `docker compose up -d bot places-worker`. По умолчанию автоматическое заполнение остаётся выключенным. `CSV_PATH` — прежний файл дополнения адресов, это отдельная настройка.
+
+Явный запуск CSV-импорта независимо от `SEED_PLACES`:
+
+```bash
+# Проверка без добавления мест
+docker compose exec places-worker python -m application.startup.import_places_csv --dry-run
+# Импорт настроенного файла
+docker compose exec places-worker python -m application.startup.import_places_csv
+# Другой файл внутри контейнера
+docker compose exec places-worker python -m application.startup.import_places_csv --path geo_data/another.csv
+```
+
+Совпадения координат с точностью 6 знаков пропускаются, включая дубликаты внутри CSV. Существующие карточки не перезаписываются. ID из файла, оценки, жалобы и состояния публикации не импортируются; новые ID создаёт база. Новые записи имеют статус `pending` и доступны в очереди модерации. После публикации они появятся в поиске сайта и бота. Ошибка в любой строке отменяет весь импорт; сначала исправьте указанную строку и повторите. В CSV-режиме нет автоматических запросов внешнего геокодера.
+
+### Регистрация и вход через Telegram
+
+На странице входа и регистрации доступна кнопка «Войти / зарегистрироваться через Telegram».
+Сайт показывает одноразовый код и ссылку на бота. Пользователь нажимает «Старт»,
+сверяет код и подтверждает вход в личном чате. После возвращения в тот же браузер
+вход завершается автоматически. При первом входе создаётся обычный пользователь,
+при следующих используется тот же Telegram ID. Аккаунты с email (включая администратора)
+автоматически не объединяются с Telegram-аккаунтами.
+
+`URBEX_TELEGRAM_BOT_USERNAME` в `.env` — имя бота без `@`; `TOKEN` — его серверный токен.
+API и бот должны работать с общей базой `urbex_catalog`; перед запуском применяется
+миграция `web_005`. Ссылка действует 5 минут, подтверждается только получившим её
+Telegram-пользователем и завершается только браузером, создавшим запрос.
+Токен бота не передаётся на сайт. Публичный HTTPS callback для этого способа не нужен.
+
+Карточка места показывает отзывы из Telegram; формы отзыва, оценки и загрузки фото
+на сайте временно скрыты. Кнопка «Добавить в маршрутный лист» сразу добавляет место в активный маршрут.
+Если активного листа нет, он создаётся автоматически с текущей датой. Повторное
+нажатие не создаёт дубликат места.
+При сохранении новых точек маршрута они также добавляются в избранное в той же
+транзакции. Удаление точки или маршрута не удаляет ранее сохранённое избранное.
+
+Бот, worker и API используют один Elasticsearch. Compose задаёт всем URL из
+`URBEX_ELASTICSEARCH_URL` и авторизацию из `URBEX_ELASTICSEARCH_USER/PASSWORD`.
+Старый том `telegram_bot2_es_data` после объединения сохранён для отката,
+но действующие сервисы его не используют.
+
+Маршрутный лист создаётся кнопкой «+ Новый маршрут» с названием по текущей дате.
+Дата создания сохраняется сервером автоматически. В списке можно удалить лист
+или отметить его активным; у пользователя может быть только один активный лист.
+Снятие галочки оставляет список без активного маршрута. Дата поездки редактируется
+отдельно и не меняет дату создания.

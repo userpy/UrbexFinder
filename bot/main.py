@@ -11,7 +11,7 @@ from infrastructure.db.EasticSearch import ElasticPlacesIndexer
 from infrastructure.db.PgDb import AsyncDatabase
 from infrastructure.messaging.rabbitmq.producer import publish_message
 from infrastructure.telegram.webhook import delete_webhook_with_retry
-from interface.handlers import help, places, places_social, resources, start
+from interface.handlers import telegram_login, help, places, places_social, resources, start
 from interface.middleware.db_middleware import DBMiddleware
 from interface.middleware.elastic_middleware import ElasticMiddleware
 
@@ -50,6 +50,7 @@ async def main() -> None:
         dp.update.middleware(DBMiddleware(db))
         dp.update.middleware(ElasticMiddleware(elastic))
         dp.include_routers(
+            telegram_login.router,
             places.router,
             places_social.router,
             help.router,

@@ -1,33 +1,256 @@
-name: telegram-bot-tests
-
+name: urbexfinder-tests
 services:
+  test-elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.11
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: 'false'
+      ES_JAVA_OPTS: -Xms256m -Xmx256m
+    tmpfs:
+    - /usr/share/elasticsearch/data:uid=1000,gid=0
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null
+      interval: 3s
+      timeout: 8s
+      retries: 40
+    profiles:
+    - api
+    - e2e
   test-db:
-    image: postgres:15
+    image: postgis/postgis:15-3.5
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: urbex_test
+    tmpfs:
+    - /var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U test -d urbex_test
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    profiles:
+    - api
+    - e2e
+  test-minio:
+    image: pgsty/minio@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: test-minio
+      MINIO_ROOT_PASSWORD: test-only-password
+    tmpfs:
+    - /data
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:9000/minio/health/live
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    profiles:
+    - api
+    - e2e
+  tests:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      URBEX_DATABASE_URL: postgresql+psycopg2://test:test@test-db:5432/urbex_test
+      URBEX_S3_ENDPOINT: http://test-minio:9000
+      URBEX_S3_ACCESS_KEY: test-minio
+      URBEX_S3_SECRET_KEY: test-only-password
+      URBEX_S3_BUCKET: urbex-test-private
+      URBEX_ENVIRONMENT: test
+      URBEX_ELASTICSEARCH_URL: http://test-elasticsearch:9200
+      URBEX_ELASTICSEARCH_INDEX: urbex_test_places_v1
+    volumes:
+    - ./api:/app
+    depends_on:
+      test-db:
+        condition: service_healthy
+      test-minio:
+        condition: service_healthy
+      test-elasticsearch:
+        condition: service_healthy
+    command:
+    - sh
+    - -c
+    - python -m urbex.bootstrap.migrate && python -m urbex.bootstrap.cli init-storage && python -m pytest -q -p
+      no:cacheprovider
+    image: urbexfinder-tests-tests:latest
+    profiles:
+    - api
+  bot-test-db:
+    image: postgis/postgis:15-3.5
     environment:
       POSTGRES_USER: test
       POSTGRES_PASSWORD: test
       POSTGRES_DB: telegram_bot_test
     tmpfs:
-      - /var/lib/postgresql/data
+    - /var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U test -d telegram_bot_test"]
+      test:
+      - CMD-SHELL
+      - pg_isready -U test -d telegram_bot_test
       interval: 2s
       timeout: 3s
       retries: 20
-
-  tests:
+    profiles:
+    - bot
+  bot-tests:
     build:
-      context: ./bot
+      context: .
+      dockerfile: bot/Dockerfile
       target: test
     environment:
       POSTGRES_USER: test
       POSTGRES_PASSWORD: test
       POSTGRES_DB: telegram_bot_test
-      POSTGRES_HOST: test-db
+      POSTGRES_HOST: bot-test-db
       POSTGRES_PORT: 5432
+    depends_on:
+      bot-test-db:
+        condition: service_healthy
+      bot-test-migrations:
+        condition: service_completed_successfully
+    volumes:
+    - ./bot:/app
+    command:
+    - sh
+    - tests/run.sh
+    profiles:
+    - bot
+    image: telegram-bot-tests-tests:latest
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      URBEX_DATABASE_URL: postgresql+psycopg2://test:test@test-db:5432/urbex_test
+      URBEX_S3_ENDPOINT: http://test-minio:9000
+      URBEX_S3_ACCESS_KEY: test-minio
+      URBEX_S3_SECRET_KEY: test-only-password
+      URBEX_S3_BUCKET: urbex-test-private
+      URBEX_ENVIRONMENT: test
+      URBEX_ELASTICSEARCH_URL: http://test-elasticsearch:9200
+      URBEX_ELASTICSEARCH_INDEX: urbex_test_places_v1
+      URBEX_ORIGIN: http://localhost:3101
+    volumes:
+    - ./api:/app
     depends_on:
       test-db:
         condition: service_healthy
+      test-minio:
+        condition: service_healthy
+      test-elasticsearch:
+        condition: service_healthy
+    command:
+    - sh
+    - -c
+    - python -m urbex.bootstrap.migrate && python -m urbex.bootstrap.cli init-storage && python -m tests.seed_e2e
+      && uvicorn urbex.bootstrap.main:app --host 0.0.0.0 --port 8000
+    image: urbexfinder-tests-tests:latest
+    profiles:
+    - e2e
+    ports:
+    - 127.0.0.1:58001:8000
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  compat-db:
+    image: postgis/postgis:15-3.5
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: urbex_test
+    tmpfs:
+    - /var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U test -d urbex_test
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    profiles:
+    - compat
+  compat-schema:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      URBEX_DATABASE_URL: postgresql+psycopg2://test:test@compat-db:5432/urbex_test
+      URBEX_ENVIRONMENT: test
+    command:
+    - alembic
+    - upgrade
+    - '20260726_0006'
+    depends_on:
+      compat-db:
+        condition: service_healthy
+    image: urbexfinder-tests-tests:latest
+    profiles:
+    - compat
     volumes:
-      - ./bot:/app
-    command: ["sh", "tests/run.sh"]
+    - ./api:/app
+  verify:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      URBEX_DATABASE_URL: postgresql+psycopg2://test:test@compat-db:5432/urbex_test
+      URBEX_ENVIRONMENT: test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: urbex_test
+      POSTGRES_HOST: compat-db
+      POSTGRES_PORT: 5432
+    volumes:
+    - ./api:/app
+    command:
+    - python
+    - -m
+    - tests.verify_compatibility
+    depends_on:
+      compat-schema:
+        condition: service_completed_successfully
+    image: urbexfinder-tests-tests:latest
+    profiles:
+    - compat
+  bot-test-migrations:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      URBEX_DATABASE_URL: postgresql+psycopg2://test:test@bot-test-db:5432/telegram_bot_test
+      URBEX_S3_ENDPOINT: http://test-minio:9000
+      URBEX_S3_ACCESS_KEY: test-minio
+      URBEX_S3_SECRET_KEY: test-only-password
+      URBEX_S3_BUCKET: urbex-test-private
+      URBEX_ENVIRONMENT: test
+      URBEX_ELASTICSEARCH_URL: http://test-elasticsearch:9200
+      URBEX_ELASTICSEARCH_INDEX: urbex_test_places_v1
+    volumes:
+    - ./api:/app
+    depends_on:
+      bot-test-db:
+        condition: service_healthy
+    command:
+    - python
+    - -m
+    - urbex.bootstrap.migrate
+    image: urbexfinder-tests-tests:latest
+    profiles:
+    - bot

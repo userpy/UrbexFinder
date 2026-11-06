@@ -1,3 +1,4 @@
+from urbex_shared.catalog import PlaceColumns
 """SQLAlchemy ORM models for telegram bot database."""
 
 from sqlalchemy import (
@@ -37,28 +38,8 @@ class User(Base):  # noqa: D101
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
 
 
-class Place(Base):  # noqa: D101
-    """Place model for storing geographic locations."""
-
+class Place(PlaceColumns, Base):
     __tablename__ = "places"
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    description = Column(Text, nullable=True)
-    type = Column(String, nullable=True)
-    latitude = Column(Numeric(10, 6), nullable=True)
-    longitude = Column(Numeric(10, 6), nullable=True)
-    category = Column(String, nullable=True)
-    full_address = Column(Text, nullable=True)
-    rating_avg = Column(Numeric(3, 2), nullable=False, server_default="0")
-    rating_count = Column(Integer, nullable=False, server_default="0")
-    rating_score = Column(Numeric(5, 3), nullable=False, server_default="0")
-    nonexistent_reports_count = Column(
-        Integer,
-        nullable=False,
-        server_default="0",
-        index=True,
-    )
 
 
 class PlaceNonexistentReport(Base):  # noqa: D101
@@ -104,6 +85,8 @@ class PlaceReview(Base):  # noqa: D101
         index=True,
     )
     user_id = Column(BigInteger, nullable=False)
+    status = Column(String(30), nullable=False, server_default='published')
+    reason = Column(Text, nullable=False, server_default='')
     user_name = Column(String, nullable=True)
     text = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
@@ -124,6 +107,8 @@ class PlacePhoto(Base):  # noqa: D101
     user_id = Column(BigInteger, nullable=False)
     user_name = Column(String, nullable=True)
     file_id = Column(String, nullable=False)
+    status = Column(String(30), nullable=False, server_default="pending")
+    reason = Column(Text, nullable=False, server_default="")
     caption = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 

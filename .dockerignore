@@ -1,0 +1,16 @@
+*
+!api/
+!api/**
+!bot/
+!bot/**
+!shared/
+!shared/**
+**/.env
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+bot/logs
+
+shared/build
+shared/*.egg-info

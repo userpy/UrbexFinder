@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 from pathlib import Path
 
 from pydantic import Field
@@ -32,6 +33,8 @@ class AppSettings(DatabaseSettings):
     elasticsearch_host: str
     elasticsearch_user: str
     elasticsearch_password: str
+    seed_places_source: Literal["kmz", "csv", "both"] = "kmz"
+    places_csv_path: str = "geo_data/places.csv"
     seed_places: bool
     rabbitmq_user: str
     rabbitmq_password: str

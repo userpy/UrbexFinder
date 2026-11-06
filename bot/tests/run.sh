@@ -1,5 +1,4 @@
 #!/bin/sh
 set -eu
-
-alembic upgrade head
+# Schema is prepared by the API migration service.
 pytest "$@"

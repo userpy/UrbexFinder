@@ -460,6 +460,8 @@ async def save_photo(message: Message, state: FSMContext, db: AsyncDatabase):
         await message.answer("Не удалось сохранить фото.")
         return
 
+    await message.answer("Фото отправлено на модерацию. После одобрения оно появится в карточке места.")
+
     if social_prompt_message_id is not None:
         await PlaceSocialService.delete_message_by_id_safely(message=message, message_id=int(social_prompt_message_id))
     await PlaceSocialService.delete_chat_message_safely(message=message)

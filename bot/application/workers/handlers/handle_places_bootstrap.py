@@ -10,6 +10,7 @@ from application.startup.on_startup_places import (
     deduplicate_places,
     indexing_places_elastic_search,
     seed_places_from_kml,
+    seed_places_from_csv,
     update_place_full_addres,
 )
 from infrastructure.core.settings import AppSettings
@@ -37,6 +38,8 @@ async def handle_places_bootstrap(
 
 
 
+    db = None
+    indexer = None
     try:
         db = AsyncDatabase(
                     user_admin_name=settings.admin_name,
@@ -55,20 +58,23 @@ async def handle_places_bootstrap(
                 es_password=settings.elasticsearch_password,
             )
             
-        await seed_places_from_kml(
-                    db,
-                    settings.kmz_path,
-                    should_seed_places,
-                )
-        await deduplicate_places(db)
-        await update_place_full_addres(db, settings.csv_path)
+        source = getattr(settings, 'seed_places_source', 'kmz')
+        if source in {'kmz', 'both'}:
+            await seed_places_from_kml(db, settings.kmz_path, should_seed_places)
+        if should_seed_places and source in {'csv', 'both'}:
+            await seed_places_from_csv(db, settings.places_csv_path)
+        if source in {'kmz', 'both'}:
+            await deduplicate_places(db)
+            await update_place_full_addres(db, settings.csv_path)
         await indexing_places_elastic_search(
                     indexer,
                     close_indexer=False,
                 )
                 
     finally:
-            await indexer.close()
-            await db.close()
+            if indexer is not None:
+                await indexer.close()
+            if db is not None:
+                await db.close()
 
     logger.info("Places bootstrap completed")
