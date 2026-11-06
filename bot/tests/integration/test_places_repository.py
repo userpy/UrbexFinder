@@ -25,9 +25,7 @@ async def _create_place(
         category="abandoned",
     )
     assert place_id is not None
-    assert await database.places.get_place_by_id(place_id) is None
-    async with database.engine.begin() as connection:
-        await connection.execute(text("UPDATE places SET status='published' WHERE id=:id"), {"id": place_id})
+    assert await database.places.get_place_by_id(place_id) is not None
     return place_id
 
 
@@ -273,7 +271,7 @@ async def test_csv_import_dry_run_duplicates_and_preserves_existing(database, tm
     assert (await database.places.get_place_by_id(place))['name']=='Редакторское название'
     async with database.engine.connect() as c:
         new=(await c.execute(text("SELECT * FROM places WHERE name='Новое место'"))).mappings().one()
-        assert new['status']=='pending'
+        assert new['status']=='published'
         assert new['rating_count']==0 and new['rating_avg']==0
         assert new['full_address']=='Улица, Город'
         assert new['category_id'] is not None

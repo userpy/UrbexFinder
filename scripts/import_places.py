@@ -26,8 +26,8 @@ WITH unique_places AS (
     SELECT DISTINCT ON (latitude, longitude) *
     FROM import_places ORDER BY latitude, longitude, seq
 ), inserted AS (
-    INSERT INTO public.places (name, description, type, latitude, longitude, category, full_address)
-    SELECT i.name, i.description, i.type, i.latitude, i.longitude, i.category, i.full_address
+    INSERT INTO public.places (name, description, type, latitude, longitude, category, full_address, status)
+    SELECT i.name, i.description, i.type, i.latitude, i.longitude, i.category, i.full_address, 'published'
     FROM unique_places i
     WHERE NOT EXISTS (
         SELECT 1 FROM public.places p

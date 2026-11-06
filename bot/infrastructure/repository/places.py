@@ -63,7 +63,7 @@ class PlacesRepository:
                     if category not in categories:
                         await session.execute(text('INSERT INTO web_categories(name) VALUES (:name) ON CONFLICT(name) DO NOTHING'), {'name':category})
                         categories[category] = await session.scalar(text('SELECT id FROM web_categories WHERE name=:name'), {'name':category})
-                    values.update(category_id=categories[category], region=(values['full_address'] or 'Не указан')[:200], status='pending')
+                    values.update(category_id=categories[category], region=(values['full_address'] or 'Не указан')[:200], status='published')
                     batch.append(values)
                     if len(batch) >= 500:
                         await session.execute(insert(PlaceModel), batch)
@@ -189,6 +189,7 @@ class PlacesRepository:
 
                 logger.info(f"[INFO] created place {name}")
                 new_place = PlaceModel(
+                    status="published",
                     name=name,
                     description=description,
                     type=type_,

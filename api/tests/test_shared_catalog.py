@@ -27,6 +27,18 @@ def test_common_catalog_changes_and_moderation(client, moderator):
     assert all(p['id'] != published for p in guest.get('/api/places').json()['items'])
 
 
+def test_pending_place_without_author_appears_in_moderation(client, moderator):
+    with client.app.state.engine.begin() as c:
+        place = c.scalar(text("INSERT INTO places(name,latitude,longitude,status) VALUES ('Место без автора',55.75,37.62,'pending') RETURNING id"))
+    queue = moderator.get('/api/admin/places?status=pending')
+    assert queue.status_code == 200
+    assert any(p['id'] == place for p in queue.json()['items'])
+    guest = TestClient(client.app)
+    assert guest.get(f'/api/places/{place}').status_code == 404
+    assert moderator.post(f'/api/admin/places/{place}/decision', json={'status':'published'}).status_code == 200
+    assert guest.get(f'/api/places/{place}').status_code == 200
+
+
 def test_telegram_photos_permissions_and_no_secret_disclosure(client, moderator, monkeypatch):
     with client.app.state.engine.begin() as c:
         place = c.scalar(text("INSERT INTO places(name,latitude,longitude,status) VALUES ('Фото бота',55.75,37.62,'published') RETURNING id"))
