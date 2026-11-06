@@ -41,7 +41,7 @@ services:
       dockerfile: api/Dockerfile
     environment: &id002
       URBEX_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      URBEX_ORIGIN: ${URBEX_ORIGIN:-http://localhost:3100}
+      URBEX_ORIGIN: ${URBEX_ORIGIN:-http://localhost}
       URBEX_SECURE_COOKIE: ${URBEX_SECURE_COOKIE:-false}
       URBEX_ENVIRONMENT: ${URBEX_ENVIRONMENT:-development}
       URBEX_S3_ENDPOINT: http://minio:9000
@@ -190,7 +190,7 @@ services:
       dockerfile: api/Dockerfile
     environment:
       URBEX_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      URBEX_ORIGIN: ${URBEX_ORIGIN:-http://localhost:3100}
+      URBEX_ORIGIN: ${URBEX_ORIGIN:-http://localhost}
       URBEX_SECURE_COOKIE: ${URBEX_SECURE_COOKIE:-false}
       URBEX_ENVIRONMENT: ${URBEX_ENVIRONMENT:-development}
       URBEX_S3_ENDPOINT: http://minio:9000
