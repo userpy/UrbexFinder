@@ -283,6 +283,21 @@ python3 scripts/import_places.py
 python3 scripts/import_places.py geocaching_places.csv
 ```
 
+Для production явно укажите Compose-файл: проекты `urbexfinder` и
+`urbexfinder-prod` используют разные тома PostgreSQL. Импорт в локальный стек
+не заполняет production-базу. При `SEED_PLACES=False` стартовая задача также
+не импортирует места. Разовая загрузка каталога и обновление поиска сайта:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d db
+python3 scripts/import_places.py -f docker-compose.prod.yml bot/geo_data/places.csv
+docker compose -f docker-compose.prod.yml up -d api web
+docker compose -f docker-compose.prod.yml exec api python -m urbex.bootstrap.cli reindex-search
+```
+
+Если используете автоматический CSV-импорт через бота, после обновления кода
+пересоберите образы: `docker compose -f docker-compose.prod.yml up -d --build bot places-worker`.
+
 CSV должен быть в UTF-8 (BOM допустим), с разделителем-запятой и заголовками
 `name,latitude,longitude`. Дополнительные поля: `description,type,category,full_address`.
 Колонки `id`, рейтингов и жалоб игнорируются: ID назначает база, статистика новых

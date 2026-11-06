@@ -107,6 +107,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("file", nargs="?", type=Path, help="CSV; без аргумента — выбор файла")
     parser.add_argument("--check", action="store_true", help="только проверить CSV, без записи в БД")
+    parser.add_argument("-f", "--compose-file", type=Path, help="Compose-файл целевого стека (например docker-compose.prod.yml)")
     args = parser.parse_args()
     try:
         path = args.file.expanduser() if args.file is not None else choose_file()
@@ -115,8 +116,11 @@ def main():
             print(f"Файл: {path.resolve()}\nПроверено строк: {count}", flush=True)
             if args.check:
                 return 0
+            compose = ["docker", "compose"]
+            if args.compose_file is not None:
+                compose.extend(["-f", str(args.compose_file.resolve())])
             subprocess.run(
-                ["docker", "compose", "exec", "-T", "-e", "PGCLIENTENCODING=UTF8", "db", "sh", "-c",
+                [*compose, "exec", "-T", "-e", "PGCLIENTENCODING=UTF8", "db", "sh", "-c",
                  'exec psql -X -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" '
                  '-d "${POSTGRES_DB:-mydatabase}"'],
                 cwd=PROJECT_DIR, stdin=stream, check=True,
