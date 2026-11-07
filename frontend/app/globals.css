@@ -112,7 +112,7 @@ dialog.admin-inspector.category-inspector { width: min(960px, calc(100vw - 32px)
 .category-inspector .category-icon-picker { padding-bottom: 0; min-height: 0; }
 .category-inspector .category-icon-picker:not([open]) > .category-icon-dropdown { display: none; }
 
-.route-editor .route-switch-button { padding-left: 0; padding-right: 0; }
+.route-editor .route-switch-button { padding-left: 16px; padding-right: 16px; }
 
 .active-route-badge { display: table; margin: 8px 0 12px; padding: 5px 10px; border: 1px solid var(--accent); border-radius: 4px; background: #8ac4e410; color: var(--accent); font-size: 12px; }
 
@@ -121,11 +121,11 @@ dialog.admin-inspector.category-inspector { width: min(960px, calc(100vw - 32px)
 .active-route-heading h2 { margin: 0; overflow-wrap: anywhere; }
 
 .submit-card { padding: 25px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
-.submit-card-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
-.submit-card-heading h1 { margin: 10px 0 0; }
-.submit-card-heading .button { flex-shrink: 0; }
+.submit-card-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 16px; margin-bottom: 24px; }
+.submit-card-heading h1 { grid-column: 1 / -1; margin: 0; }
+.submit-card-heading .button { padding: 0; min-height: 0; justify-self: end; }
 .submit-card .place-form { padding: 0; border: 0; background: transparent; border-radius: 0; }
-@media (max-width: 600px) { .submit-card { padding: 18px; } .submit-card-heading { gap: 8px; } .submit-card-heading .button { padding: 8px; } }
+@media (max-width: 600px) { .submit-card { padding: 18px; } .submit-card-heading { gap: 8px; } .submit-card-heading .button { padding: 0; } }
 
 .route-send-actions { margin-top: 16px; display: flex; justify-content: flex-start; }
 
@@ -175,3 +175,55 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 
 .admin-table mark { background: #8ac4e435; color: var(--foreground); border-radius: 2px; padding: 0 1px; }
 .admin-table .admin-search-excerpt { margin-top: 6px; white-space: normal; overflow-wrap: anywhere; color: #b4c4d1; }
+
+.account-place-section { border-bottom: 1px solid var(--border, #303b44); }
+.account-place-section > summary { padding: 16px 0; cursor: pointer; font-size: 18px; }
+.account-place-list { list-style: none; padding: 0; margin: 0 0 16px; min-height: 24px; }
+
+.account-list-empty { text-align: center; }
+
+.account-profile { border: 1px solid var(--accent); border-radius: 6px; padding: 20px; }
+
+.route-switch-button { border: 1px solid var(--border); border-radius: 5px; padding: 10px 16px; margin-bottom: 12px; transition: border-color 160ms ease, box-shadow 160ms ease; }
+.route-switch-button:hover:not(:disabled), .route-switch-button:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+.route-list .route-create-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-width: 190px; min-height: 122px; align-self: stretch; padding: 20px; background: transparent; border: 1px solid var(--border); border-radius: 5px; color: var(--accent); transition: border-color 160ms ease, box-shadow 160ms ease; }
+.route-list .route-create-card:hover:not(:disabled), .route-list .route-create-card:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+.account-table-scroll { margin-bottom: 16px; overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
+.account-places-table { width: 100%; border-collapse: collapse; text-align: left; }
+.account-places-table th { padding: 12px 16px; font-size: 12px; font-weight: 500; color: var(--muted); background: var(--panel); }
+.account-places-table td { padding: 14px 16px; border-top: 1px solid var(--border); vertical-align: middle; }
+.account-places-table td:first-child { width: 100%; min-width: 180px; overflow-wrap: anywhere; }
+.account-places-table td:not(:first-child) { white-space: nowrap; }
+
+.place-coordinate { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
+.place-coordinate output { color: var(--foreground); font-variant-numeric: tabular-nums; user-select: text; }
+
+.routes-page-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.routes-page-heading h1 { margin: 0; }
+.routes-back-map { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 5px; transition: border-color 160ms ease; }
+.routes-back-map:hover { border-color: var(--accent); }
+
+.account-place-actions .button { white-space: nowrap; }
+.account-place-actions .button + .button { margin-left: 8px; }
+
+.account-place-actions .button { transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease; }
+.account-place-actions .account-place-view:hover:not(:disabled), .account-place-actions .account-place-view:focus-visible { color: #a8dcf5; border-color: var(--accent); background: #8ac4e426; }
+.account-place-actions .account-place-delete:hover:not(:disabled), .account-place-actions .account-place-delete:focus-visible { color: #ffb4ad; border-color: #ed7068; background: #ed706826; outline-color: #ed7068; }
+
+.account-profile-title { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+.account-profile-title h1 { margin: 0; overflow-wrap: anywhere; }
+
+.submit-modal { position: fixed; inset: 0; width: min(680px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 0; border-radius: 6px; background: var(--panel); color: var(--foreground); overflow-y: auto; box-shadow: 0 24px 80px #0008; }
+.submit-modal::backdrop { background: #0009; }
+.submit-modal > .page { width: 100%; max-width: none; margin: 0; padding: 0; }
+.submit-modal .submit-card { border: 1px solid var(--border); }
+
+.gallery-upload { margin-bottom: 16px; }
+
+.detail .gallery-upload .button { width: auto; margin-bottom: 0; }
+
+.gallery-heading { justify-content: flex-start; flex-wrap: wrap; }
+.gallery-heading .gallery-upload { margin: 0; }
+.gallery-heading .gallery-total { margin-left: auto; }

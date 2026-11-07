@@ -16,7 +16,9 @@ export function PlaceForm({
     [busy, setBusy] = useState(false);
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
-  const [categoryId, setCategoryId] = useState(String(initial?.category_id ?? ""));
+  const [categoryId, setCategoryId] = useState(
+    String(initial?.category_id ?? ""),
+  );
   const [region, setRegion] = useState(initial?.region ?? "");
   const [geocoding, setGeocoding] = useState(false);
   const [latitude, setLatitude] = useState(String(initial?.latitude ?? ""));
@@ -28,12 +30,19 @@ export function PlaceForm({
     Number.isFinite(Number(longitude)) &&
     Math.abs(Number(latitude)) <= 85 &&
     Math.abs(Number(longitude)) <= 180;
-  const formValid =
-    valid &&
-    name.trim().length >= 3 && name.trim().length <= 200 &&
-    description.trim().length >= 20 && description.trim().length <= 20000 &&
-    region.trim().length >= 2 && region.trim().length <= 200 &&
-    categories.some((category) => String(category.id) === categoryId);
+  const validationMessage =
+    name.trim().length < 3 || name.trim().length > 200
+      ? "Название должно содержать от 3 до 200 символов."
+      : description.trim().length < 20 || description.trim().length > 20000
+        ? `Описание должно содержать от 20 до 20 000 символов. Сейчас: ${description.trim().length}.`
+        : !valid
+          ? "Выберите место на карте, чтобы заполнить координаты."
+          : region.trim().length < 2 || region.trim().length > 200
+            ? "Нажмите «Определить регион по координатам»."
+            : !categories.some((category) => String(category.id) === categoryId)
+              ? "Выберите категорию места."
+              : "";
+  const formValid = !validationMessage;
   const lat = valid ? Number(latitude) : (initial?.latitude ?? 55.75);
   const lon = valid ? Number(longitude) : (initial?.longitude ?? 37.62);
   const point = useMemo<Place>(
@@ -82,11 +91,12 @@ export function PlaceForm({
                 ...data,
                 name: name.trim(),
                 description: description.trim(),
+                region: region.trim(),
                 condition: initial?.condition ?? "unknown",
                 access:
                   initial?.access ?? "Сведения о доступе не подтверждены.",
-                latitude: Number(data.latitude),
-                longitude: Number(data.longitude),
+                latitude: Number(latitude),
+                longitude: Number(longitude),
                 category_id: Number(data.category_id),
               }),
             },
@@ -115,6 +125,7 @@ export function PlaceForm({
         Описание
         <textarea
           name="description"
+          aria-describedby="place-description-hint"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           minLength={20}
@@ -124,6 +135,9 @@ export function PlaceForm({
           required
         />
       </label>
+      <p id="place-description-hint" className="muted">
+        Минимум 20 символов · Введено: {description.trim().length}
+      </p>
       <p className="muted">
         Перетащите метку на карте — широта и долгота заполнятся автоматически.
       </p>
@@ -147,45 +161,16 @@ export function PlaceForm({
         />
       </div>
       <div className="form-grid">
-        <label>
-          Широта
-          <input
-            name="latitude"
-            type="number"
-            step="any"
-            min={-85}
-            max={85}
-            value={latitude}
-            readOnly
-            placeholder="55.75"
-            required
-          />
-        </label>
-        <label>
-          Долгота
-          <input
-            name="longitude"
-            type="number"
-            step="any"
-            min={-180}
-            max={180}
-            value={longitude}
-            readOnly
-            placeholder="37.62"
-            required
-          />
-        </label>
-        <label>
-          Регион
-          <input
-            name="region"
-            value={region}
-            readOnly
-            minLength={2}
-            maxLength={200}
-            placeholder="Московская область"
-            required
-          />
+        <p className="place-coordinate">
+          Широта: <output>{latitude || "—"}</output>
+        </p>
+        <p className="place-coordinate">
+          Долгота: <output>{longitude || "—"}</output>
+        </p>
+        <div>
+          <p className="place-coordinate">
+            Регион: <output>{region || "—"}</output>
+          </p>
           <Button
             type="button"
             variant="outline"
@@ -209,7 +194,7 @@ export function PlaceForm({
               ? "Определение региона…"
               : "Определить регион по координатам"}
           </Button>
-        </label>
+        </div>
         <label>
           Категория
           <select
@@ -218,7 +203,9 @@ export function PlaceForm({
             onChange={(e) => setCategoryId(e.target.value)}
             required
           >
-            <option value="" disabled>Выберите категорию</option>
+            <option value="" disabled>
+              Выберите категорию
+            </option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -227,16 +214,18 @@ export function PlaceForm({
           </select>
         </label>
       </div>
-      <p className="muted">
-        Укажите источник и дату наблюдения. Новое место появится на карте после
-        проверки.
-      </p>
       {error && (
         <p className="notice" role="alert">
           {error}
         </p>
       )}
+      {validationMessage && (
+        <p id="place-validation" className="notice" role="status">
+          {validationMessage}
+        </p>
+      )}
       <Button
+        aria-describedby={validationMessage ? "place-validation" : undefined}
         disabled={busy || geocoding || !formValid}
       >
         {busy ? "Отправка…" : "Отправить на проверку"}

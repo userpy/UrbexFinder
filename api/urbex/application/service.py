@@ -14,10 +14,16 @@ class Service:
         self.reviews = ReviewsService(repo, places=self.places)
         self.moderation = ModerationService(repo)
 
-    def personal(self, actor, kind, page):
+    def personal(self, actor, kind, page, pending_only=False, status=None):
         if kind == 'favorites':
             return self.repo.search({'favorite_user': actor.id, 'page': page})
-        return self.repo.list(kind, {'author_id': actor.id}, page)
+        filters = {'author_id': actor.id}
+        if kind == 'places':
+            if pending_only:
+                filters['status'] = 'pending'
+            elif status:
+                filters['status'] = status
+        return self.repo.list(kind, filters, page)
 
     def categories(self, page):
         return self.repo.list('categories', {'active': True}, page)

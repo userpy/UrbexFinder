@@ -31,9 +31,25 @@ class PlacesService:
             return self.repo.update('places', id, values)
         return self.repo.add('places', dict(values, author_id=actor.id))
 
+    def remove_own(self, actor, id):
+        place = self.repo.get('places', id, lock=True)
+        if place['author_id'] != actor.id:
+            raise DomainError('Место не найдено', 404)
+        # Keep references from routes and reviews intact, as for moderation deletion.
+        self.repo.update('places', id, {
+            'status': 'rejected', 'reason': 'Удалено автором',
+            'updated_at': datetime.now(timezone.utc),
+        })
+        self.repo.audit(actor.id, 'place.delete', f'places:{id}', 'Удалено автором')
+        return {'ok': True}
+
     def related(self, kind, id, actor, page=1, source=None):
         self.place(id, actor)
         filters = {'place_id': id, 'status': 'published'}
+        if kind == 'photos' and actor:
+            filters.pop('status')
+            filters['visible_to'] = actor.id
+            filters['staff'] = actor.role in {'admin', 'moderator'}
         if kind == 'reviews' and source: filters['source'] = source
         return self.repo.list(kind, filters, page)
 
@@ -49,13 +65,26 @@ class PlacesService:
         return {'saved': enabled}
 
     def photo(self, actor, id, jpeg):
-        self.place(id, actor)
+        place = self.place(id, actor)
+        if actor.role not in {'admin', 'moderator'} and place['author_id'] != actor.id:
+            raise DomainError('Добавлять фото может автор места, модератор или администратор', 403)
         self.repo.get('places', id, lock=True)
-        if self.repo.list('photos', {'place_id': id})['total'] >= 20:
+        if sum(self.repo.list('photos', {'place_id': id, 'status': status})['total']
+               for status in ('pending', 'published')) >= 20:
             raise DomainError('Для места допускается до 20 фотографий', 409)
         key = f'photos/{uuid4().hex}.jpg'
         self.storage.put(key, jpeg)
         return self.repo.add('photos', dict(place_id=id, author_id=actor.id, object_key=key))
+
+    def delete_photo(self, actor, id):
+        photo = self.repo.get('photos', id, lock=True)
+        place = self.repo.get('places', photo['place_id'], lock=True)
+        staff = actor.role in {'admin', 'moderator'}
+        if not staff and (place['author_id'] != actor.id or photo.get('author_id') != actor.id):
+            raise DomainError('Можно удалять только свои фотографии в своей карточке', 403)
+        self.repo.update('photos', id, {'status': 'rejected', 'reason': 'Удалено пользователем'})
+        self.repo.audit(actor.id, 'photo.delete', f'photos:{id}', 'Удалено пользователем')
+        return {'ok': True}
 
     def photo_bytes(self, id, actor):
         photo = self.repo.get('photos', id)

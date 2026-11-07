@@ -107,10 +107,15 @@ def resubmit(id: int, data: PlaceInput, ctx: Ctx):
     return ctx[0].places.submit(signed(ctx), data.model_dump(), id)
 
 
+@router.delete('/places/{id}')
+def delete_own_place(id: int, ctx: Ctx):
+    return ctx[0].places.remove_own(signed(ctx), id)
+
+
 @router.get('/me/{kind}')
-def personal(kind: Literal['places', 'photos', 'reviews', 'reports', 'favorites'], ctx: Ctx, page: int = Query(1, ge=1)):
+def personal(kind: Literal['places', 'photos', 'reviews', 'reports', 'favorites'], ctx: Ctx, page: int = Query(1, ge=1), pending_only: bool = False, status: Literal['pending', 'published'] | None = None):
     actor = signed(ctx)
-    return ctx[0].personal(actor, kind, page)
+    return ctx[0].personal(actor, kind, page, pending_only=pending_only, status=status)
 
 
 @router.put('/places/{id}/favorite')
@@ -143,6 +148,11 @@ def photo(id: int, file: UploadFile, request: Request, ctx: Ctx):
     actor = signed(ctx)
     data = file.file.read(request.app.state.max_photo_bytes + 1)
     return ctx[0].places.photo(actor, id, request.app.state.sanitize_photo(data))
+
+
+@router.delete('/photos/{id}')
+def delete_own_photo(id: int, ctx: Ctx):
+    return ctx[0].places.delete_photo(signed(ctx), id)
 
 
 @router.get('/photos/{id}/content')

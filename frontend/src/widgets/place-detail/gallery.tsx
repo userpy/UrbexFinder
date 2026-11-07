@@ -1,6 +1,12 @@
 "use client";
 import { useRef, useState } from "react";
-import { Camera, ChevronLeft, ChevronRight, ExternalLink, Trash2 } from "lucide-react";
+import {
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Trash2,
+} from "lucide-react";
 import { DeletePhoto } from "./delete-photo";
 import { Button } from "@/shared/ui/button";
 import { Photo } from "@/entities/place";
@@ -9,12 +15,14 @@ import { PlacePhoto } from "./telegram-photo";
 export function PhotoGallery({
   photos,
   name,
-  canDelete = false,
+  canDelete = () => false,
+  upload,
   onDeleted,
 }: {
   photos: Photo[];
   name: string;
-  canDelete?: boolean;
+  canDelete?: (photo: Photo) => boolean;
+  upload?: React.ReactNode;
   onDeleted: (id: number) => void;
 }) {
   const [deleting, setDeleting] = useState<number | null>(null);
@@ -41,7 +49,10 @@ export function PhotoGallery({
         <span>
           <Camera size={16} /> Фотографии
         </span>
-        <span>{photos.length ? `${photos.length} фото` : "Пока нет фото"}</span>
+        {upload}
+        <span className="gallery-total">
+          {photos.length ? `${photos.length} фото` : "Пока нет фото"}
+        </span>
       </div>
       <div
         className="gallery-stage"
@@ -96,8 +107,14 @@ export function PhotoGallery({
       </div>
       {photo && (
         <div className="gallery-caption">
-          <span>{photo.id < 0 ? "Фото из Telegram" : "Фото сообщества"}</span>
-          {canDelete && (
+          <span>
+            {photo.status === "pending"
+              ? "На проверке"
+              : photo.id < 0
+                ? "Фото из Telegram"
+                : "Фото сообщества"}
+          </span>
+          {canDelete(photo) && (
             <Button variant="ghost" onClick={() => setDeleting(photo.id)}>
               <Trash2 size={14} /> Удалить фото
             </Button>

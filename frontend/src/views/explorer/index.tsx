@@ -23,7 +23,10 @@ import { api, Page } from "@/shared/api";
 import type { FeatureCollection, Point } from "geojson";
 import { MapPanel } from "@/widgets/map";
 import { PlaceDetail } from "@/widgets/place-detail";
-import { HighlightMatch, descriptionExcerpt } from "@/shared/ui/highlight-match";
+import {
+  HighlightMatch,
+  descriptionExcerpt,
+} from "@/shared/ui/highlight-match";
 import { Button } from "@/shared/ui/button";
 export function Explorer() {
   const searchInput = useRef<HTMLInputElement>(null);
@@ -283,82 +286,82 @@ export function Explorer() {
                 className="search-suggestions"
                 aria-label="Варианты поиска"
               >
-                <div className="suggestion-heading">
-                  Населённые пункты и территории
-                </div>
-                {query !== resolvedQuery ? (
-                  <p>Ищем…</p>
-                ) : locations.length ? (
-                  locations.map((location) => (
-                    <button
-                      type="button"
-                      key={location.label}
-                      onClick={() => focusLocation(location)}
-                    >
-                      <Building2
-                        size={18}
-                        aria-hidden="true"
-                        className="suggestion-icon"
-                      />
-                      <span>
-                        <strong>
-                          <HighlightMatch text={location.label} query={query} />
-                        </strong>
-                        <small>{location.count} мест в каталоге</small>
-                      </span>
-                    </button>
-                  ))
+                {loading ||
+                query !== resolvedQuery ||
+                (!locations.length && (locality || !places.length)) ? (
+                  <p role="status">Ищем</p>
                 ) : (
-                  <p>Населённых пунктов не найдено</p>
-                )}
-                {!locality && (
                   <>
-                    <div className="suggestion-heading">
-                      Места — названия, адреса и описания
-                    </div>
-                    {loading || query !== resolvedQuery ? (
-                      <p>Ищем места…</p>
-                    ) : places.length ? (
-                      places.slice(0, 5).map((place) => (
-                        <button
-                          type="button"
-                          key={place.id}
-                          onClick={() => {
-                            setSuggestionsOpen(false);
-                            void choose(place.id);
-                          }}
-                        >
-                          <TextSearch
-                            size={18}
-                            aria-hidden="true"
-                            className="suggestion-icon"
-                          />
-                          <span>
-                            <strong>
-                              <HighlightMatch text={place.name} query={query} />
-                            </strong>
-                            <small>
-                              <HighlightMatch
-                                text={place.region || ""}
-                                query={query}
-                              />
-                            </small>
-                            {place.description && (
-                              <small className="match-description">
+                    {locations.length
+                      ? locations.map((location) => (
+                          <button
+                            type="button"
+                            key={location.label}
+                            onClick={() => focusLocation(location)}
+                          >
+                            <Building2
+                              size={18}
+                              aria-hidden="true"
+                              className="suggestion-icon"
+                            />
+                            <span>
+                              <strong>
                                 <HighlightMatch
-                                  text={descriptionExcerpt(
-                                    place.description,
-                                    query,
-                                  )}
+                                  text={location.label}
                                   query={query}
                                 />
-                              </small>
-                            )}
-                          </span>
-                        </button>
-                      ))
-                    ) : (
-                      <p>Мест не найдено</p>
+                              </strong>
+                              <small>{location.count} мест в каталоге</small>
+                            </span>
+                          </button>
+                        ))
+                      : null}
+                    {!locality && (
+                      <>
+                        {places.length
+                          ? places.slice(0, 5).map((place) => (
+                              <button
+                                type="button"
+                                key={place.id}
+                                onClick={() => {
+                                  setSuggestionsOpen(false);
+                                  void choose(place.id);
+                                }}
+                              >
+                                <TextSearch
+                                  size={18}
+                                  aria-hidden="true"
+                                  className="suggestion-icon"
+                                />
+                                <span>
+                                  <strong>
+                                    <HighlightMatch
+                                      text={place.name}
+                                      query={query}
+                                    />
+                                  </strong>
+                                  <small>
+                                    <HighlightMatch
+                                      text={place.region || ""}
+                                      query={query}
+                                    />
+                                  </small>
+                                  {place.description && (
+                                    <small className="match-description">
+                                      <HighlightMatch
+                                        text={descriptionExcerpt(
+                                          place.description,
+                                          query,
+                                        )}
+                                        query={query}
+                                      />
+                                    </small>
+                                  )}
+                                </span>
+                              </button>
+                            ))
+                          : null}
+                      </>
                     )}
                   </>
                 )}

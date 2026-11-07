@@ -1,4 +1,10 @@
-import { SubmitView } from "@/views/submit";
+import { Explorer } from "@/views/explorer";
+import { SubmitModal } from "@/views/submit/modal";
 export default function Page() {
-  return <SubmitView />;
+  return (
+    <>
+      <Explorer />
+      <SubmitModal direct />
+    </>
+  );
 }

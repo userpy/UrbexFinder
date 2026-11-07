@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { api, body } from "@/shared/api";
+import { api } from "@/shared/api";
 import { Button } from "@/shared/ui/button";
 export function DeletePhoto({
   id,
@@ -37,10 +37,7 @@ export function DeletePhoto({
           onClick={async () => {
             setBusy(true);
             try {
-              await api(`/admin/photos/${id}/decision`, {
-                method: "POST",
-                body: body({ status: "rejected", reason: "Удалено модератором" }),
-              });
+              await api(`/photos/${id}`, { method: "DELETE" });
               onDeleted();
             } catch (e) {
               setError((e as Error).message);

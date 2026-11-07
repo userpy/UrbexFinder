@@ -11,10 +11,10 @@ import {
   X,
   Bookmark,
   Camera,
+  ImagePlus,
   MapPin,
   Flag,
   Maximize2,
-  Minimize2,
   Copy,
   ExternalLink,
 } from "lucide-react";
@@ -38,6 +38,11 @@ export function PlaceDetail({
   fullscreen?: boolean;
 }) {
   const { user } = useSession();
+  const staff = !!user && ["admin", "moderator"].includes(user.role);
+  const canUpload = !!user && (staff || place.author_id === user.id);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const photoInput = useRef<HTMLInputElement>(null);
   const [deleteReview, setDeleteReview] = useState<number | null>(null);
   const [reportTarget, setReportTarget] = useState<{
     type: "places" | "reviews";
@@ -110,25 +115,94 @@ export function PlaceDetail({
         <span className="eyebrow">
           ОБЪЕКТ / {String(place.id).padStart(5, "0")}
         </span>
-        <button
-          ref={expandButton}
-          className="detail-expand"
-          onClick={() => setExpanded(!expanded)}
-        >
-          {expanded ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
-          {expanded ? "Свернуть" : "Во весь экран"}
-        </button>
-        <button aria-label="Закрыть карточку" onClick={onClose}>
-          <X size={19} />
-        </button>
+        {expanded ? (
+          <button
+            className="detail-expand"
+            onClick={() => {
+              if (fullscreen) onClose();
+              else setExpanded(false);
+            }}
+          >
+            <X size={19} />
+            Закрыть
+          </button>
+        ) : (
+          <>
+            <button
+              ref={expandButton}
+              className="detail-expand"
+              onClick={() => setExpanded(true)}
+            >
+              <Maximize2 size={17} />
+              Во весь экран
+            </button>
+            <button aria-label="Закрыть карточку" onClick={onClose}>
+              <X size={19} />
+            </button>
+          </>
+        )}
       </div>
       {expanded ? (
         <PhotoGallery
           key={place.id}
           photos={photos}
           name={place.name}
-          canDelete={!!user && ["admin", "moderator"].includes(user.role)}
-          onDeleted={(id) => setPhotos((items) => items.filter((photo) => photo.id !== id))}
+          canDelete={(photo) =>
+            staff ||
+            (!!user &&
+              place.author_id === user.id &&
+              photo.author_id === user.id)
+          }
+          upload={
+            canUpload && (
+              <div className="gallery-upload">
+                <input
+                  ref={photoInput}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  hidden
+                  aria-label="Фотография для карточки"
+                  disabled={uploading}
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (!file) return;
+                    setUploading(true);
+                    setUploadError("");
+                    const form = new FormData();
+                    form.set("file", file);
+                    try {
+                      const photo = await api<Photo>(
+                        `/places/${place.id}/photos`,
+                        { method: "POST", body: form },
+                      );
+                      setPhotos((items) => [photo, ...items]);
+                    } catch (error) {
+                      setUploadError((error as Error).message);
+                    } finally {
+                      setUploading(false);
+                    }
+                  }}
+                />
+                <Button
+                  variant="ghost"
+                  disabled={uploading}
+                  onClick={() => photoInput.current?.click()}
+                >
+                  <ImagePlus size={14} aria-hidden="true" />
+                  {uploading ? "Загрузка…" : "Добавить фото"}
+                </Button>
+                {uploadError && (
+                  <p className="notice" role="alert">
+                    {uploadError}
+                  </p>
+                )}
+              </div>
+            )
+          }
+          onDeleted={(id) =>
+            setPhotos((items) => items.filter((photo) => photo.id !== id))
+          }
         />
       ) : (
         <>
@@ -156,7 +230,12 @@ export function PlaceDetail({
         <h2>{place.name}</h2>
         {place.category && (
           <p className="muted location">
-            <CategoryIcon category={place.category} icon={place.category_icon} width={18} height={18} />
+            <CategoryIcon
+              category={place.category}
+              icon={place.category_icon}
+              width={18}
+              height={18}
+            />
             {place.category}
           </p>
         )}
@@ -165,63 +244,63 @@ export function PlaceDetail({
           {place.region}
         </p>
         {expanded && (
-        <div className="place-coordinates">
-          <div
-            className={`coords${copyNotice === "Скопировано" ? " coords-copied" : ""}`}
-          >
-            {place.latitude?.toFixed(5) ?? "—"}° N &nbsp;{" "}
-            {place.longitude?.toFixed(5) ?? "—"}° E
-          </div>
-          {Number.isFinite(place.latitude) &&
-            Number.isFinite(place.longitude) && (
-              <div className="coordinate-actions">
-                <button
-                  type="button"
-                  aria-label="Скопировать координаты"
-                  onClick={async () => {
-                    if (copyTimer.current) clearTimeout(copyTimer.current);
-                    try {
-                      await navigator.clipboard.writeText(
-                        `${place.latitude}, ${place.longitude}`,
-                      );
-                      setCopyNotice("Скопировано");
-                      copyTimer.current = setTimeout(
-                        () => setCopyNotice(""),
-                        2200,
-                      );
-                    } catch {
-                      setCopyNotice("Не удалось скопировать");
-                      copyTimer.current = setTimeout(
-                        () => setCopyNotice(""),
-                        3500,
-                      );
+          <div className="place-coordinates">
+            <div
+              className={`coords${copyNotice === "Скопировано" ? " coords-copied" : ""}`}
+            >
+              {place.latitude?.toFixed(5) ?? "—"}° N &nbsp;{" "}
+              {place.longitude?.toFixed(5) ?? "—"}° E
+            </div>
+            {Number.isFinite(place.latitude) &&
+              Number.isFinite(place.longitude) && (
+                <div className="coordinate-actions">
+                  <button
+                    type="button"
+                    aria-label="Скопировать координаты"
+                    onClick={async () => {
+                      if (copyTimer.current) clearTimeout(copyTimer.current);
+                      try {
+                        await navigator.clipboard.writeText(
+                          `${place.latitude}, ${place.longitude}`,
+                        );
+                        setCopyNotice("Скопировано");
+                        copyTimer.current = setTimeout(
+                          () => setCopyNotice(""),
+                          2200,
+                        );
+                      } catch {
+                        setCopyNotice("Не удалось скопировать");
+                        copyTimer.current = setTimeout(
+                          () => setCopyNotice(""),
+                          3500,
+                        );
+                      }
+                    }}
+                  >
+                    <Copy size={14} />
+                    Скопировать
+                  </button>
+                  <span
+                    className={
+                      copyNotice === "Скопировано"
+                        ? "sr-only"
+                        : "coordinate-copy-notice"
                     }
-                  }}
-                >
-                  <Copy size={14} />
-                  Скопировать
-                </button>
-                <span
-                  className={
-                    copyNotice === "Скопировано"
-                      ? "sr-only"
-                      : "coordinate-copy-notice"
-                  }
-                  role="status"
-                >
-                  {copyNotice}
-                </span>
-                <a
-                  href={`https://yandex.ru/maps/?pt=${place.longitude},${place.latitude}&z=16&l=map`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <ExternalLink size={14} />
-                  На карту
-                </a>
-              </div>
-            )}
-        </div>
+                    role="status"
+                  >
+                    {copyNotice}
+                  </span>
+                  <a
+                    href={`https://yandex.ru/maps/?pt=${place.longitude},${place.latitude}&z=16&l=map`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink size={14} />
+                    На карту
+                  </a>
+                </div>
+              )}
+          </div>
         )}
         {user ? (
           <Button
@@ -278,24 +357,24 @@ export function PlaceDetail({
               {reviewTotal > 0 && <span className="muted">{reviewTotal}</span>}
             </h3>
             {reviews.map((r) => (
-                <article className="review" key={r.id}>
-                  <small>
-                    {r.source === "telegram"
-                      ? `${r.author_name || "Участник"} · Telegram`
-                      : `Исследователь #${r.author_id}`}{" "}
-                    {r.score != null && `· ${r.score}/5`}
-                  </small>
-                  <p>{r.text}</p>
-                  {user && ["admin", "moderator"].includes(user.role) && (
-                    <button
-                      className="text-button"
-                      onClick={() => setDeleteReview(r.id)}
-                    >
-                      Удалить комментарий
-                    </button>
-                  )}
-                </article>
-              ))}
+              <article className="review" key={r.id}>
+                <small>
+                  {r.source === "telegram"
+                    ? `${r.author_name || "Участник"} · Telegram`
+                    : `Исследователь #${r.author_id}`}{" "}
+                  {r.score != null && `· ${r.score}/5`}
+                </small>
+                <p>{r.text}</p>
+                {user && ["admin", "moderator"].includes(user.role) && (
+                  <button
+                    className="text-button"
+                    onClick={() => setDeleteReview(r.id)}
+                  >
+                    Удалить комментарий
+                  </button>
+                )}
+              </article>
+            ))}
             {reviewTotal > 30 && (
               <div className="pager">
                 <button

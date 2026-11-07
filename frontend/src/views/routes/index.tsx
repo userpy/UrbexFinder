@@ -1,6 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Plus, Trash2, Pencil, Save, ChevronUp, ListRestart, Send } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  Trash2,
+  Pencil,
+  Save,
+  ChevronUp,
+  ListRestart,
+  Send,
+} from "lucide-react";
 import Link from "next/link";
 import { useSession } from "@/entities/session";
 import { Place } from "@/entities/place";
@@ -55,16 +64,23 @@ export function RoutesView() {
         if (!choosing && !routeId && d.items.length) {
           const active = d.items.find((item) => item.active) || d.items[0];
           if (!active.active) {
-            await api(`/itineraries/${active.id}/active?active=true`, { method: "PUT", signal: abort.signal });
+            await api(`/itineraries/${active.id}/active?active=true`, {
+              method: "PUT",
+              signal: abort.signal,
+            });
           }
-          const detail = await api<Route>(`/itineraries/${active.id}`, { signal: abort.signal });
+          const detail = await api<Route>(`/itineraries/${active.id}`, {
+            signal: abort.signal,
+          });
           setRoute(detail);
         }
       })
       .catch((e) => {
         if (e.name !== "AbortError") setError(e.message);
       })
-      .finally(() => { if (!abort.signal.aborted) setRoutesLoading(false); });
+      .finally(() => {
+        if (!abort.signal.aborted) setRoutesLoading(false);
+      });
     return () => abort.abort();
   }, [user, page, revision, choosing, routeId]);
   useEffect(() => {
@@ -133,7 +149,17 @@ export function RoutesView() {
   if (!user)
     return (
       <main className="page">
-        <h1>Мои маршруты</h1>
+        <div className="routes-page-heading">
+          <Link
+            href="/"
+            className="routes-back-map"
+            aria-label="Вернуться к карте"
+            title="Вернуться к карте"
+          >
+            <ArrowLeft size={24} aria-hidden="true" />
+          </Link>
+          <h1>Мои маршруты</h1>
+        </div>
         <p>Войдите, чтобы составить личный маршрутный лист.</p>
         <Link
           href={`/login?next=${encodeURIComponent(`/routes${pending ? `?add=${pending.id}` : ""}`)}`}
@@ -144,11 +170,20 @@ export function RoutesView() {
     );
   return (
     <main className="page">
-      <h1>Мои маршруты</h1>
+      <div className="routes-page-heading">
+        <Link
+          href="/"
+          className="routes-back-map"
+          aria-label="Вернуться к карте"
+          title="Вернуться к карте"
+        >
+          <ArrowLeft size={24} aria-hidden="true" />
+        </Link>
+        <h1>Мои маршруты</h1>
+      </div>
       {!route && (
         <p className="muted">
-          Личный план поездки. Карта места
-          открывается кнопкой «На карту».
+          Личный план поездки. Карта места открывается кнопкой «На карту».
         </p>
       )}
       {error && (
@@ -167,36 +202,6 @@ export function RoutesView() {
       {routesLoading && !route && <p role="status">Загрузка маршрутов…</p>}
       {!route && !routesLoading && (
         <>
-          <Button
-            disabled={busy}
-            aria-label="Создать маршрут"
-            onClick={async () => {
-              setBusy(true);
-              setError("");
-              try {
-                const r = await api<Route>("/itineraries", {
-                  method: "POST",
-                  body: body({
-                    name: `Маршрут ${new Date().toLocaleDateString("ru-RU")}`,
-                    stops: pending
-                      ? [{ place_id: pending.id, note: "", status: "planned" }]
-                      : [],
-                  }),
-                });
-                await api(`/itineraries/${r.id}/active?active=true`, { method: "PUT" });
-                setPage(1);
-                setRevision((v) => v + 1);
-                await open(r.id);
-                setMessage("Маршрут создан");
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            <Plus size={18} /> Новый маршрут
-          </Button>
           <div className="route-list">
             {routes.map((r) => (
               <div
@@ -215,12 +220,9 @@ export function RoutesView() {
                       setBusy(true);
                       setError("");
                       try {
-                        await api(
-                          `/itineraries/${r.id}/active?active=true`,
-                          {
-                            method: "PUT",
-                          },
-                        );
+                        await api(`/itineraries/${r.id}/active?active=true`, {
+                          method: "PUT",
+                        });
                         setPage(1);
                         setRevision((v) => v + 1);
                         await open(r.id);
@@ -257,6 +259,47 @@ export function RoutesView() {
                 </button>
               </div>
             ))}
+            <Button
+              variant="outline"
+              className="route-create-card"
+              disabled={busy}
+              aria-label="Создать маршрут"
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  const r = await api<Route>("/itineraries", {
+                    method: "POST",
+                    body: body({
+                      name: `Маршрут ${new Date().toLocaleDateString("ru-RU")}`,
+                      stops: pending
+                        ? [
+                            {
+                              place_id: pending.id,
+                              note: "",
+                              status: "planned",
+                            },
+                          ]
+                        : [],
+                    }),
+                  });
+                  await api(`/itineraries/${r.id}/active?active=true`, {
+                    method: "PUT",
+                  });
+                  setPage(1);
+                  setRevision((v) => v + 1);
+                  await open(r.id);
+                  setMessage("Маршрут создан");
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <Plus size={36} aria-hidden="true" />
+              <span>Новый маршрут</span>
+            </Button>
           </div>
           {total > 30 && (
             <div className="pager">
@@ -283,7 +326,7 @@ export function RoutesView() {
         <section className="route-editor">
           <Button
             className="route-switch-button"
-            variant="ghost"
+            variant="outline"
             disabled={busy}
             onClick={() => {
               setChoosing(true);
@@ -297,12 +340,20 @@ export function RoutesView() {
           >
             <ListRestart size={16} /> Сменить активный маршрут или создать
           </Button>
-          <div className={route.active ? "active-route-heading" : "route-heading"}>
-            {route.active && <p className="active-route-badge">Активный маршрут</p>}
+          <div
+            className={route.active ? "active-route-heading" : "route-heading"}
+          >
+            {route.active && (
+              <p className="active-route-badge">Активный маршрут</p>
+            )}
             <h2>{route.name}</h2>
           </div>
           <fieldset disabled={busy}>
-            <div className="actions route-toolbar" role="group" aria-label="Управление маршрутом">
+            <div
+              className="actions route-toolbar"
+              role="group"
+              aria-label="Управление маршрутом"
+            >
               <Button
                 variant="outline"
                 type="button"
@@ -506,21 +557,38 @@ export function RoutesView() {
               </div>
             )}
             <div className="route-send-actions">
-              <Button variant="outline" onClick={async () => {
-                if (!route) return;
-                setBusy(true); setError(""); setMessage("");
-                try {
-                  await api(`/itineraries/${route.id}`, {
-                    method: "PUT", body: body({ name: route.name, trip_date: route.trip_date,
-                      notes: route.notes, stops: route.stops, version: route.version }),
-                  });
-                  setRoute(await api<Route>(`/itineraries/${route.id}`));
-                  setRevision((value) => value + 1);
-                  await api(`/itineraries/${route.id}/telegram`, { method: "POST" });
-                  setMessage("Маршрут отправлен в Telegram");
-                } catch (error) { setError((error as Error).message); }
-                finally { setBusy(false); }
-              }} disabled={!route.name.trim()}>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  if (!route) return;
+                  setBusy(true);
+                  setError("");
+                  setMessage("");
+                  try {
+                    await api(`/itineraries/${route.id}`, {
+                      method: "PUT",
+                      body: body({
+                        name: route.name,
+                        trip_date: route.trip_date,
+                        notes: route.notes,
+                        stops: route.stops,
+                        version: route.version,
+                      }),
+                    });
+                    setRoute(await api<Route>(`/itineraries/${route.id}`));
+                    setRevision((value) => value + 1);
+                    await api(`/itineraries/${route.id}/telegram`, {
+                      method: "POST",
+                    });
+                    setMessage("Маршрут отправлен в Telegram");
+                  } catch (error) {
+                    setError((error as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                disabled={!route.name.trim()}
+              >
                 <Send size={16} /> В Telegram
               </Button>
             </div>

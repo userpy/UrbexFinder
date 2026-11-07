@@ -24,6 +24,7 @@ export type Place = {
 export type Category = { id: number; name: string; active: boolean; icon?: string | null };
 export type Photo = {
   id: number;
+  author_id?: number | null;
   place_id: number;
   status: string;
   reason: string;

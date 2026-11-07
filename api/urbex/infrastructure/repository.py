@@ -95,11 +95,17 @@ class SqlRepository:
         if kind == 'photos':
             query = """SELECT id, place_id, author_id, status, reason, created_at FROM web_photos
                 UNION ALL SELECT -id, place_id, NULL::integer, status, reason, created_at FROM place_photos"""
+            filters = dict(filters)
+            visible_to = filters.pop('visible_to', None)
+            staff = filters.pop('staff', False)
             allowed = {'place_id', 'author_id', 'status'}
             if not set(filters) <= allowed:
                 raise ValueError('Unsupported photo filter')
             where = ' AND '.join(f'{key}=:{key}' for key in filters) or 'true'
             params = dict(filters, offset=(page-1)*30)
+            if visible_to is not None:
+                where += " AND (status='published' OR (status='pending' AND (:staff OR author_id=:visible_to)))"
+                params.update(visible_to=visible_to, staff=staff)
             total = self.session.scalar(text('SELECT count(*) FROM ('+query+') photos WHERE '+where), params)
             items = self.session.execute(text('SELECT * FROM ('+query+') photos WHERE '+where+' ORDER BY created_at DESC, id DESC LIMIT 30 OFFSET :offset'), params).mappings().all()
             return {'items': [dict(row) for row in items], 'total': total, 'page': page}
