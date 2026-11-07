@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { MapPinOff, Globe } from "lucide-react";
 import { Place, Category } from "@/entities/place";
 import { api, body, Page } from "@/shared/api";
 import { MapPanel } from "@/widgets/map";
@@ -109,7 +110,7 @@ export function PlaceForm({
         }
       }}
     >
-      <label>
+      <label className="place-name-field">
         Название
         <input
           name="name"
@@ -121,7 +122,7 @@ export function PlaceForm({
           required
         />
       </label>
-      <label>
+      <label className="place-description-field">
         Описание
         <textarea
           name="description"
@@ -135,10 +136,10 @@ export function PlaceForm({
           required
         />
       </label>
-      <p id="place-description-hint" className="muted">
+      <p id="place-description-hint" className="muted place-description-hint">
         Минимум 20 символов · Введено: {description.trim().length}
       </p>
-      <p className="muted">
+      <p className="muted place-map-hint">
         Перетащите метку на карте — широта и долгота заполнятся автоматически.
       </p>
       <div className="place-form-map">
@@ -162,14 +163,50 @@ export function PlaceForm({
       </div>
       <div className="form-grid">
         <p className="place-coordinate">
-          Широта: <output>{latitude || "—"}</output>
+          Широта:{" "}
+          <output>
+            {latitude || (
+              <span
+                className="place-value-empty"
+                role="img"
+                aria-label="Широта ещё не определена"
+                title="Широта ещё не определена"
+              >
+                <MapPinOff size={14} aria-hidden="true" />
+              </span>
+            )}
+          </output>
         </p>
         <p className="place-coordinate">
-          Долгота: <output>{longitude || "—"}</output>
+          Долгота:{" "}
+          <output>
+            {longitude || (
+              <span
+                className="place-value-empty"
+                role="img"
+                aria-label="Долгота ещё не определена"
+                title="Долгота ещё не определена"
+              >
+                <MapPinOff size={14} aria-hidden="true" />
+              </span>
+            )}
+          </output>
         </p>
         <div>
           <p className="place-coordinate">
-            Регион: <output>{region || "—"}</output>
+            Регион:{" "}
+            <output>
+              {region || (
+                <span
+                  className="place-value-empty"
+                  role="img"
+                  aria-label="Регион ещё не определён"
+                  title="Регион ещё не определён"
+                >
+                  <Globe size={14} aria-hidden="true" />
+                </span>
+              )}
+            </output>
           </p>
           <Button
             type="button"

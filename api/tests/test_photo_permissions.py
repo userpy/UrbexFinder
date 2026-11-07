@@ -4,8 +4,8 @@ from urbex.application.places import PlacesService
 from urbex.domain.rules import Actor, DomainError
 
 
-@pytest.mark.parametrize('role,owner,allowed', [('user',7,True),('user',8,False),('moderator',8,True),('admin',8,True)])
-def test_upload_requires_place_owner_or_staff(role, owner, allowed):
+@pytest.mark.parametrize('role,owner,allowed', [('user',7,True),('user',8,True),('moderator',8,True),('admin',8,True)])
+def test_upload_allows_any_member_for_published_places(role, owner, allowed):
     repo, storage = Mock(), Mock()
     repo.get.return_value = {'author_id':owner, 'status':'published'}
     repo.list.return_value = {'total':0}
@@ -21,7 +21,7 @@ def test_upload_requires_place_owner_or_staff(role, owner, allowed):
 
 
 @pytest.mark.parametrize('role,owner,photo_owner,allowed', [
-    ('user',7,7,True),('user',7,8,False),('user',8,7,False),
+    ('user',7,7,True),('user',7,8,False),('user',8,7,True),('user',8,8,False),('user',8,None,False),
     ('moderator',8,None,True),('admin',8,8,True),
 ])
 def test_photo_delete_permissions(role,owner,photo_owner,allowed):
@@ -44,3 +44,14 @@ def test_guest_sees_only_published_photos_and_member_gets_scoped_filter():
     repo.list.assert_called_with('photos',{'place_id':42,'status':'published'},1)
     service.related('photos',42,Actor(7,'user'))
     repo.list.assert_called_with('photos',{'place_id':42,'visible_to':7,'staff':False},1)
+
+
+def test_upload_cannot_access_someone_elses_unpublished_place():
+    repo, storage = Mock(), Mock()
+    repo.get.return_value = {'author_id': 8, 'status': 'pending'}
+    service = PlacesService(repo, storage)
+    with pytest.raises(DomainError) as error:
+        service.photo(Actor(7, 'user'), 42, b'jpeg')
+    assert error.value.status == 404
+    storage.put.assert_not_called()
+    repo.add.assert_not_called()

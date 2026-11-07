@@ -116,16 +116,10 @@ dialog.admin-inspector.category-inspector { width: min(960px, calc(100vw - 32px)
 
 .active-route-badge { display: table; margin: 8px 0 12px; padding: 5px 10px; border: 1px solid var(--accent); border-radius: 4px; background: #8ac4e410; color: var(--accent); font-size: 12px; }
 
-.active-route-heading { width: fit-content; min-width: min(448px, 100%); max-width: 100%; margin: 8px 0 0; padding: 12px 16px; border: 1px solid var(--accent); border-radius: 4px; background: #8ac4e408; }
+.active-route-heading { width: fit-content; min-width: min(448px, 100%); max-width: 100%; margin: 8px 0 0; padding: 12px 16px; border: 1px solid var(--border); border-radius: 4px; background: #8ac4e408; }
 .active-route-heading .active-route-badge { margin: 0 0 8px; padding: 0; border: 0; background: none; }
 .active-route-heading h2 { margin: 0; overflow-wrap: anywhere; }
 
-.submit-card { padding: 25px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
-.submit-card-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 16px; margin-bottom: 24px; }
-.submit-card-heading h1 { grid-column: 1 / -1; margin: 0; }
-.submit-card-heading .button { padding: 0; min-height: 0; justify-self: end; }
-.submit-card .place-form { padding: 0; border: 0; background: transparent; border-radius: 0; }
-@media (max-width: 600px) { .submit-card { padding: 18px; } .submit-card-heading { gap: 8px; } .submit-card-heading .button { padding: 0; } }
 
 .route-send-actions { margin-top: 16px; display: flex; justify-content: flex-start; }
 
@@ -143,7 +137,7 @@ button, .button, a, input, select, textarea, summary,
 }
 @keyframes surface-appear { from { opacity: 0; } to { opacity: 1; } }
 .page, .auth-page, .route-editor, .route-list, .route-settings-fields,
-.submit-card, .category-icon-dropdown, .search-suggestions {
+.category-icon-dropdown, .search-suggestions {
   animation: panel-appear var(--motion-panel) var(--motion-ease);
 }
 dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
@@ -182,7 +176,7 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 
 .account-list-empty { text-align: center; }
 
-.account-profile { border: 1px solid var(--accent); border-radius: 6px; padding: 20px; }
+.account-profile { border: 1px solid var(--border); border-radius: 6px; padding: 20px; }
 
 .route-switch-button { border: 1px solid var(--border); border-radius: 5px; padding: 10px 16px; margin-bottom: 12px; transition: border-color 160ms ease, box-shadow 160ms ease; }
 .route-switch-button:hover:not(:disabled), .route-switch-button:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -200,12 +194,12 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 .place-coordinate { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
 .place-coordinate output { color: var(--foreground); font-variant-numeric: tabular-nums; user-select: text; }
 
-.routes-page-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.routes-page-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 6px; }
 .routes-page-heading h1 { margin: 0; }
 .routes-back-map { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 5px; transition: border-color 160ms ease; }
 .routes-back-map:hover { border-color: var(--accent); }
 
-.account-place-actions .button { white-space: nowrap; }
+.account-place-actions .button { width: 132px; height: 42px; white-space: nowrap; }
 .account-place-actions .button + .button { margin-left: 8px; }
 
 .account-place-actions .button { transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease; }
@@ -215,10 +209,6 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 .account-profile-title { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
 .account-profile-title h1 { margin: 0; overflow-wrap: anywhere; }
 
-.submit-modal { position: fixed; inset: 0; width: min(680px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 0; border-radius: 6px; background: var(--panel); color: var(--foreground); overflow-y: auto; box-shadow: 0 24px 80px #0008; }
-.submit-modal::backdrop { background: #0009; }
-.submit-modal > .page { width: 100%; max-width: none; margin: 0; padding: 0; }
-.submit-modal .submit-card { border: 1px solid var(--border); }
 
 .gallery-upload { margin-bottom: 16px; }
 
@@ -227,3 +217,38 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 .gallery-heading { justify-content: flex-start; flex-wrap: wrap; }
 .gallery-heading .gallery-upload { margin: 0; }
 .gallery-heading .gallery-total { margin-left: auto; }
+
+.submit-page .place-form { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.submit-page .place-form-map { border: 0; border-radius: 0; }
+
+.submit-page { padding-top: 24px; padding-bottom: 24px; }
+.submit-page .routes-page-heading { margin-bottom: 16px; }
+.submit-page .place-form label { margin-bottom: 10px; }
+.submit-page .place-form textarea { min-height: 80px; height: 80px; }
+.submit-page .place-description-hint,
+.submit-page .place-map-hint { margin: 0 0 10px; font-size: 12px; }
+.submit-page .place-form-map { height: clamp(160px, 28dvh, 240px); margin-bottom: 12px; }
+.submit-page .place-coordinate { margin-bottom: 8px; }
+.submit-page .place-form .notice { margin: 10px 0; padding: 8px 12px; }
+.submit-page .place-form > .button { margin-top: 8px; }
+@media (min-width: 900px) {
+  .submit-page .place-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    grid-template-areas: "name map" "description map" "hint map" "maphint map" "details details";
+    column-gap: 24px;
+    align-items: start;
+  }
+  .submit-page .place-name-field { grid-area: name; }
+  .submit-page .place-description-field { grid-area: description; }
+  .submit-page .place-description-hint { grid-area: hint; }
+  .submit-page .place-map-hint { grid-area: maphint; }
+  .submit-page .place-form-map { grid-area: map; height: clamp(230px, 36dvh, 320px); }
+  .submit-page .form-grid { grid-area: details; grid-template-columns: 1fr 1fr 2fr 2fr; gap: 16px; align-items: start; }
+  .submit-page .place-form > .notice { grid-column: 1 / -1; }
+  .submit-page .place-form > .button { grid-column: 1 / -1; justify-self: start; }
+}
+
+.place-value-empty { display: inline-flex; vertical-align: middle; color: var(--muted); }
+
+.routes-page .routes-page-heading { max-width: 850px; }

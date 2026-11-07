@@ -145,10 +145,10 @@ export function RoutesView() {
         ),
       });
   }
-  if (loading) return <main className="page">Загрузка…</main>;
+  if (loading) return <main className="page routes-page">Загрузка…</main>;
   if (!user)
     return (
-      <main className="page">
+      <main className="page routes-page">
         <div className="routes-page-heading">
           <Link
             href="/"
@@ -169,7 +169,7 @@ export function RoutesView() {
       </main>
     );
   return (
-    <main className="page">
+    <main className="page routes-page">
       <div className="routes-page-heading">
         <Link
           href="/"

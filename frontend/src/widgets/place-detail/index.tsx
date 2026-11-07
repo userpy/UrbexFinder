@@ -39,7 +39,7 @@ export function PlaceDetail({
 }) {
   const { user } = useSession();
   const staff = !!user && ["admin", "moderator"].includes(user.role);
-  const canUpload = !!user && (staff || place.author_id === user.id);
+  const canUpload = !!user;
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const photoInput = useRef<HTMLInputElement>(null);
@@ -80,6 +80,12 @@ export function PlaceDetail({
     [reviews, setReviews] = useState<Review[]>([]),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
+  const [routeNotice, setRouteNotice] = useState("");
+  useEffect(() => {
+    if (!routeNotice) return;
+    const timer = setTimeout(() => setRouteNotice(""), 3000);
+    return () => clearTimeout(timer);
+  }, [routeNotice]);
   const [reviewPage, setReviewPage] = useState(1),
     [reviewTotal, setReviewTotal] = useState(0);
   useEffect(() => {
@@ -149,9 +155,7 @@ export function PlaceDetail({
           name={place.name}
           canDelete={(photo) =>
             staff ||
-            (!!user &&
-              place.author_id === user.id &&
-              photo.author_id === user.id)
+            (!!user && photo.author_id === user.id)
           }
           upload={
             canUpload && (
@@ -309,13 +313,14 @@ export function PlaceDetail({
             onClick={async () => {
               setBusy(true);
               setMessage("");
+              setRouteNotice("");
               try {
                 if (added) {
                   await api(`/places/${place.id}/itinerary`, {
                     method: "DELETE",
                   });
                   setMembership({ id: place.id, added: false });
-                  setMessage("Место удалено из маршрутного листа");
+                  setRouteNotice("Место удалено из маршрутного листа");
                   return;
                 }
                 const result = await api<{
@@ -323,7 +328,7 @@ export function PlaceDetail({
                   already_added: boolean;
                 }>(`/places/${place.id}/itinerary`, { method: "POST" });
                 setMembership({ id: place.id, added: true });
-                setMessage(
+                setRouteNotice(
                   result.already_added
                     ? `Место уже есть в маршруте «${result.name}»`
                     : `Добавлено в маршрут «${result.name}»`,
@@ -405,6 +410,11 @@ export function PlaceDetail({
               Сообщить об ошибке
             </Button>
           </section>
+        )}
+        {routeNotice && (
+          <p role="status" className="notice">
+            {routeNotice}
+          </p>
         )}
         {message && (
           <p role="status" className="notice">

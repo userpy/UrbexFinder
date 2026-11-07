@@ -65,9 +65,7 @@ class PlacesService:
         return {'saved': enabled}
 
     def photo(self, actor, id, jpeg):
-        place = self.place(id, actor)
-        if actor.role not in {'admin', 'moderator'} and place['author_id'] != actor.id:
-            raise DomainError('Добавлять фото может автор места, модератор или администратор', 403)
+        self.place(id, actor)
         self.repo.get('places', id, lock=True)
         if sum(self.repo.list('photos', {'place_id': id, 'status': status})['total']
                for status in ('pending', 'published')) >= 20:
@@ -78,10 +76,10 @@ class PlacesService:
 
     def delete_photo(self, actor, id):
         photo = self.repo.get('photos', id, lock=True)
-        place = self.repo.get('places', photo['place_id'], lock=True)
+        self.repo.get('places', photo['place_id'], lock=True)
         staff = actor.role in {'admin', 'moderator'}
-        if not staff and (place['author_id'] != actor.id or photo.get('author_id') != actor.id):
-            raise DomainError('Можно удалять только свои фотографии в своей карточке', 403)
+        if not staff and photo.get('author_id') != actor.id:
+            raise DomainError('Можно удалять только свои фотографии', 403)
         self.repo.update('photos', id, {'status': 'rejected', 'reason': 'Удалено пользователем'})
         self.repo.audit(actor.id, 'photo.delete', f'photos:{id}', 'Удалено пользователем')
         return {'ok': True}
