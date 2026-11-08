@@ -19,7 +19,7 @@ async def sync_catalog_index(settings):
                 await indexer.reindex()
             except Exception:
                 logger.warning('Catalog index refresh failed; will retry in 60 seconds')
-            await asyncio.sleep(60)
+            await asyncio.sleep(5000)
     finally:
         await indexer.close()
         await db.close()

@@ -88,14 +88,6 @@ export function ReportDialog({
           </p>
         )}
         <div className="actions">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={onClose}
-          >
-            Отмена
-          </Button>
           <Button type="submit" disabled={busy || text.trim().length < 5}>
             <Send size={15} />
             {busy ? "Отправка…" : "Отправить"}

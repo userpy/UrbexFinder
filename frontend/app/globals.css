@@ -252,3 +252,9 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 .place-value-empty { display: inline-flex; vertical-align: middle; color: var(--muted); }
 
 .routes-page .routes-page-heading { max-width: 850px; }
+.success-toast { display: flex; align-items: center; justify-content: center; gap: 10px; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: max-content; text-align: center; z-index: 100; max-width: calc(100vw - 48px); margin: 0; padding: 14px 20px; border: 1px solid var(--accent); border-radius: 8px; background: var(--panel); color: var(--foreground); box-shadow: 0 8px 28px #0005; }
+
+.success-toast > svg { flex-shrink: 0; color: var(--accent); }
+
+.route-place-sort { display: flex; align-items: center; gap: 6px; }
+.route-place-sort button { display: inline-flex; align-items: center; justify-content: center; padding: 4px; color: var(--accent); }

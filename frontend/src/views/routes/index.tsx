@@ -2,10 +2,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowUpDown,
   Plus,
   Trash2,
   Pencil,
   Save,
+  FileCheck,
   ChevronUp,
   ListRestart,
   Send,
@@ -40,6 +42,7 @@ export function RoutesView() {
     [message, setMessage] = useState("");
   const [pending, setPending] = useState<Place | null>(null),
     [selected, setSelected] = useState<Place | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc" | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [routesLoading, setRoutesLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -50,6 +53,11 @@ export function RoutesView() {
   const [deleteTarget, setDeleteTarget] = useState<Route | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const deleteDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (message !== "Сохранено") return;
+    const timer = setTimeout(() => setMessage(""), 3000);
+    return () => clearTimeout(timer);
+  }, [message]);
   useEffect(() => {
     if (deleteTarget) deleteDialog.current?.showModal();
   }, [deleteTarget]);
@@ -91,6 +99,7 @@ export function RoutesView() {
         .catch((e) => setError(e.message));
   }, []);
   async function open(id: number) {
+    setSortDirection(null);
     setEditing(false);
     setBusy(true);
     setError("");
@@ -108,6 +117,7 @@ export function RoutesView() {
     if (!route) return;
     setBusy(true);
     setError("");
+    setMessage("");
     try {
       await api(`/itineraries/${route.id}`, {
         method: "PUT",
@@ -121,7 +131,7 @@ export function RoutesView() {
       });
       setRoute(await api<Route>(`/itineraries/${route.id}`));
       setRevision((v) => v + 1);
-      setMessage("Маршрут сохранён");
+      setMessage("Сохранено");
       setEditing(false);
     } catch (e) {
       setError((e as Error).message);
@@ -129,11 +139,21 @@ export function RoutesView() {
       setBusy(false);
     }
   }
-  function move(from: number, to: number) {
-    if (!route || busy || to < 0 || to >= route.stops.length) return;
-    const stops = [...route.stops];
-    stops.splice(to, 0, stops.splice(from, 1)[0]);
+  function sortPlaces(direction: "asc" | "desc") {
+    if (!route || busy) return;
+    const names = new Map(
+      route.items?.map((item) => [item.place_id, item.place?.name || "Место недоступно"]),
+    );
+    const stops = [...route.stops].sort((a, b) => {
+      const comparison = (names.get(a.place_id) || "Место недоступно").localeCompare(
+        names.get(b.place_id) || "Место недоступно",
+        "ru",
+        { numeric: true, sensitivity: "base" },
+      );
+      return direction === "asc" ? comparison : -comparison;
+    });
     setRoute({ ...route, stops });
+    setSortDirection(direction);
     setMessage("");
   }
   function updateStop(index: number, values: Partial<Stop>) {
@@ -191,7 +211,15 @@ export function RoutesView() {
           {error}
         </p>
       )}
-      {message && <p role="status">{message}</p>}
+      {message && (
+        <p
+          role="status"
+          className={message === "Сохранено" ? "success-toast" : undefined}
+        >
+          {message === "Сохранено" && <FileCheck size={22} aria-hidden="true" />}
+          {message}
+        </p>
+      )}
       {pending && (
         <p className="notice">
           Добавление места: <strong>{pending.name}</strong>. Создайте маршрут
@@ -455,7 +483,19 @@ export function RoutesView() {
                   <thead>
                     <tr>
                       <th scope="col">№</th>
-                      <th scope="col">Место</th>
+                      <th scope="col" aria-sort={sortDirection === "asc" ? "ascending" : sortDirection === "desc" ? "descending" : "none"}>
+                        <div className="route-place-sort">
+                          Место
+                          <button
+                            type="button"
+                            aria-label={sortDirection === "asc" ? "Сортировать места от Я до А" : "Сортировать места от А до Я"}
+                            title={sortDirection === "asc" ? "От Я до А" : "От А до Я"}
+                            onClick={() => sortPlaces(sortDirection === "asc" ? "desc" : "asc")}
+                          >
+                            <ArrowUpDown size={16} aria-hidden="true" />
+                          </button>
+                        </div>
+                      </th>
                       <th scope="col">Статус</th>
                       <th scope="col">Карта</th>
                       <th scope="col">Действия</th>
@@ -520,20 +560,6 @@ export function RoutesView() {
                           </td>
                           <td>
                             <div className="actions">
-                              <button
-                                aria-label={`Поднять точку ${i + 1}`}
-                                disabled={i === 0}
-                                onClick={() => move(i, i - 1)}
-                              >
-                                ↑
-                              </button>
-                              <button
-                                aria-label={`Опустить точку ${i + 1}`}
-                                disabled={i === route.stops.length - 1}
-                                onClick={() => move(i, i + 1)}
-                              >
-                                ↓
-                              </button>
                               <button
                                 aria-label={`Убрать место ${i + 1}`}
                                 onClick={() =>

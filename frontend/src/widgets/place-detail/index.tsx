@@ -17,6 +17,7 @@ import {
   Maximize2,
   Copy,
   ExternalLink,
+  Mail,
 } from "lucide-react";
 import {
   Place,
@@ -81,6 +82,11 @@ export function PlaceDetail({
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
   const [routeNotice, setRouteNotice] = useState("");
+  useEffect(() => {
+    if (message !== "Сообщение отправлено") return;
+    const timer = setTimeout(() => setMessage(""), 3000);
+    return () => clearTimeout(timer);
+  }, [message, reportTarget]);
   useEffect(() => {
     if (!routeNotice) return;
     const timer = setTimeout(() => setRouteNotice(""), 3000);
@@ -417,7 +423,11 @@ export function PlaceDetail({
           </p>
         )}
         {message && (
-          <p role="status" className="notice">
+          <p
+            role="status"
+            className={message === "Сообщение отправлено" ? "success-toast" : "notice"}
+          >
+            {message === "Сообщение отправлено" && <Mail size={22} aria-hidden="true" />}
             {message}
           </p>
         )}

@@ -255,7 +255,7 @@ test("personal itinerary adds a place and persists visited status", async ({page
   await expect(page.getByLabel("Заметка к месту")).toHaveCount(0);
   await page.getByLabel("Статус точки").selectOption("visited");
   await page.getByRole("button",{name:"Сохранить маршрут",exact:true}).click();
-  await expect(page.getByRole("status")).toHaveText("Маршрут сохранён");
+  await expect(page.getByRole("status")).toHaveText("Сохранено");
   await page.reload();
   await page.getByRole("button").filter({hasText:"Поездка E2E"}).click();
   await expect(page.getByLabel("Заметка к месту")).toHaveCount(0);

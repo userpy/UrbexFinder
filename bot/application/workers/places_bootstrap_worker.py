@@ -48,6 +48,7 @@ async def consume_topic(
         routing_keys=(
             "places.bootstrap.requested",
             "places.bootstrap.test",
+            "places.phonto.s3.delete"
         ),
         message_handler=dispatch_message,
         prefetch_count=1,
