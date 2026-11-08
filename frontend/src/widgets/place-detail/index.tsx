@@ -2,6 +2,7 @@
 import { DeleteReview } from "./delete-review";
 export { DeleteReview } from "./delete-review";
 import { ReportDialog } from "./report-dialog";
+import { PlaceRating } from "./rating";
 import { PhotoGallery } from "./gallery";
 import { PlacePhoto } from "./telegram-photo";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -229,7 +230,9 @@ export function PlaceDetail({
                 <span>Фотографии пока не добавлены</span>
               </>
             )}
-            <span className="photo-badge">{conditions[place.condition]}</span>
+            {place.condition !== "unknown" && conditions[place.condition] && (
+              <span className="photo-badge">{conditions[place.condition]}</span>
+            )}
           </div>
           {photos[0]?.id < 0 && (
             <small className="telegram-photo-source">Фото из Telegram</small>
@@ -237,6 +240,7 @@ export function PlaceDetail({
         </>
       )}
       <div className="detail-body">
+        <PlaceRating ratingAverage={place.rating_avg} ratingCount={place.rating_count} />
         <h2>{place.name}</h2>
         {place.category && (
           <p className="muted location">
