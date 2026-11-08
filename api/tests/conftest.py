@@ -12,7 +12,7 @@ def app():
     assert config.environment == 'test' and config.database_url.endswith('/urbex_test'), 'Tests require the isolated test database'
     app = create_app(config)
     with app.state.engine.begin() as c:
-        c.execute(text('TRUNCATE web_telegram_logins,web_users,web_sessions,places,web_photos,web_reviews,web_reports,web_favorites,web_audit,web_login_attempts,web_search_outbox RESTART IDENTITY CASCADE'))
+        c.execute(text('TRUNCATE photo_event_outbox,web_telegram_logins,web_users,web_sessions,places,web_photos,web_reviews,web_reports,web_favorites,web_audit,web_login_attempts,web_search_outbox RESTART IDENTITY CASCADE'))
         c.execute(text('TRUNCATE web_categories RESTART IDENTITY CASCADE'))
         c.execute(text("INSERT INTO web_categories(name) VALUES ('Промышленность'), ('Архитектура'), ('Инфраструктура'), ('Другое')"))
     assert config.elasticsearch_index.startswith('urbex_test_')

@@ -13,6 +13,7 @@ def test_upload_allows_any_member_for_published_places(role, owner, allowed):
     if allowed:
         service.photo(Actor(7,role),42,b'jpeg')
         assert repo.add.call_args.args[1]['author_id'] == 7
+        assert repo.add.call_args.args[1]['status'] == 'published'
         storage.put.assert_called_once()
     else:
         with pytest.raises(DomainError) as error: service.photo(Actor(7,role),42,b'jpeg')
@@ -55,3 +56,37 @@ def test_upload_cannot_access_someone_elses_unpublished_place():
     assert error.value.status == 404
     storage.put.assert_not_called()
     repo.add.assert_not_called()
+
+
+def test_photo_deletion_enqueues_s3_key_and_photo_metadata():
+    repo = Mock()
+    repo.get.side_effect = [
+        {'place_id': 42, 'author_id': 7, 'object_key': 'photos/test.jpg'},
+        {'author_id': 7},
+    ]
+    PlacesService(repo).delete_photo(Actor(7, 'user'), 12)
+    routing_key, payload = repo.enqueue_event.call_args.args
+    assert routing_key == 'places.photo.s3.delete'
+    assert payload == {
+        'message_id': payload['message_id'], 'photo_id': 12,
+        'place_id': 42, 'object_key': 'photos/test.jpg', 'deleted_by': 7,
+    }
+    from uuid import UUID
+    UUID(payload['message_id'])
+
+
+def test_telegram_photo_deletion_does_not_enqueue_s3_event():
+    repo = Mock()
+    repo.get.side_effect = [{'place_id': 42, 'file_id': 'telegram-file'}, {}]
+    PlacesService(repo).delete_photo(Actor(7, 'admin'), -12)
+    repo.enqueue_event.assert_not_called()
+
+
+def test_unauthorized_photo_deletion_does_not_enqueue_event():
+    repo = Mock()
+    repo.get.side_effect = [
+        {'place_id': 42, 'author_id': 8, 'object_key': 'photos/test.jpg'}, {},
+    ]
+    with pytest.raises(DomainError):
+        PlacesService(repo).delete_photo(Actor(7, 'user'), 12)
+    repo.enqueue_event.assert_not_called()

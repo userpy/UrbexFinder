@@ -1,5 +1,6 @@
 from urbex_shared.catalog import published_filter
 from decimal import Decimal
+import json
 from sqlalchemy.orm import object_session
 from sqlalchemy import select, func, delete, text, Numeric, bindparam, Integer, case, or_
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -23,6 +24,13 @@ class SqlRepository:
         self.session = session
         self.text_search = search
         self._text_matches = {}
+
+    def enqueue_event(self, routing_key, message):
+        # The request commits this insert together with the photo update.
+        self.session.execute(text(
+            "INSERT INTO photo_event_outbox (routing_key, payload) "
+            "VALUES (:routing_key, CAST(:payload AS jsonb))"
+        ), {'routing_key': routing_key, 'payload': json.dumps(message)})
 
     def clear_active_itineraries(self, author_id):
         self.session.execute(text('UPDATE web_itineraries SET active=false WHERE author_id=:id AND active'), {'id': author_id})

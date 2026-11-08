@@ -107,7 +107,7 @@ class PlacePhoto(Base):  # noqa: D101
     user_id = Column(BigInteger, nullable=False)
     user_name = Column(String, nullable=True)
     file_id = Column(String, nullable=False)
-    status = Column(String(30), nullable=False, server_default="pending")
+    status = Column(String(30), nullable=False, server_default="published")
     reason = Column(Text, nullable=False, server_default="")
     caption = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)

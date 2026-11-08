@@ -613,86 +613,45 @@ class PlacesRepository:
                         user_name=user_name,
                         file_id=file_id,
                         caption=caption,
+                        status="published",
                     )
                 )
                 return True
 
+    _PUBLIC_PHOTOS_SQL = """
+        SELECT f.* FROM (
+            SELECT id, place_id, user_id, user_name, file_id,
+                   NULL::text AS object_key, caption, created_at, status,
+                   'telegram'::text AS source
+            FROM place_photos
+            UNION ALL
+            SELECT -f.id, f.place_id, u.telegram_id, u.name, NULL::text,
+                   f.object_key, NULL::text, f.created_at, f.status, 'website'::text
+            FROM web_photos f JOIN web_users u ON u.id = f.author_id
+        ) f JOIN places p ON p.id = f.place_id
+        WHERE f.place_id = :place_id AND f.status = 'published'
+          AND p.status = 'published' AND p.nonexistent_reports_count < 10
+    """
+
     async def get_recent_photos(self, place_id: int, limit: int = 5) -> list[dict]:
-        async with self.async_session() as session:
-            res = await session.execute(
-                select(PlacePhotoModel)
-                .join(PlaceModel, PlaceModel.id == PlacePhotoModel.place_id)
-                .where(self._visible_places_filter())
-                .where(PlacePhotoModel.place_id == place_id)
-                .where(PlacePhotoModel.status == "published")
-                .order_by(PlacePhotoModel.created_at.desc(), PlacePhotoModel.id.desc())
-                .limit(limit)
-            )
-            rows = []
-            for photo in res.scalars().all():
-                rows.append(
-                    {
-                        "id": photo.id,
-                        "user_id": photo.user_id,
-                        "user_name": photo.user_name,
-                        "file_id": photo.file_id,
-                        "caption": photo.caption,
-                        "created_at": photo.created_at,
-                    }
-                )
-            return rows
+        return (await self.get_photos_page(place_id, limit=limit))["items"]
 
     async def get_photos_page(self, place_id: int, limit: int = 1, offset: int = 0) -> dict:
-        offset = max(0, offset)
         async with self.async_session() as session:
-            total = int(
-                await session.scalar(
-                    select(func.count())
-                    .select_from(PlacePhotoModel)
-                    .join(PlaceModel, PlaceModel.id == PlacePhotoModel.place_id)
-                    .where(self._visible_places_filter())
-                    .where(PlacePhotoModel.place_id == place_id)
-                    .where(PlacePhotoModel.status == "published")
-                )
-                or 0
-            )
-            res = await session.execute(
-                select(PlacePhotoModel)
-                .join(PlaceModel, PlaceModel.id == PlacePhotoModel.place_id)
-                .where(self._visible_places_filter())
-                .where(PlacePhotoModel.place_id == place_id)
-                .where(PlacePhotoModel.status == "published")
-                .order_by(PlacePhotoModel.created_at.desc(), PlacePhotoModel.id.desc())
-                .limit(limit)
-                .offset(offset)
-            )
-            items = []
-            for photo in res.scalars().all():
-                items.append(
-                    {
-                        "id": photo.id,
-                        "user_id": photo.user_id,
-                        "user_name": photo.user_name,
-                        "file_id": photo.file_id,
-                        "caption": photo.caption,
-                        "created_at": photo.created_at,
-                    }
-                )
-            return {"total": total, "items": items}
+            total = await session.scalar(text(
+                "SELECT count(*) FROM (" + self._PUBLIC_PHOTOS_SQL + ") photos"
+            ), {"place_id": place_id})
+            result = await session.execute(text(
+                self._PUBLIC_PHOTOS_SQL +
+                " ORDER BY f.created_at DESC, f.id DESC LIMIT :limit OFFSET :offset"
+            ), {"place_id": place_id, "limit": max(0, limit), "offset": max(0, offset)})
+            return {"total": int(total or 0), "items": [dict(row) for row in result.mappings()]}
 
     async def get_place_photos_count(self, place_id: int) -> int:
         async with self.async_session() as session:
-            return int(
-                await session.scalar(
-                    select(func.count())
-                    .select_from(PlacePhotoModel)
-                    .join(PlaceModel, PlaceModel.id == PlacePhotoModel.place_id)
-                    .where(self._visible_places_filter())
-                    .where(PlacePhotoModel.place_id == place_id)
-                    .where(PlacePhotoModel.status == "published")
-                )
-                or 0
-            )
+            return int(await session.scalar(text(
+                "SELECT count(*) FROM (" + self._PUBLIC_PHOTOS_SQL + ") photos"
+            ), {"place_id": place_id}) or 0)
 
     async def delete_all_user_photos(self, place_id: int, user_id: int) -> int:
         async with self.async_session() as session:

@@ -4,7 +4,9 @@ from aiogram import Bot
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
-from aiogram.types import InputMediaPhoto
+from aiogram.types import InputMediaPhoto, BufferedInputFile
+from infrastructure.core.settings import get_app_settings
+from infrastructure.storage.s3 import S3Storage
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.keyboard import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -453,7 +455,7 @@ class PlacesView:
 
     @staticmethod
     def _build_photo_caption(photo: dict, offset: int, total: int) -> str:
-        author = photo.get("user_name") or ("user_" + str(photo["user_id"]))
+        author = photo.get("user_name") or ("user_" + str(photo["user_id"]) if photo.get("user_id") else "Пользователь сайта")
         user_caption = (photo.get("caption") or "").strip()
         if len(user_caption) > 900:
             user_caption = user_caption[:900] + "..."
@@ -493,16 +495,21 @@ class PlacesView:
         caption = PlacesView._build_photo_caption(photo=photo, offset=offset, total=total)
         keyboard = PlacesView._build_photo_keyboard(place_id=place_id, offset=offset, total=total)
 
+        media = photo.get("file_id")
+        if not media:
+            data = await S3Storage(get_app_settings()).get_object(photo["object_key"])
+            media = BufferedInputFile(data, filename="photo.jpg")
+
         if message.photo:
             await message.edit_media(
-                media=InputMediaPhoto(media=photo["file_id"], caption=caption),
+                media=InputMediaPhoto(media=media, caption=caption),
                 reply_markup=keyboard,
             )
             return True
 
         try:
             await message.edit_media(
-                media=InputMediaPhoto(media=photo["file_id"], caption=caption),
+                media=InputMediaPhoto(media=media, caption=caption),
                 reply_markup=keyboard,
             )
             return True
@@ -510,7 +517,7 @@ class PlacesView:
             # На некоторых типах сообщений Telegram не дает заменить текст на media.
             # В таком случае оставляем запасной сценарий: отправка фото новой карточкой.
             await message.answer_photo(
-                photo=photo["file_id"],
+                photo=media,
                 caption=caption,
                 reply_markup=keyboard,
             )

@@ -73,3 +73,15 @@ async def test_connect_does_not_retry_authentication_error(monkeypatch):
 
     connect.assert_awaited_once()
     sleep.assert_not_awaited()
+
+
+async def test_topology_binds_photo_deletion(monkeypatch):
+    from unittest.mock import MagicMock, call
+
+    connection = MagicMock()
+    channel = AsyncMock()
+    connection.channel = AsyncMock(return_value=channel)
+    monkeypatch.setattr(topology, '_connect_with_retry', AsyncMock(return_value=connection))
+    await topology.declare_startup_topology(_settings(rabbitmq_retry_delay_ms=5000))
+    queue = channel.declare_queue.return_value
+    assert call(channel.declare_exchange.return_value, routing_key='places.photo.s3.delete') in queue.bind.await_args_list

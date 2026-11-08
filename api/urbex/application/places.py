@@ -72,7 +72,7 @@ class PlacesService:
             raise DomainError('Для места допускается до 20 фотографий', 409)
         key = f'photos/{uuid4().hex}.jpg'
         self.storage.put(key, jpeg)
-        return self.repo.add('photos', dict(place_id=id, author_id=actor.id, object_key=key))
+        return self.repo.add('photos', dict(place_id=id, author_id=actor.id, object_key=key, status='published'))
 
     def delete_photo(self, actor, id):
         photo = self.repo.get('photos', id, lock=True)
@@ -82,6 +82,14 @@ class PlacesService:
             raise DomainError('Можно удалять только свои фотографии', 403)
         self.repo.update('photos', id, {'status': 'rejected', 'reason': 'Удалено пользователем'})
         self.repo.audit(actor.id, 'photo.delete', f'photos:{id}', 'Удалено пользователем')
+        if photo.get('object_key'):
+            self.repo.enqueue_event('places.photo.s3.delete', {
+                'message_id': str(uuid4()),
+                'photo_id': id,
+                'place_id': photo['place_id'],
+                'object_key': photo['object_key'],
+                'deleted_by': actor.id,
+            })
         return {'ok': True}
 
     def photo_bytes(self, id, actor):

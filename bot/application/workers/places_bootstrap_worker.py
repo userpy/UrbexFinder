@@ -10,6 +10,7 @@ from loguru import logger
 from application.workers.handlers.handle_places_bootstrap import (
     handle_places_bootstrap,
 )
+from application.workers.handlers.handle_photo_s3_delete import handle_photo_s3_delete
 from infrastructure.core.logger_config import setup_logger
 from infrastructure.core.settings import AppSettings, get_app_settings
 from infrastructure.messaging.rabbitmq.consumer import (
@@ -31,6 +32,8 @@ async def consume_topic(
                 message,
                 settings=settings,
             )
+        elif incoming_routing_key == "places.photo.s3.delete":
+            await handle_photo_s3_delete(message, settings=settings)
         elif incoming_routing_key == "places.bootstrap.test":
             logger.info(
                 "Hello world: routing_key='places.bootstrap.test', "
@@ -48,7 +51,7 @@ async def consume_topic(
         routing_keys=(
             "places.bootstrap.requested",
             "places.bootstrap.test",
-            "places.phonto.s3.delete"
+            "places.photo.s3.delete",
         ),
         message_handler=dispatch_message,
         prefetch_count=1,
@@ -60,7 +63,12 @@ async def main() -> None:
     setup_logger()
     settings = get_app_settings()
     from application.workers.catalog_index_sync import sync_catalog_index
-    await asyncio.gather(consume_topic(settings=settings), sync_catalog_index(settings))
+    from application.workers.photo_event_outbox import relay_photo_events
+    await asyncio.gather(
+        consume_topic(settings=settings),
+        sync_catalog_index(settings),
+        relay_photo_events(settings),
+    )
 
 
 if __name__ == "__main__":

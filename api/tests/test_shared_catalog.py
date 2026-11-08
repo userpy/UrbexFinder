@@ -65,7 +65,7 @@ def test_telegram_photos_permissions_and_no_secret_disclosure(client, moderator,
 def test_new_telegram_photo_requires_shared_moderation(client, moderator):
     with client.app.state.engine.begin() as c:
         place = c.scalar(text("INSERT INTO places(name,latitude,longitude,status) VALUES ('Фото на проверке',55.75,37.62,'published') RETURNING id"))
-        photo = c.scalar(text("INSERT INTO place_photos(place_id,user_id,file_id) VALUES (:id,1,'pending-file') RETURNING id"), {'id': place})
+        photo = c.scalar(text("INSERT INTO place_photos(place_id,user_id,file_id,status) VALUES (:id,1,'pending-file','pending') RETURNING id"), {'id': place})
     guest = TestClient(client.app)
     assert guest.get(f'/api/places/{place}/photos').json()['total'] == 0
     assert guest.get(f'/api/photos/{-photo}/content').status_code == 404

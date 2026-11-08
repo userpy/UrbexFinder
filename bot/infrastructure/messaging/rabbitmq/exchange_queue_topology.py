@@ -113,6 +113,7 @@ async def declare_startup_topology(settings: AppSettings) -> None:
 
         routing_keys = (
             "places.bootstrap.*",
+            "places.photo.s3.delete",
         )
         for routing_key in routing_keys:
             await main_queue.bind(main_exchange, routing_key=routing_key)

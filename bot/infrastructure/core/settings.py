@@ -45,6 +45,10 @@ class AppSettings(DatabaseSettings):
     rabbitmq_retry_delay_ms: int = Field(default=5_000, gt=0)
     rabbitmq_connection_max_attempts: int = Field(default=10, ge=1)
     rabbitmq_connection_retry_delay_ms: int = Field(default=500, gt=0)
+    s3_endpoint: str = Field(default="http://localhost:59000", validation_alias="URBEX_S3_ENDPOINT")
+    s3_access_key: str = Field(default="local-minio", validation_alias="URBEX_S3_ACCESS_KEY")
+    s3_secret_key: str = Field(default="local-minio-change-me", validation_alias="URBEX_S3_SECRET_KEY")
+    s3_bucket: str = Field(default="urbex-private", validation_alias="URBEX_S3_BUCKET")
     enqueue_places_sync_on_startup: bool = True
 
 

@@ -47,7 +47,7 @@ class Photo(Base):
     place_id = Column(Integer, ForeignKey('places.id'), nullable=False, index=True)
     author_id = Column(Integer, ForeignKey('web_users.id'), nullable=False)
     object_key = Column(Text, nullable=False)
-    status = Column(String(30), nullable=False, server_default='pending')
+    status = Column(String(30), nullable=False, server_default='published')
     reason = Column(Text, nullable=False, server_default='')
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

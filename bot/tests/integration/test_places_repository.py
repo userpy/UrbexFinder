@@ -169,7 +169,7 @@ async def test_reviews_and_photos_are_scoped_to_their_author(
         file_id="photo-3",
     )
 
-    assert await database.places.get_place_photos_count(place_id) == 0
+    assert await database.places.get_place_photos_count(place_id) == 3
     async with database.engine.begin() as connection:
         await connection.execute(text("UPDATE place_photos SET status='published' WHERE place_id=:id"), {"id": place_id})
     deleted = await database.places.delete_all_user_photos(
