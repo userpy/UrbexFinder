@@ -270,3 +270,11 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 .auth-card-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .auth-switch{display:inline-flex;align-items:center;justify-content:center;padding:5px 10px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--accent)}
 .auth-switch:hover{background:#1b2834;border-color:var(--accent)}
+
+.place-description{font-size:12px;line-height:1.7;overflow-wrap:anywhere}.place-description a{text-decoration:underline;text-underline-offset:2px}.place-description ul{list-style:disc;padding-left:24px}.place-description ol{list-style:decimal;padding-left:24px}.place-description blockquote{border-left:2px solid var(--accent);margin:12px 0;padding-left:14px}.place-description pre{overflow-x:auto}
+
+.detail-body .place-category{margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+
+.detail-close{display:flex;align-items:center;justify-content:center;margin-left:12px;padding:4px;color:var(--accent);transition:color .15s}.detail-close:hover,.detail-close:focus-visible{color:var(--foreground)}
+
+.category-picker{position:relative}.category-picker-trigger{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:1px solid var(--border);background:#11171e;border-radius:5px;padding:10px 12px;font-size:11px}.category-picker-trigger span{flex:1;min-width:0}.category-picker svg{flex-shrink:0}.category-picker-options{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:30;max-height:min(380px,60dvh);overflow-y:auto;padding:4px;border:1px solid #405365;border-radius:5px;background:var(--panel);box-shadow:0 8px 24px #0006}.category-picker-options button{display:flex;align-items:center;gap:8px;width:100%;padding:9px 8px;text-align:left;font-size:11px;border-radius:3px}.category-picker-options button span{flex:1;min-width:0;overflow-wrap:anywhere}.category-picker-options button:hover,.category-picker-options button:focus-visible{background:#263b48;outline:none}.category-picker-options button[aria-selected="true"]{background:#223140;color:var(--accent)}

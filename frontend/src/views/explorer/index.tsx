@@ -1,4 +1,5 @@
 "use client";
+import { CategoryFilter } from "./category-filter";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
@@ -396,21 +397,10 @@ export function Explorer() {
             </button>
           </div>
           <div className="category-filter">
-            <select
-              aria-label="Категория"
-              value={category}
-              onChange={(e) => {
-                setCategory(e.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="">Все категории</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <CategoryFilter categories={categories} value={category} onChange={(value) => {
+              setCategory(value);
+              setPage(1);
+            }} />
           </div>
           {near && (
             <div className="near">

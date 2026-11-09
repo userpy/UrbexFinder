@@ -2,6 +2,7 @@
 import { DeleteReview } from "./delete-review";
 export { DeleteReview } from "./delete-review";
 import { ReportDialog } from "./report-dialog";
+import { PlaceDescription } from "./description";
 import { PlaceRating } from "./rating";
 import { PhotoGallery } from "./gallery";
 import { PlacePhoto } from "./telegram-photo";
@@ -149,7 +150,7 @@ export function PlaceDetail({
               <Maximize2 size={17} />
               Во весь экран
             </button>
-            <button aria-label="Закрыть карточку" onClick={onClose}>
+            <button className="detail-close" aria-label="Закрыть карточку" onClick={onClose}>
               <X size={19} />
             </button>
           </>
@@ -243,7 +244,7 @@ export function PlaceDetail({
         <PlaceRating ratingAverage={place.rating_avg} ratingCount={place.rating_count} />
         <h2>{place.name}</h2>
         {place.category && (
-          <p className="muted location">
+          <p className="muted location place-category">
             <CategoryIcon
               category={place.category}
               icon={place.category_icon}
@@ -363,7 +364,7 @@ export function PlaceDetail({
         )}
         <section>
           <h3>Об объекте</h3>
-          <p className="preserve">{place.description}</p>
+          <PlaceDescription description={place.description} />
         </section>
         {expanded && reviewTotal > 0 && (
           <section>
