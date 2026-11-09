@@ -383,7 +383,7 @@ export function Explorer() {
           )}
           <div className="filter-title">
             <SlidersHorizontal size={14} />
-            Фильтры{" "}
+            фильтр{" "}
             <button
               onClick={() => {
                 setQuery("");
