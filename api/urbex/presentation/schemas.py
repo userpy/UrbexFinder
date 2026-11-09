@@ -27,6 +27,7 @@ class PlaceInput(Input):
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
     region: str = Field(min_length=2, max_length=200)
+    full_address: str | None = Field(default=None, max_length=2000)
     category_id: int = Field(gt=0)
     condition: Literal['unknown', 'standing', 'ruined', 'demolished'] = 'unknown'
     access: str = Field(min_length=5, max_length=2000)

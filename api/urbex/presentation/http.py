@@ -99,12 +99,12 @@ def place(id: int, ctx: Ctx):
 
 @router.post('/places', status_code=201)
 def submit(data: PlaceInput, ctx: Ctx):
-    return ctx[0].places.submit(signed(ctx), data.model_dump())
+    return ctx[0].places.submit(signed(ctx), data.model_dump(exclude_unset=True))
 
 
 @router.put('/places/{id}')
 def resubmit(id: int, data: PlaceInput, ctx: Ctx):
-    return ctx[0].places.submit(signed(ctx), data.model_dump(), id)
+    return ctx[0].places.submit(signed(ctx), data.model_dump(exclude_unset=True), id)
 
 
 @router.delete('/places/{id}')

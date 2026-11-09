@@ -21,6 +21,7 @@ export function PlaceForm({
     String(initial?.category_id ?? ""),
   );
   const [region, setRegion] = useState(initial?.region ?? "");
+  const [fullAddress, setFullAddress] = useState(initial?.full_address ?? "");
   const [geocoding, setGeocoding] = useState(false);
   const [latitude, setLatitude] = useState(String(initial?.latitude ?? ""));
   const [longitude, setLongitude] = useState(String(initial?.longitude ?? ""));
@@ -39,7 +40,7 @@ export function PlaceForm({
         : !valid
           ? "Выберите место на карте, чтобы заполнить координаты."
           : region.trim().length < 2 || region.trim().length > 200
-            ? "Нажмите «Определить регион по координатам»."
+            ? "Нажмите «Определить адрес по координатам»."
             : !categories.some((category) => String(category.id) === categoryId)
               ? "Выберите категорию места."
               : "";
@@ -93,6 +94,7 @@ export function PlaceForm({
                 name: name.trim(),
                 description: description.trim(),
                 region: region.trim(),
+                full_address: fullAddress.trim(),
                 condition: initial?.condition ?? "unknown",
                 access:
                   initial?.access ?? "Сведения о доступе не подтверждены.",
@@ -155,6 +157,7 @@ export function PlaceForm({
           onPoint={(lng, lat) => {
             if (!busy && !geocoding) {
               setRegion("");
+              setFullAddress("");
               setLatitude(lat.toFixed(6));
               setLongitude(lng.toFixed(6));
             }
@@ -194,14 +197,14 @@ export function PlaceForm({
         </p>
         <div>
           <p className="place-coordinate">
-            Регион:{" "}
+            Полный адрес:{" "}
             <output>
-              {region || (
+              {fullAddress || (
                 <span
                   className="place-value-empty"
                   role="img"
-                  aria-label="Регион ещё не определён"
-                  title="Регион ещё не определён"
+                  aria-label="Полный адрес ещё не определён"
+                  title="Полный адрес ещё не определён"
                 >
                   <Globe size={14} aria-hidden="true" />
                 </span>
@@ -216,10 +219,11 @@ export function PlaceForm({
               setGeocoding(true);
               setError("");
               try {
-                const result = await api<{ region: string }>(
+                const result = await api<{ region: string; address: string }>(
                   `/geocode/reverse?latitude=${lat}&longitude=${lon}`,
                 );
                 setRegion(result.region);
+                setFullAddress(result.address);
               } catch (error) {
                 setError((error as Error).message);
               } finally {
@@ -228,8 +232,8 @@ export function PlaceForm({
             }}
           >
             {geocoding
-              ? "Определение региона…"
-              : "Определить регион по координатам"}
+              ? "Определение адреса…"
+              : "Определить адрес по координатам"}
           </Button>
         </div>
         <label>

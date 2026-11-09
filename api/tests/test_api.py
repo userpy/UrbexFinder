@@ -198,3 +198,18 @@ def test_favorite_state_and_admin_photo_filter(client, moderator):
     result = moderator.get(f'/api/admin/photos?place_id={a}').json()
     assert result['total'] == 1 and result['items'][0]['place_id'] == a
     assert client.get(f'/api/admin/photos?place_id={a}').status_code == 403
+
+
+def test_full_address_survives_submission_and_resubmission(client, moderator):
+    register(client)
+    address = 'Московская область, городской округ Щёлково, улица Лесная, 12'
+    id = create(client, full_address=address)
+    assert client.get(f'/api/places/{id}').json()['full_address'] == address
+    assert moderator.post(f'/api/admin/places/{id}/decision', json={
+        'status': 'changes_requested', 'reason': 'Уточните описание',
+    }).status_code == 200
+    # Older clients that omit the optional field must not erase the address.
+    result = client.put(f'/api/places/{id}', json=PLACE)
+    assert result.status_code == 200, result.text
+    assert result.json()['full_address'] == address
+    assert result.json()['region'] == PLACE['region']

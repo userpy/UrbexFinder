@@ -256,7 +256,7 @@ export function PlaceDetail({
         )}
         <p className="muted location">
           <MapPin size={14} />
-          {place.region}
+          {place.full_address || place.region}
         </p>
         {expanded && (
           <div className="place-coordinates">
