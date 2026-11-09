@@ -1,14 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Compass, ArrowRight } from "lucide-react";
 import { useSession } from "@/entities/session";
 import { api, body, setCsrf } from "@/shared/api";
 import { Button } from "@/shared/ui/button";
-export function LoginView() {
+export function LoginView({ register = false }: { register?: boolean }) {
   const [method, setMethod] = useState<"telegram" | "password" | null>(null);
-  const [register, setRegister] = useState(false),
-    [error, setError] = useState(""),
+  const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const { refresh } = useSession(),
     router = useRouter();
@@ -67,22 +67,14 @@ export function LoginView() {
         <p>Избранное, наблюдения и новые точки на карте — в вашем кабинете.</p>
       </div>
       <div className="auth-card">
-        <div className="tabs">
-          <button
-            className={!register ? "active" : ""}
-            onClick={() => setRegister(false)}
-          >
-            Вход
-          </button>
-          <button
-            className={register ? "active" : ""}
-            onClick={() => setRegister(true)}
-          >
-            Регистрация
-          </button>
+        <div className="auth-card-header">
+          <div className="eyebrow">{register ? "Регистрация" : "Вход"}</div>
+          <Link className="auth-switch" href={register ? "/login" : "/register"}>
+            {register ? "Вход" : "Регистрация"}
+          </Link>
         </div>
         <h2>{register ? "Стать исследователем" : "С возвращением"}</h2>
-        <div className="auth-methods" role="group" aria-label="Способ входа">
+        <div className="auth-methods" role="group" aria-label={register ? "Способ регистрации" : "Способ входа"}>
           <Button
             type="button"
             variant={method === "telegram" ? "default" : "outline"}
@@ -106,7 +98,18 @@ export function LoginView() {
               }
             }}
           >
-            Войти через Telegram
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+              focusable="false"
+              style={{ flexShrink: 0 }}
+            >
+              <path d="M21.44 2.62 2.85 9.79c-1.27.51-1.26 1.22-.23 1.54l4.77 1.49 1.83 5.61c.22.61.11.85.75.85.49 0 .71-.22.98-.48l2.38-2.31 4.95 3.66c.91.5 1.57.24 1.8-.85l3.25-15.32c.33-1.34-.51-1.95-1.89-1.36ZM8.14 12.48 18.9 5.69c.54-.33 1.04-.15.63.22l-8.7 7.85-.34 3.62-2.35-4.9Z" />
+            </svg>
+            Телеграм
           </Button>
           <Button
             type="button"

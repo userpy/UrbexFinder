@@ -77,7 +77,9 @@ test("registration → submission → moderator approval → map → persistent 
   const name = `Фабрика E2E ${unique}`;
   await page.goto("/login");
   await page.getByRole("button", { name: "Логин и пароль", exact: true }).click();
-  await page.getByRole("button", { name: "Регистрация", exact: true }).click();
+  await page.getByRole("link", { name: "Регистрация", exact: true }).click();
+  await expect(page).toHaveURL(/\/register$/);
+  await page.getByRole("button", { name: "Логин и пароль", exact: true }).click();
   await page.getByLabel("Имя", { exact: true }).fill("Исследователь E2E");
   await page
     .getByLabel("Email", { exact: true })

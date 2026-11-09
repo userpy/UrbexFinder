@@ -1,4 +1,4 @@
 import { LoginView } from "@/views/login";
 export default function Page() {
-  return <LoginView />;
+  return <LoginView key="login" />;
 }
