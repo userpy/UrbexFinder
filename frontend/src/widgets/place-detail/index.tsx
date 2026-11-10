@@ -436,9 +436,6 @@ export function PlaceDetail({
             {message}
           </p>
         )}
-        <small className="muted">
-          Обновлено {new Date(place.updated_at).toLocaleDateString("ru-RU")}
-        </small>
       </div>
       {reportTarget && (
         <ReportDialog
