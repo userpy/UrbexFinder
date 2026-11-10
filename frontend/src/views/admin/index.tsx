@@ -1,7 +1,8 @@
 "use client";
 import { CategoryIconPicker } from "./category-icon-picker";
-import { DeleteReview } from "@/widgets/place-detail";
+import { DeleteReview, PlaceDetail } from "@/widgets/place-detail";
 import { DeletePlaceDialog } from "./delete-place-dialog";
+import { DeleteCategoryDialog } from "./delete-category-dialog";
 import { DeleteUserDialog } from "./delete-user-dialog";
 import { Ban, Trash2, Unlock } from "lucide-react";
 import Image from "next/image";
@@ -45,7 +46,9 @@ export function AdminView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [deletePlace, setDeletePlace] = useState(false);
   const [deleteReview, setDeleteReview] = useState(false);
+  const [deleteCategory, setDeleteCategory] = useState<Row | null>(null);
   const [deleteUser, setDeleteUser] = useState(false);
+  const [detailPlace, setDetailPlace] = useState<Place | null>(null);
   const inspector = useRef<HTMLDialogElement>(null);
   const [placeName, setPlaceName] = useState("");
   const [description, setDescription] = useState("");
@@ -141,6 +144,18 @@ export function AdminView() {
           setLatitude(String(p.latitude));
           setLongitude(String(p.longitude));
           setAddress(p.full_address || p.region || "");
+          if (kind === "places" && !p.full_address?.trim()) {
+            api<{ address: string }>(
+              `/admin/geocode/reverse?${new URLSearchParams({ latitude: String(p.latitude), longitude: String(p.longitude) })}`,
+              { signal: abort.signal },
+            ).then((result) => {
+              if (abort.signal.aborted) return;
+              setAddress((current) => current === (p.region || "") ? result.address : current);
+              setSavedMessage("Полный адрес найден по координатам. Проверьте его и сохраните изменения.");
+            }).catch((e) => {
+              if (e.name !== "AbortError") setError(e.message);
+            });
+          }
         })
         .catch((e) => {
           if (e.name !== "AbortError") setError(e.message);
@@ -153,6 +168,17 @@ export function AdminView() {
     }
     return () => abort.abort();
   }, [selected, kind]);
+  async function openPlaceCard(id: number) {
+    setBusy(true);
+    setError("");
+    try {
+      setDetailPlace(await api<Place>(`/places/${id}`));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function mutate(path: string, data: unknown, method = "POST") {
     setBusy(true);
     setError("");
@@ -251,13 +277,32 @@ export function AdminView() {
                 setSelected({ id: 0, name: "", active: true, icon: null });
               }}>Добавить категорию</Button>
             )}
-            <div className="admin-table">
+            <div className={`admin-table${kind === "categories" ? " category-table" : kind === "users" ? " users-table" : ""}`}>
               <div className="table-head">
                 <span>ОБЪЕКТ / ЗАПИСЬ</span>
+                {kind === "users" && <span>РОЛЬ</span>}
                 <span>СОСТОЯНИЕ</span>
                 <span>ID</span>
+                {kind === "categories" && <span>ДЕЙСТВИЯ</span>}
               </div>
-              {rows.map((r) => (
+              {rows.map((r) => kind === "categories" ? (
+                <div className="table-row category-table-row" key={r.id}>
+                  <button type="button" className="category-row-open" onClick={() => {
+                    setError("");
+                    setSavedMessage("");
+                    setSelected(r);
+                  }}>
+                    <CategoryIcon category={r.name} icon={r.icon} />
+                    <span>{r.name}</span>
+                  </button>
+                  <span>{r.active === false ? "Выключена" : "Доступна"}</span>
+                  <span>#{r.id}</span>
+                  <Button type="button" variant="ghost" aria-label={`Удалить категорию «${r.name}»`}
+                    onClick={() => setDeleteCategory(r)}>
+                    <Trash2 size={16} /> Удалить
+                  </Button>
+                </div>
+              ) : (
                 <button
                   className="table-row"
                   key={r.id}
@@ -288,8 +333,16 @@ export function AdminView() {
                       </small>
                     )}
                   </span>
+                  {kind === "users" && (
+                    <span>{r.role === "admin" ? "Администратор" : r.role === "moderator" ? "Модератор" : "Пользователь"}</span>
+                  )}
                   <span>
-                    {statuses[r.status || ""] ||
+                    {kind === "users" ? (
+                        <span className={`user-block-status${r.blocked ? " is-blocked" : ""}`}>
+                          {r.blocked ? <Ban size={14} /> : <Unlock size={14} />}
+                          {r.blocked ? "Заблокирован" : "Активен"}
+                        </span>
+                    ) : statuses[r.status || ""] ||
                       r.role ||
                       (r.active === false ? "Выключена" : "—")}
                   </span>
@@ -318,6 +371,19 @@ export function AdminView() {
               </button>
             </div>
           </>
+        )}
+        {deleteCategory && (
+          <DeleteCategoryDialog
+            id={deleteCategory.id}
+            name={deleteCategory.name || `#${deleteCategory.id}`}
+            onClose={() => setDeleteCategory(null)}
+            onDeleted={() => {
+              setDeleteCategory(null);
+              setSelected(null);
+              setPage(1);
+              setRevision((v) => v + 1);
+            }}
+          />
         )}
         {selected && (
           <dialog
@@ -491,9 +557,17 @@ export function AdminView() {
                     </label>
                     <label>
                       Адрес
-                      <input
+                      <textarea
+                        className="admin-address"
                         value={address}
-                        readOnly
+                        onChange={(event) => setAddress(event.target.value)}
+                        ref={(node) => {
+                          if (node) {
+                            node.style.height = "auto";
+                            node.style.height = `${node.scrollHeight}px`;
+                          }
+                        }}
+                        rows={3}
                         required
                         maxLength={2000}
                         disabled={busy}
@@ -566,10 +640,9 @@ export function AdminView() {
                 {tab !== "places" && (
                   <>
                 <p className="muted">
-                  Регион: {place.region} · Состояние: {place.condition} · Автор:{" "}
+                  Адрес: {place.full_address || place.region} · Состояние: {place.condition} · Автор:{" "}
                   {place.author_id || "Импорт из бота"}
                 </p>
-                <p className="notice">Доступ: {place.access}</p>
                 {kind !== "places" && (
                 <div className="review-map">
                   <MapPanel
@@ -621,9 +694,10 @@ export function AdminView() {
             {selected.text && <p style={{ whiteSpace: "pre-wrap" }}>{selected.text}</p>}
             {kind === "reviews" && selected.place_id && (
               <p>
-                <a href={`/?place=${selected.place_id}`}>
-                  {place?.name || `Открыть место #${selected.place_id}`} →
-                </a>
+                <button type="button" className="report-place-link" disabled={busy}
+                  onClick={() => openPlaceCard(selected.place_id!)}>
+                  {busy ? "Загрузка карточки…" : `${place?.name || `Открыть место #${selected.place_id}`} →`}
+                </button>
               </p>
             )}
             {kind === "reviews" && (
@@ -649,7 +723,12 @@ export function AdminView() {
             )}
             {selected.target_type && (
               <p>
-                Объект жалобы: {selected.target_type} #{selected.target_id}
+                Объект жалобы: {selected.target_type === "places" && selected.target_id ? (
+                  <button type="button" className="report-place-link" disabled={busy}
+                    onClick={() => openPlaceCard(selected.target_id!)}>
+                    {busy ? "Загрузка карточки…" : `Открыть карточку места #${selected.target_id} →`}
+                  </button>
+                ) : `${selected.target_type} #${selected.target_id}`}
               </p>
             )}
             {kind === "photos" && (
@@ -820,9 +899,21 @@ export function AdminView() {
                   Доступна для новых мест
                 </label>
                 <Button disabled={busy}>Сохранить</Button>
+                {!!selected.id && (
+                  <Button type="button" variant="ghost" disabled={busy}
+                    onClick={() => setDeleteCategory(selected)}>
+                    <Trash2 size={16} />
+                    Удалить категорию
+                  </Button>
+                )}
+
               </form>
             )}
           </dialog>
+        )}
+        {detailPlace && (
+          <PlaceDetail key={detailPlace.id} place={detailPlace} fullscreen
+            onClose={() => setDetailPlace(null)} />
         )}
       </div>
     </main>

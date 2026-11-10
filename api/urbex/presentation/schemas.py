@@ -39,6 +39,7 @@ class Search(Input):
     locality: str | None = Field(default=None, max_length=200)
     locality_bbox: str | None = None
     zoom: int = Field(default=9, ge=0, le=22)
+    cluster: bool = True
     bbox: str | None = None
     category_id: int | None = Field(default=None, gt=0)
     condition: Literal['unknown', 'standing', 'ruined', 'demolished'] | None = None
@@ -105,7 +106,7 @@ class UserUpdate(Input):
 
 
 class CategoryInput(Input):
-    icon: Literal["other", "estate", "shelter", "military", "camp", "school", "culture", "industry", "church", "nature", "geocache", "infrastructure"] | None = None
+    icon: Literal["other", "estate", "shelter", "military", "camp", "school", "culture", "industry", "church", "nature", "geocache", "infrastructure", "architecture", "castle", "house", "hospital", "hotel", "bridge", "railway", "airport", "port", "lighthouse", "water_tower", "mine", "quarry", "cave", "mountain", "waterfall", "monument", "cemetery"] | None = None
     name: str = Field(min_length=2, max_length=100)
     active: bool = True
 

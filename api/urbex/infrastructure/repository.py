@@ -139,6 +139,10 @@ class SqlRepository:
         rows = self.session.scalars(select(model).where(*conditions).order_by(*ordering).limit(30).offset((page-1)*30))
         return {'items': [serialize(r) for r in rows], 'total': total, 'page': page}
 
+    def category_in_use(self, id):
+        # Include hidden and soft-deleted places, which still reference the category.
+        return self.session.scalar(select(Place.id).where(Place.category_id == id).limit(1)) is not None
+
     def delete(self, kind, filters):
         model = MODELS[kind]
         self.session.execute(delete(model).where(*[getattr(model, k) == v for k, v in filters.items()]))
@@ -235,6 +239,20 @@ class SqlRepository:
                 attempts=web_login_attempts.attempts+1 RETURNING attempts"""), {'key': key}).scalar_one()
 
     def map(self, filters, zoom):
+        if not filters.get('cluster', True):
+            query = select(Place.id, Place.longitude, Place.latitude,
+                           Category.name.label('category'), Category.icon.label('category_icon')) \
+                .outerjoin(Category, Place.category_id == Category.id).where(*self.search_conditions(filters))
+            matches = self.search_matches(filters)
+            if matches is not None:
+                query = query.join(matches, Place.id == matches.c.id)
+            features = [
+                {'type': 'Feature', 'geometry': {'type': 'Point',
+                 'coordinates': [float(row.longitude), float(row.latitude)]},
+                 'properties': {'id': row.id, 'category': row.category or 'Другое', 'category_icon': row.category_icon}}
+                for row in self.session.execute(query.order_by(Place.id))
+            ]
+            return {'type': 'FeatureCollection', 'features': features, 'total': len(features)}
         west, south, east, north = filters['bbox']
         width = east - west if west <= east else east + 360 - west
         # Adapt the grid to the viewport, bounding the response to at most 49x49 cells.

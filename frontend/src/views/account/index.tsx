@@ -1,12 +1,21 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, LoaderCircle } from "lucide-react";
 import { useSession } from "@/entities/session";
 import { Place, statuses } from "@/entities/place";
 import { api, Page } from "@/shared/api";
 import { PlaceDetail } from "@/widgets/place-detail";
 import { Button } from "@/shared/ui/button";
+function AccountLoading({ label }: { label: string }) {
+  return (
+    <div className="account-list-state" role="status" aria-live="polite">
+      <LoaderCircle className="account-loading-spinner" size={24} aria-hidden="true" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function DeleteOwnPlace({
   place,
   onClose,
@@ -103,11 +112,11 @@ function PlacesList({
         {error}
       </p>
     );
-  if (!data) return <p role="status">Загрузка…</p>;
+  if (!data) return <AccountLoading label={status === "pending" ? "Загрузка мест на модерации…" : "Загрузка моих мест…"} />;
   return (
     <>
       {!data.items.length && (
-        <p className="muted account-list-empty">Список пуст</p>
+        <p className="muted account-list-state account-list-empty">Список пуст</p>
       )}
       {data.items.length > 0 && (
         <div className="account-table-scroll">
@@ -212,7 +221,7 @@ export function AccountView() {
   const { user, loading, logout } = useSession();
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Place | null>(null);
-  if (loading) return <main className="page">Загрузка…</main>;
+  if (loading) return <main className="page"><AccountLoading label="Загрузка профиля…" /></main>;
   if (!user)
     return (
       <main className="page">

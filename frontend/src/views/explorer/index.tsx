@@ -30,6 +30,7 @@ import {
 } from "@/shared/ui/highlight-match";
 import { Button } from "@/shared/ui/button";
 export function Explorer() {
+  const [clustered, setClustered] = useState(true);
   const searchInput = useRef<HTMLInputElement>(null);
   const [places, setPlaces] = useState<Place[]>([]),
     [selected, setSelected] = useState<Place | null>(null),
@@ -181,6 +182,7 @@ export function Explorer() {
       const params = new URLSearchParams({
         bbox,
         zoom: String(zoom),
+        cluster: String(clustered),
         q: locality ? "" : query,
         search_in: "all",
       });
@@ -209,6 +211,7 @@ export function Explorer() {
   }, [
     bbox,
     zoom,
+    clustered,
     query,
     resolvedQuery,
     locality,
@@ -547,6 +550,8 @@ export function Explorer() {
       >
         <MapPanel
           data={mapData}
+          clustered={clustered}
+          onClusterChange={setClustered}
           focusBounds={selectedBounds ?? locality?.bbox}
           places={places}
           selected={selected?.id || null}

@@ -154,6 +154,13 @@ def test_map_covers_all_pages_and_applies_filters(client, moderator):
     assert client.get('/api/places?limit=30').json()['total'] == 75
     result = client.get('/api/map?bbox=37,55,38,56&zoom=9').json()
     assert result['total'] == 75
+    points = client.get('/api/map?bbox=37,55,38,56&zoom=9&cluster=false').json()
+    assert points['total'] == len(points['features']) == 75
+    assert all('point_count' not in f['properties'] for f in points['features'])
+    assert len({f['properties']['id'] for f in points['features']}) == 75
+    assert hidden not in {f['properties']['id'] for f in points['features']}
+    assert client.get('/api/map?bbox=37,55,38,56&cluster=false&category_id=2').json()['total'] == 0
+
     assert sum(f['properties'].get('point_count', 1) for f in result['features']) == 75
     assert len(result['features']) <= 2401
     assert all(f['properties'].get('id') != hidden for f in result['features'])

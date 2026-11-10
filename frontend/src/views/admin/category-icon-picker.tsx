@@ -3,17 +3,37 @@ import { useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { CategoryIcon, categoryVisuals } from "@/entities/place";
 
-const labels: Record<string, string> = {
+const labels: Record<keyof typeof categoryVisuals, string> = {
   other: "Разное", estate: "Усадьба", shelter: "Убежище",
   military: "Военный объект", camp: "Лагерь", school: "Учебное заведение",
   culture: "Культура", industry: "Промышленность", church: "Церковь",
   nature: "Природа", geocache: "Геокешинг", infrastructure: "Инфраструктура",
+  architecture: "Архитектура",
+  castle: "Замок",
+  house: "Жилой дом",
+  hospital: "Больница",
+  hotel: "Гостиница",
+  bridge: "Мост",
+  railway: "Железная дорога",
+  airport: "Аэродром",
+  port: "Порт",
+  lighthouse: "Маяк",
+  water_tower: "Водонапорная башня",
+  mine: "Шахта",
+  quarry: "Карьер",
+  cave: "Пещера",
+  mountain: "Горы",
+  waterfall: "Водопад",
+  monument: "Памятник",
+  cemetery: "Кладбище",
 };
 export function CategoryIconPicker({ value, category, onChange }: {
   value?: string | null;
   category?: string;
-  onChange: (value: string | null) => void;
+  onChange: (value: string) => void;
 }) {
+  const selectedIcon = value && Object.prototype.hasOwnProperty.call(categoryVisuals, value)
+    ? value as keyof typeof categoryVisuals : "other";
   const menu = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
     const close = (event: PointerEvent) => {
@@ -22,7 +42,7 @@ export function CategoryIconPicker({ value, category, onChange }: {
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, []);
-  function choose(icon: string | null) {
+  function choose(icon: string) {
     onChange(icon);
     if (menu.current) {
       menu.current.open = false;
@@ -32,7 +52,7 @@ export function CategoryIconPicker({ value, category, onChange }: {
   return (
     <div className="category-icon-field">
       <span>Иконка категории</span>
-      <input type="hidden" name="icon" value={value || ""} />
+      <input type="hidden" name="icon" value={selectedIcon} />
       <details ref={menu} className="category-icon-picker" onKeyDown={(event) => {
         if (event.key === "Escape" && menu.current?.open) {
           event.preventDefault();
@@ -43,22 +63,19 @@ export function CategoryIconPicker({ value, category, onChange }: {
       }}>
         <summary>
           <CategoryIcon category={category} icon={value} />
-          <span>{value ? labels[value] : "Автоматически по названию"}</span>
+          <span>{labels[selectedIcon]}</span>
           <ChevronDown size={16} />
         </summary>
         <div className="category-icon-dropdown">
           <div className="category-icon-grid" role="group" aria-label="Выберите иконку категории">
-            {Object.keys(categoryVisuals).map((icon) => (
+            {(Object.keys(categoryVisuals) as Array<keyof typeof categoryVisuals>).map((icon) => (
               <button key={icon} type="button" title={labels[icon]}
-                aria-label={labels[icon]} aria-pressed={value === icon}
+                aria-label={labels[icon]} aria-pressed={selectedIcon === icon}
                 onClick={() => choose(icon)}>
                 <CategoryIcon category={labels[icon]} icon={icon} width={30} height={30} />
               </button>
             ))}
           </div>
-          <button type="button" className="category-icon-auto" aria-pressed={!value} onClick={() => choose(null)}>
-            Автоматически по названию
-          </button>
         </div>
       </details>
     </div>

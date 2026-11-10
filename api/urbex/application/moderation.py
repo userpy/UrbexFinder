@@ -39,6 +39,15 @@ class ModerationService:
         return result
 
 
+    def delete_category(self, actor, id):
+        actor.require('admin')
+        category = self.repo.get('categories', id, lock=True)
+        if self.repo.category_in_use(id):
+            raise DomainError('Категория используется местами. Сначала смените их категорию.', 409)
+        self.repo.delete('categories', {'id': id})
+        self.repo.audit(actor.id, 'category.delete', f'categories:{id}', category['name'])
+        return {'ok': True}
+
     def edit_description(self, actor, id, description, expected_description):
         actor.require('moderator', 'admin')
         place = self.repo.get('places', id, lock=True)

@@ -192,6 +192,11 @@ def edit_category(id: int, data: CategoryInput, ctx: Ctx):
     return ctx[0].moderation.category(signed(ctx), data.model_dump(), id)
 
 
+@router.delete('/admin/categories/{id}')
+def delete_category(id: int, ctx: Ctx):
+    return ctx[0].moderation.delete_category(signed(ctx), id)
+
+
 @router.patch('/admin/places/{id}/description')
 def edit_description(id: int, data: DescriptionUpdate, ctx: Ctx):
     return ctx[0].moderation.edit_description(signed(ctx), id, data.description, data.expected_description)

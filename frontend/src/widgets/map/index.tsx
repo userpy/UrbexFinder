@@ -14,6 +14,8 @@ import { Crosshair, Layers } from "lucide-react";
 const style = process.env.NEXT_PUBLIC_MAP_STYLE_URL;
 type Props = {
   data?: FeatureCollection<Point> & { total: number };
+  clustered?: boolean;
+  onClusterChange?: (enabled: boolean) => void;
   places: Place[];
   selected: number | null;
   onSelect: (id: number) => void;
@@ -27,6 +29,8 @@ type Props = {
 };
 export function MapPanel({
   data,
+  clustered = true,
+  onClusterChange,
   places,
   selected,
   onSelect,
@@ -311,7 +315,7 @@ export function MapPanel({
               ...feature,
               properties: {
                 ...feature.properties,
-                category_icon: `category-${categoryVisual(feature.properties?.category, feature.properties?.category_icon).key}`,
+                category_icon: `category-${categoryVisual(feature.properties?.category_icon).key}`,
               },
             })),
           }
@@ -325,7 +329,7 @@ export function MapPanel({
               },
               properties: {
                 id: p.id,
-                category_icon: `category-${categoryVisual(p.category, p.category_icon).key}`,
+                category_icon: `category-${categoryVisual(p.category_icon).key}`,
               },
             })),
           },
@@ -334,17 +338,25 @@ export function MapPanel({
   useEffect(() => {
     const m = map.current;
     if (ready && m?.getLayer("points")) {
-      m.setLayoutProperty("points", "icon-size", [
-        "case",
-        ["==", ["get", "id"], selected ?? -1],
-        1.2,
-        1,
+      const selectedSize = (size: number): maplibregl.ExpressionSpecification => [
+        "case", ["==", ["get", "id"], selected ?? -1], size * 1.2, size,
+      ];
+      m.setLayoutProperty("points", "icon-size", clustered ? selectedSize(1) : [
+        "interpolate", ["linear"], ["zoom"],
+        3, selectedSize(0.3),
+        8, selectedSize(0.5),
+        12, selectedSize(0.8),
+        15, selectedSize(1),
       ]);
-      m.setPaintProperty("point-selection", "circle-radius", [
-        "case",
-        ["==", ["get", "id"], selected ?? -1],
-        23,
-        0,
+      const selectedRadius = (radius: number): maplibregl.ExpressionSpecification => [
+        "case", ["==", ["get", "id"], selected ?? -1], radius, 0,
+      ];
+      m.setPaintProperty("point-selection", "circle-radius", clustered ? selectedRadius(23) : [
+        "interpolate", ["linear"], ["zoom"],
+        3, selectedRadius(7),
+        8, selectedRadius(11.5),
+        12, selectedRadius(18.4),
+        15, selectedRadius(23),
       ]);
       m.setPaintProperty("point-selection", "circle-stroke-width", [
         "case",
@@ -353,7 +365,7 @@ export function MapPanel({
         0,
       ]);
     }
-  }, [selected, ready]);
+  }, [selected, ready, clustered]);
   useEffect(() => {
     if (!ready || !map.current || !focusBounds || dragging.current) return;
     const [west, south, east, north] = focusBounds;
@@ -369,7 +381,14 @@ export function MapPanel({
     <div className="map-wrap">
       <div ref={root} className="map-canvas" />
       <div className="map-label">
-        <Layers size={14} />
+        {onClusterChange ? (
+          <button type="button" className="map-cluster-toggle"
+            aria-label="Группировка мест" aria-pressed={clustered}
+            title={clustered ? "Отключить группировку" : "Включить группировку"}
+            onClick={() => onClusterChange(!clustered)}>
+            <Layers size={16} aria-hidden="true" />
+          </button>
+        ) : <Layers size={14} aria-hidden="true" />}
         КАРТА ОБЪЕКТОВ <span>•</span> {data?.total ?? places.length} в области
       </div>
       {error && (
