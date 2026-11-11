@@ -1,17 +1,19 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { Check, ChevronDown, Shapes } from "lucide-react";
+import { Check, ChevronDown, Shapes, SlidersHorizontal, RotateCcw } from "lucide-react";
 import { CategoryIcon, type Category } from "@/entities/place";
 
 export function CategoryFilter({
   categories,
   value,
   onChange,
+  onReset,
 }: {
   categories: Category[];
   value: string;
   onChange: (value: string) => void;
+  onReset: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -78,9 +80,22 @@ export function CategoryFilter({
           }
         }}
       >
-        {icon(selected)}
+        <SlidersHorizontal className="category-picker-filter-icon" size={18} aria-hidden="true" />
+        <span className="category-picker-current-icon">{icon(selected)}</span>
         <span>{items[selected].name}</span>
         <ChevronDown size={14} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="category-picker-reset"
+        aria-label="Сбросить фильтры"
+        title="Сбросить фильтры"
+        onClick={() => {
+          onReset();
+          setOpen(false);
+        }}
+      >
+        <RotateCcw size={16} aria-hidden="true" />
       </button>
       {open && (
         <div

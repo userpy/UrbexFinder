@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Compass, Map, Plus, UserRound, ShieldCheck } from "lucide-react";
+import { Compass, Map, Plus, Route, UserRound, ShieldCheck } from "lucide-react";
 import { useSession } from "@/entities/session";
 export function Header() {
   const { user } = useSession();
@@ -20,7 +20,10 @@ export function Header() {
         </Link>
         {user && (
           <>
-            <Link href="/routes">Мои маршруты</Link>
+            <Link href="/routes">
+              <Route size={16} aria-hidden="true" />
+              Мои маршруты
+            </Link>
             <Link href="/submit">
               <Plus size={16} />
               Добавить место

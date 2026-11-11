@@ -60,6 +60,12 @@ export function Explorer() {
       });
     return () => abort.abort();
   }, []);
+  function resetFilters() {
+    setQuery("");
+    setCategory("");
+    setNear(null);
+    setPage(1);
+  }
   const [resolvedQuery, setResolvedQuery] = useState("");
   const [locality, setLocality] = useState<SearchLocation | null>(null);
   const [locations, setLocations] = useState<SearchLocation[]>([]);
@@ -389,18 +395,13 @@ export function Explorer() {
             <SlidersHorizontal size={14} />
             фильтр{" "}
             <button
-              onClick={() => {
-                setQuery("");
-                setCategory("");
-                setNear(null);
-                setPage(1);
-              }}
+              onClick={resetFilters}
             >
               Сбросить
             </button>
           </div>
           <div className="category-filter">
-            <CategoryFilter categories={categories} value={category} onChange={(value) => {
+            <CategoryFilter onReset={resetFilters} categories={categories} value={category} onChange={(value) => {
               setCategory(value);
               setPage(1);
             }} />

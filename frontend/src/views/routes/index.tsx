@@ -13,6 +13,7 @@ import {
   Send,
 } from "lucide-react";
 import Link from "next/link";
+import { StatusPicker } from "./status-picker";
 import { useSession } from "@/entities/session";
 import { Place } from "@/entities/place";
 import { api, body, Page } from "@/shared/api";
@@ -404,13 +405,16 @@ export function RoutesView() {
 
               <Button
                 variant="ghost"
+                className="route-delete-button"
+                aria-label="Удалить маршрут"
+                title="Удалить маршрут"
                 onClick={() => {
                   setDeleteError("");
                   setDeleteTarget(route);
                 }}
               >
                 <Trash2 size={16} aria-hidden="true" />
-                Удалить маршрут
+                <span>Удалить маршрут</span>
               </Button>
             </div>
 
@@ -529,19 +533,11 @@ export function RoutesView() {
                             )}
                           </td>
                           <td>
-                            <select
-                              aria-label="Статус точки"
+                            <StatusPicker
                               value={s.status}
-                              onChange={(e) =>
-                                updateStop(i, {
-                                  status: e.target.value as Stop["status"],
-                                })
-                              }
-                            >
-                              <option value="planned">Планирую</option>
-                              <option value="visited">Посетил</option>
-                              <option value="skipped">Пропустил</option>
-                            </select>
+                              disabled={busy}
+                              onChange={(status) => updateStop(i, { status })}
+                            />
                           </td>
                           <td>
                             {p ? (
@@ -561,6 +557,7 @@ export function RoutesView() {
                           <td>
                             <div className="actions">
                               <button
+                                className="route-remove-stop"
                                 aria-label={`Убрать место ${i + 1}`}
                                 onClick={() =>
                                   setRoute({
@@ -571,7 +568,8 @@ export function RoutesView() {
                                   })
                                 }
                               >
-                                Убрать
+                                <Trash2 size={16} aria-hidden="true" />
+                                <span>Убрать</span>
                               </button>
                             </div>
                           </td>

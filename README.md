@@ -253,6 +253,21 @@ Grafana (`3000`) и RabbitMQ Management (`15672`) слушают только
 Отчёт о покрытии:
 `poetry run pytest --cov=. --cov-report=term-missing`
 
+Локальный запуск API (Poetry)
+----------------------------
+Локальная установка и запуск API (Python 3.13–3.14):
+
+```bash
+cd api
+poetry install --with dev
+poetry run uvicorn urbex.bootstrap.main:app --reload
+```
+
+Poetry также устанавливает локальный пакет `../shared`. Зависимости API фиксируются в
+`api/poetry.lock`; после изменения зависимостей обновляйте его командой `poetry lock`.
+Тесты запускаются через `poetry run python -m pytest` с настроенным изолированным
+тестовым окружением (БД и Elasticsearch), либо через существующий Docker Compose.
+
 Миграции базы данных (API)
 --------------------------
 Единственный владелец миграций — API. Все ревизии находятся в `api/migrations/versions`, включая исторические ревизии бота. Сервис `migrations` использует образ API и команду `python -m urbex.bootstrap.migrate`. Бот, worker и API ждут его успешного завершения.
@@ -267,7 +282,7 @@ docker compose run --rm --no-deps migrations alembic revision -m "описани
 
 Сервис `migrations` обновляет единственную базу через `URBEX_DATABASE_URL`, который Compose формирует из общих `POSTGRES_*`. Бот подключается к той же базе. Отдельного подключения для чтения рейтингов больше нет.
 
-Локально из `api/` команда та же: `python -m urbex.bootstrap.migrate`; передайте `URBEX_DATABASE_URL` через окружение. Автоматический откат общей схемы не предусмотрен: используйте резервную копию и проверенный план восстановления.
+Локально из `api/`: `poetry run python -m urbex.bootstrap.migrate`; передайте `URBEX_DATABASE_URL` через окружение. Автоматический откат общей схемы не предусмотрен: используйте резервную копию и проверенный план восстановления.
 
 Elasticsearch читает настройки из `.env`:
 - `ELASTICSEARCH_HOST` (например: `http://elasticsearch:9200`)
