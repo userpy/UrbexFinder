@@ -331,7 +331,7 @@ export function MapPanel({
               ...feature,
               properties: {
                 ...feature.properties,
-                category_icon: `category-${categoryVisual(feature.properties?.category_icon).key}`,
+                category_icon: `category-${categoryVisual(feature.properties?.category_icon, feature.properties?.category).key}`,
               },
             })),
           }
@@ -345,7 +345,7 @@ export function MapPanel({
               },
               properties: {
                 id: p.id,
-                category_icon: `category-${categoryVisual(p.category_icon).key}`,
+                category_icon: `category-${categoryVisual(p.category_icon, p.category).key}`,
               },
             })),
           },

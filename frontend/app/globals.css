@@ -314,3 +314,25 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 .map-cluster-toggle[aria-pressed="true"] { border-color: #86bddd; background: #29485b; color: #b9e3ff; }
 .map-cluster-toggle:hover { background: #2b3a47; color: #d3eafa; }
 .map-cluster-toggle:focus-visible { outline: 2px solid #86bddd; outline-offset: 3px; }
+
+/* Keep the mobile catalog focused on places, with compact navigation. */
+@media (max-width: 760px) {
+  .catalog { min-height: 0; padding-bottom: calc(44px + env(safe-area-inset-bottom)); }
+  .catalog-heading { display: none; }
+  .catalog .filters { flex-shrink: 0; padding: 12px 16px 10px; }
+  .catalog .search { margin-bottom: 8px; }
+  .catalog .filter-title { margin-bottom: 8px; }
+  .catalog .results-label { flex-shrink: 0; padding: 8px 16px; }
+  .catalog .place-list { min-height: 0; overscroll-behavior-y: contain; }
+  .catalog .place-row { padding: 12px 14px; gap: 10px; }
+  .catalog .place-row > div:not(.row-icon) { min-width: 0; }
+  .catalog .row-icon { width: 34px; height: 38px; }
+  .catalog .place-row h2 { margin: 3px 0 5px; }
+  .catalog .place-row p { margin-bottom: 3px; line-height: 1.5; }
+  .catalog .place-row p svg { flex-shrink: 0; }
+  .catalog .pager { flex-shrink: 0; min-height: 36px; padding: 0 12px; }
+  .catalog .pager button { min-height: 36px; padding: 0 4px; }
+  .mobile-switch { bottom: calc(4px + env(safe-area-inset-bottom)); padding: 2px; box-shadow: none; }
+  .mobile-switch button { min-height: 32px; padding: 4px 20px; font-size: 11px; }
+  .map-section { padding-bottom: calc(44px + env(safe-area-inset-bottom)); }
+}

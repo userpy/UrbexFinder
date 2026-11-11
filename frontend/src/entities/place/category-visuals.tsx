@@ -76,12 +76,34 @@ export const categoryVisuals = {
   cemetery: { color: "#b3aac3", paths: ["M5 21V9a7 7 0 0 1 14 0v12ZM3 21h18", "M12 6v8M9 9h6M9 18h6"] },
 } as const;
 
-export function categoryVisual(icon?: string | null) {
+// Older/imported catalogs may have no saved icon. Keep list and map defaults
+// consistent while allowing any explicitly selected icon to take precedence.
+const defaultCategoryIcons: Record<string, keyof typeof categoryVisuals> = {
+  "промышленность": "industry",
+  "архитектура": "architecture",
+  "инфраструктура": "infrastructure",
+  "дом культуры": "culture",
+  "военное": "military",
+  "школы/колледжи/институты": "school",
+  "geocaching": "geocache",
+  "бомбоубежища": "shelter",
+  "заброшенные пионерские лагеря": "camp",
+  "красивые природные места": "nature",
+  "церкви": "church",
+  "заброшенное технологическое": "industry",
+  "заброшенные усадьбы,дома отдыха,санатории": "estate",
+};
+
+export function categoryVisual(icon?: string | null, category?: string | null) {
   if (icon && Object.prototype.hasOwnProperty.call(categoryVisuals, icon)) {
     const key = icon as keyof typeof categoryVisuals;
     return { key, ...categoryVisuals[key] };
   }
-  return { key: "other" as const, ...categoryVisuals.other };
+  const name = category?.trim().toLowerCase().replace(/\s*,\s*/g, ",") || "";
+  const key = Object.prototype.hasOwnProperty.call(defaultCategoryIcons, name)
+    ? defaultCategoryIcons[name]
+    : "other";
+  return { key, ...categoryVisuals[key] };
 }
 
 export function CategoryIcon({
@@ -89,7 +111,7 @@ export function CategoryIcon({
   icon,
   ...props
 }: SVGProps<SVGSVGElement> & { category?: string | null; icon?: string | null }) {
-  const visual = categoryVisual(icon);
+  const visual = categoryVisual(icon, category);
   return (
     <svg
       width="22"
