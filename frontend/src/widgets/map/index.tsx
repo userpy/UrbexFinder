@@ -23,6 +23,7 @@ type Props = {
   onBounds?: (bbox: string, zoom: number) => void;
   onPoint?: (lon: number, lat: number) => void;
   pointHint?: string;
+  showLabel?: boolean;
   editable?: boolean;
   markerDisabled?: boolean;
   center?: [number, number];
@@ -38,6 +39,7 @@ export function MapPanel({
   onBounds,
   onPoint,
   pointHint,
+  showLabel = true,
   editable = false,
   markerDisabled = false,
   center,
@@ -394,7 +396,7 @@ export function MapPanel({
   return (
     <div className="map-wrap">
       <div ref={root} className="map-canvas" />
-      <div className="map-label">
+      {showLabel && <div className="map-label">
         {onClusterChange ? (
           <button type="button" className="map-cluster-toggle"
             aria-label="Группировка мест" aria-pressed={clustered}
@@ -410,7 +412,7 @@ export function MapPanel({
           <CircleDashed size={16} aria-hidden="true" />
         </button>
         КАРТА ОБЪЕКТОВ <span>•</span> {data?.total ?? places.length} в области
-      </div>
+      </div>}
       {error && (
         <div className="map-error" role="status">
           <Crosshair size={28} />
@@ -418,7 +420,7 @@ export function MapPanel({
           <p>{error}</p>
         </div>
       )}
-      <div className="map-hint" role="status">
+      <div className="sr-only" role="status" data-testid="map-location-status">
         {locationError || pointHint || "Двойной щелчок — поиск рядом с точкой"}
       </div>
     </div>

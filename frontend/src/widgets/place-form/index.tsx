@@ -146,6 +146,7 @@ export function PlaceForm({
       </p>
       <div className="place-form-map">
         <MapPanel
+          showLabel={false}
           places={[point]}
           selected={point.id}
           onSelect={() => {}}

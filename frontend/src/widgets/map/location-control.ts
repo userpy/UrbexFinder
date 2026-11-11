@@ -74,7 +74,6 @@ export function locationControl(
     dot?.remove();
     updateAccuracy();
     const id = ++request;
-    let bestAccuracy = Infinity;
     const distance = (accuracy: number) =>
       accuracy >= 1000
         ? `${(accuracy / 1000).toFixed(1)} км`
@@ -84,11 +83,9 @@ export function locationControl(
       finish(
         code === 1
           ? "Доступ к местоположению запрещён. Разрешите его в настройках сайта и системы, затем нажмите кнопку ещё раз."
-          : Number.isFinite(bestAccuracy)
-            ? `Не удалось определить точное местоположение: погрешность ±${distance(bestAccuracy)}. Включите точную геолокацию на устройстве или укажите место двойным щелчком по карте.`
-            : code === 3
-              ? "Браузер не сообщил местоположение. Проверьте геолокацию в настройках системы или укажите место двойным щелчком по карте."
-              : "Служба геолокации браузера недоступна. Проверьте соединение и повторите попытку.",
+          : code === 3
+            ? "Браузер не сообщил местоположение. Проверьте геолокацию в настройках системы или укажите место двойным щелчком по карте."
+            : "Служба геолокации браузера недоступна. Проверьте соединение и повторите попытку.",
       );
     };
     timer = setTimeout(() => fail(3), 20000);
@@ -97,14 +94,6 @@ export function locationControl(
         if (!map || id !== request) return;
         const accuracy = coords.accuracy;
         if (!Number.isFinite(accuracy) || accuracy < 0) return;
-        bestAccuracy = Math.min(bestAccuracy, accuracy);
-        // Wait for a precise fix instead of centering on a coarse network result.
-        if (accuracy > 100) {
-          onStatus(
-            `Уточняем местоположение… Пока погрешность ±${distance(bestAccuracy)}.`,
-          );
-          return;
-        }
         const center: [number, number] = [coords.longitude, coords.latitude];
         position = { center, accuracy };
         updateAccuracy();

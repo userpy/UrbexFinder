@@ -46,7 +46,7 @@ test("guest map covers all pages; search, empty state and selection", async ({
 }) => {
   await page.goto("/");
   await expect(page.locator(".map-canvas")).toBeVisible();
-  await expect(page.locator(".map-bottom")).toContainText("65 объектов");
+  await expect(page.locator(".map-label")).toContainText("65 в области");
   await expect(page.locator(".place-row")).toHaveCount(30);
   await expect(
     page
@@ -56,7 +56,7 @@ test("guest map covers all pages; search, empty state and selection", async ({
   ).toBeVisible();
   await page.getByRole("button", { name: "Далее →" }).click();
   await expect(page.locator(".pager")).toContainText("2 / 3");
-  await expect(page.locator(".map-bottom")).toContainText("65 объектов");
+  await expect(page.locator(".map-label")).toContainText("65 в области");
   await page.locator(".place-row").first().click();
   await expect(page.locator(".detail h2")).toContainText("Тестовая башня");
   await expect(
@@ -127,7 +127,7 @@ test("registration → submission → moderator approval → map → persistent 
   await page.goto("/");
   await page.getByLabel("Поиск мест").fill(String(unique));
   await page.getByLabel("Поиск мест").press("Escape");
-  await expect(page.locator(".map-bottom")).toContainText("1 объектов");
+  await expect(page.locator(".map-label")).toContainText("1 в области");
   await page.locator(".place-row").filter({ hasText: name }).click();
   await expect(page.getByRole("button", {name:"Сохранить отзыв"})).toHaveCount(0);
   await expect(page.locator('.detail input[type="file"]')).toHaveCount(0);
@@ -207,14 +207,14 @@ test("moderator cannot manage users; administrator can see audit and categories"
 
 test("description matches outside viewport appear in suggestions and open on map", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".map-bottom")).toContainText(/6[56] объектов/);
+  await expect(page.locator(".map-label")).toContainText(/6[56] в области/);
   await page.getByLabel("Поиск мест").fill("Кувин");
   const suggestion = page.locator("#search-suggestions button").filter({ hasText: "Войсковая часть за пределами карты" });
   await expect(suggestion.locator("mark")).toHaveText("Кувин");
   await expect(page.locator(".place-row")).toHaveCount(1);
   await suggestion.click();
   await expect(page.locator(".detail h2")).toContainText("Войсковая часть за пределами карты");
-  await expect(page.locator(".map-bottom")).toContainText("1 объектов");
+  await expect(page.locator(".map-label")).toContainText("1 в области");
 });
 
 test("staff opens place dialog and saves description without republishing", async ({ page }) => {

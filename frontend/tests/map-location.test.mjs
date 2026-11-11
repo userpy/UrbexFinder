@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { chromium, expect } from "@playwright/test";
 
-test("geolocation reports errors and allows retry, including after a stalled request", async () => {
+test("geolocation accepts coarse positions and allows retry after errors and stalled requests", async () => {
   const browser = await chromium.launch({
     headless: true,
     args: ["--enable-unsafe-swiftshader"],
@@ -26,23 +26,12 @@ test("geolocation reports errors and allows retry, including after a stalled req
             else if (id === 3) error({ code: 2 });
             else if (id === 2 || id === 5) {
               success({
-                coords: { latitude: 55.97, longitude: 37.41, accuracy: 120000 },
+                coords: {
+                  latitude: 55.97,
+                  longitude: 37.41,
+                  accuracy: id === 2 ? 120000 : 25,
+                },
               });
-              if (id === 5)
-                timers.set(
-                  id,
-                  setTimeout(
-                    () =>
-                      success({
-                        coords: {
-                          latitude: 55.75,
-                          longitude: 37.62,
-                          accuracy: 25,
-                        },
-                      }),
-                    100,
-                  ),
-                );
             }
             // Fourth request deliberately never resolves.
           }, 0),
@@ -55,19 +44,15 @@ test("geolocation reports errors and allows retry, including after a stalled req
       name: "Моё местоположение",
       exact: true,
     });
-    const status = page.locator(".map-hint");
+    const status = page.getByTestId("map-location-status");
     await button.click();
     await expect(status).toContainText("Доступ к местоположению запрещён");
     await expect(button).toBeEnabled();
     await button.click();
-    await expect(status).toContainText("Уточняем местоположение");
-    await expect(page.locator(".maplibregl-user-location-dot")).toHaveCount(0);
-    await expect(status).toContainText(
-      "Не удалось определить точное местоположение",
-      { timeout: 25000 },
-    );
+    await expect(status).toContainText("Местоположение определено");
     await expect(status).toContainText("±120.0 км");
-    await expect(page.locator(".maplibregl-user-location-dot")).toHaveCount(0);
+    await expect(button).toBeEnabled();
+    await expect(page.locator(".maplibregl-user-location-dot")).toBeVisible();
     const accuracyToggle = page.getByRole("button", {
       name: "Погрешность геолокации",
       exact: true,

@@ -566,12 +566,6 @@ export function Explorer() {
             setPage(1);
           }}
         />
-        <div className="map-bottom">
-          <span>
-            <i /> ОПУБЛИКОВАННЫЕ ОБЪЕКТЫ
-          </span>
-          <span>На карте — {mapData.total} объектов в области</span>
-        </div>
       </section>
       {selected ? (
         <PlaceDetail
