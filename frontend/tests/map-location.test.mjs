@@ -14,8 +14,8 @@ test("geolocation reports errors and allows retry, including after a stalled req
         attempt++;
         if (attempt === 1) error({ code: 1 });
         else if (
-          attempt === 2 ||
-          (attempt === 8 && !options.enableHighAccuracy)
+          (attempt === 2 && !options.enableHighAccuracy && options.maximumAge >= 60000) ||
+          (attempt === 8 && options.enableHighAccuracy)
         )
           success({
             coords: { latitude: 55.75, longitude: 37.62, accuracy: 120000 },
@@ -41,6 +41,11 @@ test("geolocation reports errors and allows retry, including after a stalled req
     await expect(
       page.locator(".maplibregl-user-location-accuracy-circle"),
     ).toHaveCount(0);
+    const accuracyToggle = page.getByRole("button", { name: "Погрешность геолокации", exact: true });
+    await accuracyToggle.click();
+    await expect(page.locator(".maplibregl-user-location-accuracy-circle")).toBeVisible();
+    await accuracyToggle.click();
+    await expect(page.locator(".maplibregl-user-location-accuracy-circle")).toHaveCount(0);
     await button.click();
     await expect(status).toContainText("Служба геолокации браузера недоступна");
     await button.click();
@@ -55,8 +60,10 @@ test("geolocation reports errors and allows retry, including after a stalled req
     expect(background).not.toContain("%23f00");
     await expect(button).toBeEnabled({ timeout: 35000 });
     await expect(status).toContainText("Браузер не сообщил местоположение");
+    await accuracyToggle.click();
     await button.click();
     await expect(status).toContainText("Местоположение определено");
+    await expect(page.locator(".maplibregl-user-location-accuracy-circle")).toBeVisible();
   } finally {
     await browser.close();
   }

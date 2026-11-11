@@ -10,7 +10,7 @@ import {
   categoryVisuals,
   categoryMarkerSvg,
 } from "@/entities/place";
-import { Crosshair, Layers } from "lucide-react";
+import { Crosshair, Layers, CircleDashed } from "lucide-react";
 import { locationControl } from "./location-control";
 const style = process.env.NEXT_PUBLIC_MAP_STYLE_URL;
 type Props = {
@@ -44,6 +44,8 @@ export function MapPanel({
   focusBounds,
 }: Props) {
   const [initial] = useState(() => ({ center, serverClusters: !!data }));
+  const [accuracyVisible, setAccuracyVisible] = useState(false);
+  const geolocation = useRef<ReturnType<typeof locationControl> | null>(null);
   const [locationError, setLocationError] = useState("");
   const root = useRef<HTMLDivElement>(null),
     map = useRef<maplibregl.Map | null>(null),
@@ -105,7 +107,8 @@ export function MapPanel({
         observer.observe(root.current);
         m.on("remove", () => observer.disconnect());
         m.addControl(new maplibregl.NavigationControl(), "bottom-right");
-        m.addControl(locationControl(maplibregl, setLocationError), "bottom-right");
+        geolocation.current = locationControl(maplibregl, setLocationError);
+        m.addControl(geolocation.current, "bottom-right");
         m.on("error", () =>
           setError(
             "Не удалось загрузить карту. Проверьте соединение или повторите позже.",
@@ -262,8 +265,12 @@ export function MapPanel({
       disposed = true;
       m?.remove();
       map.current = null;
+      geolocation.current = null;
     };
   }, [initial]);
+  useEffect(() => {
+    geolocation.current?.setAccuracyVisible(accuracyVisible);
+  }, [accuracyVisible, ready]);
   useEffect(() => {
     if (!ready || !map.current || !editable) return;
     const m = map.current;
@@ -396,6 +403,12 @@ export function MapPanel({
             <Layers size={16} aria-hidden="true" />
           </button>
         ) : <Layers size={14} aria-hidden="true" />}
+        <button type="button" className="map-cluster-toggle"
+          aria-label="Погрешность геолокации" aria-pressed={accuracyVisible}
+          title={accuracyVisible ? "Скрыть погрешность геолокации" : "Показать погрешность геолокации"}
+          onClick={() => setAccuracyVisible((visible) => !visible)}>
+          <CircleDashed size={16} aria-hidden="true" />
+        </button>
         КАРТА ОБЪЕКТОВ <span>•</span> {data?.total ?? places.length} в области
       </div>
       {error && (

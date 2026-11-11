@@ -4,9 +4,33 @@ import type * as MapLibre from "maplibre-gl";
 export function locationControl(
   lib: typeof MapLibre,
   onStatus: (message: string) => void,
-): MapLibre.IControl {
+): MapLibre.IControl & { setAccuracyVisible: (visible: boolean) => void } {
   let map: MapLibre.Map | undefined;
   let dot: MapLibre.Marker | undefined;
+  let accuracyCircle: MapLibre.Marker | undefined;
+  let accuracyVisible = false;
+  let position: { center: [number, number]; accuracy: number } | undefined;
+  function updateAccuracy() {
+    if (!map || !position || !accuracyVisible) {
+      accuracyCircle?.remove();
+      return;
+    }
+    if (!accuracyCircle) {
+      const element = document.createElement("div");
+      element.className = "maplibregl-user-location-accuracy-circle";
+      element.style.pointerEvents = "none";
+      element.setAttribute("aria-hidden", "true");
+      accuracyCircle = new lib.Marker({ element, pitchAlignment: "map" });
+    }
+    const metersPerPixel =
+      (40075016.686 * Math.cos(position.center[1] * Math.PI / 180)) /
+      (512 * 2 ** map.getZoom());
+    const diameter = 2 * position.accuracy / metersPerPixel;
+    const element = accuracyCircle.getElement();
+    element.style.width = `${diameter}px`;
+    element.style.height = `${diameter}px`;
+    accuracyCircle.setLngLat(position.center).addTo(map);
+  }
   let request = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const container = document.createElement("div");
@@ -48,11 +72,11 @@ export function locationControl(
       clearTimeout(timer);
       const fail = (code: number) => {
         if (!map || id !== request) return;
-        if (highAccuracy && code !== 1) {
+        if (!highAccuracy && code !== 1) {
           onStatus(
-            "Точное местоположение недоступно. Пробуем обычную точность…",
+            "Обычная геолокация недоступна. Пробуем высокую точность…",
           );
-          locate(false);
+          locate(true);
           return;
         }
         finish(
@@ -69,6 +93,8 @@ export function locationControl(
           if (!map || id !== request) return;
           const center: [number, number] = [coords.longitude, coords.latitude];
           const accuracy = coords.accuracy;
+          position = { center, accuracy };
+          updateAccuracy();
           if (!dot) {
             const element = document.createElement("div");
             element.className = "maplibregl-user-location-dot";
@@ -86,20 +112,28 @@ export function locationControl(
           );
         },
         ({ code }) => fail(code),
-        { enableHighAccuracy: highAccuracy, maximumAge: 0, timeout: 15000 },
+        { enableHighAccuracy: highAccuracy, maximumAge: 60000, timeout: 15000 },
       );
     }
-    locate(true);
+    // Accept a recent browser fix and try network positioning before GPS.
+    locate(false);
   };
   return {
+    setAccuracyVisible(visible) {
+      accuracyVisible = visible;
+      updateAccuracy();
+    },
     onAdd(instance) {
       map = instance;
+      map.on("zoom", updateAccuracy);
       return container;
     },
     onRemove() {
       ++request;
       clearTimeout(timer);
       dot?.remove();
+      accuracyCircle?.remove();
+      map?.off("zoom", updateAccuracy);
       container.remove();
       map = undefined;
     },
