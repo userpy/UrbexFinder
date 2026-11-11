@@ -16,8 +16,16 @@ test("geolocation accepts coarse positions and allows retry after errors and sta
         timers.delete(id);
       };
       navigator.geolocation.watchPosition = (success, error, options) => {
+        if (!options.enableHighAccuracy) {
+          const id = 100 + attempt;
+          if (options.maximumAge !== 60000) throw new Error("Expected bounded cache age");
+          if (attempt === 3 || attempt === 6) timers.set(id, setTimeout(() => success({
+            coords: { latitude: 55.97, longitude: 37.41, accuracy: 500 },
+          }), 0));
+          return id;
+        }
         const id = ++attempt;
-        if (!options.enableHighAccuracy || options.maximumAge !== 0)
+        if (options.maximumAge !== 0)
           throw new Error("Expected a fresh high-accuracy request");
         timers.set(
           id,
@@ -58,7 +66,7 @@ test("geolocation accepts coarse positions and allows retry after errors and sta
       exact: true,
     });
     await button.click();
-    await expect(status).toContainText("Служба геолокации браузера недоступна");
+    await expect(status).toContainText("±500 м");
     await button.click();
     await expect(status).toContainText("Определяем местоположение");
     await expect(button).toBeDisabled();
@@ -71,6 +79,8 @@ test("geolocation accepts coarse positions and allows retry after errors and sta
     expect(background).not.toContain("%23f00");
     await expect(button).toBeEnabled({ timeout: 35000 });
     await expect(status).toContainText("Браузер не сообщил местоположение");
+    await expect(status).toBeVisible();
+    await expect(page.locator(".maplibregl-user-location-dot")).toBeVisible();
     await accuracyToggle.click();
     await button.click();
     await expect(status).toContainText("Местоположение определено");
@@ -79,6 +89,10 @@ test("geolocation accepts coarse positions and allows retry after errors and sta
     await expect(
       page.locator(".maplibregl-user-location-accuracy-circle"),
     ).toBeVisible();
+    // A silent high-accuracy provider must also trigger the fallback.
+    await button.click();
+    await expect(status).toContainText("±500 м", { timeout: 12000 });
+    await expect(button).toBeEnabled();
   } finally {
     await browser.close();
   }

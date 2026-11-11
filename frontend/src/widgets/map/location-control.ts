@@ -32,6 +32,8 @@ export function locationControl(
     accuracyCircle.setLngLat(position.center).addTo(map);
   }
   let watch: number | undefined;
+  let fallbackWatch: number | undefined;
+  let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
   let request = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const container = document.createElement("div");
@@ -48,8 +50,11 @@ export function locationControl(
   container.append(button);
   function finish(message: string) {
     clearTimeout(timer);
+    clearTimeout(fallbackTimer);
     if (watch !== undefined) navigator.geolocation.clearWatch(watch);
+    if (fallbackWatch !== undefined) navigator.geolocation.clearWatch(fallbackWatch);
     watch = undefined;
+    fallbackWatch = undefined;
     ++request;
     button.setAttribute("aria-disabled", "false");
     button.classList.remove("maplibregl-ctrl-geolocate-waiting");
@@ -70,9 +75,6 @@ export function locationControl(
     onStatus(
       "Определяем местоположение… Разрешите доступ, если браузер спросит.",
     );
-    position = undefined;
-    dot?.remove();
-    updateAccuracy();
     const id = ++request;
     const distance = (accuracy: number) =>
       accuracy >= 1000
@@ -88,9 +90,7 @@ export function locationControl(
             : "Служба геолокации браузера недоступна. Проверьте соединение и повторите попытку.",
       );
     };
-    timer = setTimeout(() => fail(3), 20000);
-    watch = navigator.geolocation.watchPosition(
-      ({ coords }) => {
+    const success: PositionCallback = ({ coords }) => {
         if (!map || id !== request) return;
         const accuracy = coords.accuracy;
         if (!Number.isFinite(accuracy) || accuracy < 0) return;
@@ -107,8 +107,23 @@ export function locationControl(
         finish(
           `Местоположение определено. Точность по данным браузера: ±${distance(accuracy)}.`,
         );
+      };
+    const startFallback = () => {
+      if (!map || id !== request || fallbackWatch !== undefined) return;
+      fallbackWatch = navigator.geolocation.watchPosition(
+        success,
+        ({ code }) => { if (code === 1) fail(code); },
+        { enableHighAccuracy: false, maximumAge: 60000, timeout: 10000 },
+      );
+    };
+    timer = setTimeout(() => fail(3), 20000);
+    fallbackTimer = setTimeout(startFallback, 8000);
+    watch = navigator.geolocation.watchPosition(
+      success,
+      ({ code }) => {
+        if (code === 1) fail(code);
+        else startFallback();
       },
-      ({ code }) => fail(code),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
     );
   };
@@ -125,8 +140,11 @@ export function locationControl(
     onRemove() {
       ++request;
       clearTimeout(timer);
+      clearTimeout(fallbackTimer);
       if (watch !== undefined) navigator.geolocation.clearWatch(watch);
+      if (fallbackWatch !== undefined) navigator.geolocation.clearWatch(fallbackWatch);
       watch = undefined;
+      fallbackWatch = undefined;
       dot?.remove();
       accuracyCircle?.remove();
       map?.off("zoom", updateAccuracy);

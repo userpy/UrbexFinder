@@ -420,7 +420,7 @@ export function MapPanel({
           <p>{error}</p>
         </div>
       )}
-      <div className="sr-only" role="status" data-testid="map-location-status">
+      <div className={locationError && !locationError.startsWith("Местоположение определено") ? "map-hint" : "sr-only"} role="status" data-testid="map-location-status">
         {locationError || pointHint || "Двойной щелчок — поиск рядом с точкой"}
       </div>
     </div>
