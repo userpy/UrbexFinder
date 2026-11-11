@@ -11,6 +11,7 @@ import {
   categoryMarkerSvg,
 } from "@/entities/place";
 import { Crosshair, Layers } from "lucide-react";
+import { locationControl } from "./location-control";
 const style = process.env.NEXT_PUBLIC_MAP_STYLE_URL;
 type Props = {
   data?: FeatureCollection<Point> & { total: number };
@@ -43,6 +44,7 @@ export function MapPanel({
   focusBounds,
 }: Props) {
   const [initial] = useState(() => ({ center, serverClusters: !!data }));
+  const [locationError, setLocationError] = useState("");
   const root = useRef<HTMLDivElement>(null),
     map = useRef<maplibregl.Map | null>(null),
     [error, setError] = useState(
@@ -93,12 +95,17 @@ export function MapPanel({
           center: initial.center || [37.62, 55.75],
           zoom: initial.center ? 12 : 9,
           attributionControl: { compact: false },
+          locale: {
+            "GeolocateControl.FindMyLocation": "Моё местоположение",
+            "GeolocateControl.LocationNotAvailable": "Местоположение недоступно",
+          },
         });
         map.current = m;
         const observer = new ResizeObserver(() => m.resize());
         observer.observe(root.current);
         m.on("remove", () => observer.disconnect());
         m.addControl(new maplibregl.NavigationControl(), "bottom-right");
+        m.addControl(locationControl(maplibregl, setLocationError), "bottom-right");
         m.on("error", () =>
           setError(
             "Не удалось загрузить карту. Проверьте соединение или повторите позже.",
@@ -398,8 +405,8 @@ export function MapPanel({
           <p>{error}</p>
         </div>
       )}
-      <div className="map-hint">
-        {pointHint || "Двойной щелчок — поиск рядом с точкой"}
+      <div className="map-hint" role="status">
+        {locationError || pointHint || "Двойной щелчок — поиск рядом с точкой"}
       </div>
     </div>
   );
