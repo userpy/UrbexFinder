@@ -10,19 +10,44 @@ test("geolocation reports errors and allows retry, including after a stalled req
     const page = await browser.newPage();
     await page.addInitScript(() => {
       let attempt = 0;
-      navigator.geolocation.getCurrentPosition = (success, error, options) => {
-        attempt++;
-        if (attempt === 1) error({ code: 1 });
-        else if (
-          (attempt === 2 && !options.enableHighAccuracy && options.maximumAge >= 60000) ||
-          (attempt === 8 && options.enableHighAccuracy)
-        )
-          success({
-            coords: { latitude: 55.75, longitude: 37.62, accuracy: 120000 },
-          });
-        else if (attempt === 3 || attempt === 4) error({ code: 2 });
-        else if (attempt === 7) error({ code: 3 });
-        // Fifth and sixth requests deliberately never resolve.
+      const timers = new Map();
+      navigator.geolocation.clearWatch = (id) => {
+        clearTimeout(timers.get(id));
+        timers.delete(id);
+      };
+      navigator.geolocation.watchPosition = (success, error, options) => {
+        const id = ++attempt;
+        if (!options.enableHighAccuracy || options.maximumAge !== 0)
+          throw new Error("Expected a fresh high-accuracy request");
+        timers.set(
+          id,
+          setTimeout(() => {
+            if (id === 1) error({ code: 1 });
+            else if (id === 3) error({ code: 2 });
+            else if (id === 2 || id === 5) {
+              success({
+                coords: { latitude: 55.97, longitude: 37.41, accuracy: 120000 },
+              });
+              if (id === 5)
+                timers.set(
+                  id,
+                  setTimeout(
+                    () =>
+                      success({
+                        coords: {
+                          latitude: 55.75,
+                          longitude: 37.62,
+                          accuracy: 25,
+                        },
+                      }),
+                    100,
+                  ),
+                );
+            }
+            // Fourth request deliberately never resolves.
+          }, 0),
+        );
+        return id;
       };
     });
     await page.goto(process.env.MAP_TEST_URL || "http://localhost:3100");
@@ -35,17 +60,18 @@ test("geolocation reports errors and allows retry, including after a stalled req
     await expect(status).toContainText("Доступ к местоположению запрещён");
     await expect(button).toBeEnabled();
     await button.click();
-    await expect(page.locator(".maplibregl-user-location-dot")).toBeVisible();
+    await expect(status).toContainText("Уточняем местоположение");
+    await expect(page.locator(".maplibregl-user-location-dot")).toHaveCount(0);
+    await expect(status).toContainText(
+      "Не удалось определить точное местоположение",
+      { timeout: 25000 },
+    );
     await expect(status).toContainText("±120.0 км");
-    // Huge browser uncertainty must not cover the map with a blue overlay.
-    await expect(
-      page.locator(".maplibregl-user-location-accuracy-circle"),
-    ).toHaveCount(0);
-    const accuracyToggle = page.getByRole("button", { name: "Погрешность геолокации", exact: true });
-    await accuracyToggle.click();
-    await expect(page.locator(".maplibregl-user-location-accuracy-circle")).toBeVisible();
-    await accuracyToggle.click();
-    await expect(page.locator(".maplibregl-user-location-accuracy-circle")).toHaveCount(0);
+    await expect(page.locator(".maplibregl-user-location-dot")).toHaveCount(0);
+    const accuracyToggle = page.getByRole("button", {
+      name: "Погрешность геолокации",
+      exact: true,
+    });
     await button.click();
     await expect(status).toContainText("Служба геолокации браузера недоступна");
     await button.click();
@@ -63,7 +89,11 @@ test("geolocation reports errors and allows retry, including after a stalled req
     await accuracyToggle.click();
     await button.click();
     await expect(status).toContainText("Местоположение определено");
-    await expect(page.locator(".maplibregl-user-location-accuracy-circle")).toBeVisible();
+    await expect(status).toContainText("±25 м");
+    await expect(page.locator(".maplibregl-user-location-dot")).toBeVisible();
+    await expect(
+      page.locator(".maplibregl-user-location-accuracy-circle"),
+    ).toBeVisible();
   } finally {
     await browser.close();
   }

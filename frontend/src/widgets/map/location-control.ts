@@ -23,14 +23,15 @@ export function locationControl(
       accuracyCircle = new lib.Marker({ element, pitchAlignment: "map" });
     }
     const metersPerPixel =
-      (40075016.686 * Math.cos(position.center[1] * Math.PI / 180)) /
+      (40075016.686 * Math.cos((position.center[1] * Math.PI) / 180)) /
       (512 * 2 ** map.getZoom());
-    const diameter = 2 * position.accuracy / metersPerPixel;
+    const diameter = (2 * position.accuracy) / metersPerPixel;
     const element = accuracyCircle.getElement();
     element.style.width = `${diameter}px`;
     element.style.height = `${diameter}px`;
     accuracyCircle.setLngLat(position.center).addTo(map);
   }
+  let watch: number | undefined;
   let request = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const container = document.createElement("div");
@@ -47,6 +48,8 @@ export function locationControl(
   container.append(button);
   function finish(message: string) {
     clearTimeout(timer);
+    if (watch !== undefined) navigator.geolocation.clearWatch(watch);
+    watch = undefined;
     ++request;
     button.setAttribute("aria-disabled", "false");
     button.classList.remove("maplibregl-ctrl-geolocate-waiting");
@@ -67,56 +70,58 @@ export function locationControl(
     onStatus(
       "Определяем местоположение… Разрешите доступ, если браузер спросит.",
     );
-    function locate(highAccuracy: boolean) {
-      const id = ++request;
-      clearTimeout(timer);
-      const fail = (code: number) => {
+    position = undefined;
+    dot?.remove();
+    updateAccuracy();
+    const id = ++request;
+    let bestAccuracy = Infinity;
+    const distance = (accuracy: number) =>
+      accuracy >= 1000
+        ? `${(accuracy / 1000).toFixed(1)} км`
+        : `${Math.round(accuracy)} м`;
+    const fail = (code: number) => {
+      if (!map || id !== request) return;
+      finish(
+        code === 1
+          ? "Доступ к местоположению запрещён. Разрешите его в настройках сайта и системы, затем нажмите кнопку ещё раз."
+          : Number.isFinite(bestAccuracy)
+            ? `Не удалось определить точное местоположение: погрешность ±${distance(bestAccuracy)}. Включите точную геолокацию на устройстве или укажите место двойным щелчком по карте.`
+            : code === 3
+              ? "Браузер не сообщил местоположение. Проверьте геолокацию в настройках системы или укажите место двойным щелчком по карте."
+              : "Служба геолокации браузера недоступна. Проверьте соединение и повторите попытку.",
+      );
+    };
+    timer = setTimeout(() => fail(3), 20000);
+    watch = navigator.geolocation.watchPosition(
+      ({ coords }) => {
         if (!map || id !== request) return;
-        if (!highAccuracy && code !== 1) {
+        const accuracy = coords.accuracy;
+        if (!Number.isFinite(accuracy) || accuracy < 0) return;
+        bestAccuracy = Math.min(bestAccuracy, accuracy);
+        // Wait for a precise fix instead of centering on a coarse network result.
+        if (accuracy > 100) {
           onStatus(
-            "Обычная геолокация недоступна. Пробуем высокую точность…",
+            `Уточняем местоположение… Пока погрешность ±${distance(bestAccuracy)}.`,
           );
-          locate(true);
           return;
         }
+        const center: [number, number] = [coords.longitude, coords.latitude];
+        position = { center, accuracy };
+        updateAccuracy();
+        if (!dot) {
+          const element = document.createElement("div");
+          element.className = "maplibregl-user-location-dot";
+          dot = new lib.Marker({ element });
+        }
+        dot.setLngLat(center).addTo(map);
+        map.easeTo({ center, zoom: Math.max(map.getZoom(), 14) });
         finish(
-          code === 1
-            ? "Доступ к местоположению запрещён. Разрешите его в настройках сайта и системы, затем нажмите кнопку ещё раз."
-            : code === 3
-              ? "Браузер не сообщил местоположение в обоих режимах. Проверьте геолокацию в настройках системы или укажите место двойным щелчком по карте."
-              : "Служба геолокации браузера недоступна. Проверьте соединение и повторите попытку.",
+          `Местоположение определено. Точность по данным браузера: ±${distance(accuracy)}.`,
         );
-      };
-      timer = setTimeout(() => fail(3), 16000);
-      navigator.geolocation.getCurrentPosition(
-        ({ coords }) => {
-          if (!map || id !== request) return;
-          const center: [number, number] = [coords.longitude, coords.latitude];
-          const accuracy = coords.accuracy;
-          position = { center, accuracy };
-          updateAccuracy();
-          if (!dot) {
-            const element = document.createElement("div");
-            element.className = "maplibregl-user-location-dot";
-            dot = new lib.Marker({ element });
-          }
-          dot.setLngLat(center).addTo(map);
-          // Low desktop accuracy must not zoom the user out to an entire region.
-          map.easeTo({ center, zoom: Math.max(map.getZoom(), 14) });
-          const distance =
-            accuracy >= 1000
-              ? `${(accuracy / 1000).toFixed(1)} км`
-              : `${Math.round(accuracy)} м`;
-          finish(
-            `Местоположение определено. Точность по данным браузера: ±${distance}.`,
-          );
-        },
-        ({ code }) => fail(code),
-        { enableHighAccuracy: highAccuracy, maximumAge: 60000, timeout: 15000 },
-      );
-    }
-    // Accept a recent browser fix and try network positioning before GPS.
-    locate(false);
+      },
+      ({ code }) => fail(code),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
+    );
   };
   return {
     setAccuracyVisible(visible) {
@@ -131,6 +136,8 @@ export function locationControl(
     onRemove() {
       ++request;
       clearTimeout(timer);
+      if (watch !== undefined) navigator.geolocation.clearWatch(watch);
+      watch = undefined;
       dot?.remove();
       accuracyCircle?.remove();
       map?.off("zoom", updateAccuracy);
