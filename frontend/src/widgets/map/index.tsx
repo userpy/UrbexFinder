@@ -405,12 +405,6 @@ export function MapPanel({
             <Layers size={16} aria-hidden="true" />
           </button>
         ) : <Layers size={14} aria-hidden="true" />}
-        <button type="button" className="map-cluster-toggle"
-          aria-label="Погрешность геолокации" aria-pressed={accuracyVisible}
-          title={accuracyVisible ? "Скрыть погрешность геолокации" : "Показать погрешность геолокации"}
-          onClick={() => setAccuracyVisible((visible) => !visible)}>
-          <CircleDashed size={16} aria-hidden="true" />
-        </button>
         КАРТА ОБЪЕКТОВ <span>•</span> {data?.total ?? places.length} в области
       </div>}
       {error && (
