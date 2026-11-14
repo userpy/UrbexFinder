@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     elasticsearch_user: str = 'elastic'
     elasticsearch_password: str = ''
     geocoder_url: str = ''
+    searxng_url: str = ''
     environment: str = 'development'
 
     def validate_runtime(self):

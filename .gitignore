@@ -26,3 +26,5 @@ shared/build/
 shared/*.egg-info/
 backups/
 frontend/public/vendor/maplibre/
+searxng/*
+!searxng/settings.yml

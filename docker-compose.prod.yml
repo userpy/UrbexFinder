@@ -77,6 +77,7 @@ services:
       URBEX_ELASTICSEARCH_PASSWORD: ${URBEX_ELASTICSEARCH_PASSWORD:-}
       URBEX_TELEGRAM_BOT_TOKEN: ${URBEX_TELEGRAM_BOT_TOKEN:-${TOKEN:-}}
       URBEX_GEOCODER_URL: ${URBEX_GEOCODER_URL:-}
+      URBEX_SEARXNG_URL: ${URBEX_SEARXNG_URL:-http://searxng:8080}
       URBEX_TELEGRAM_BOT_USERNAME: ${URBEX_TELEGRAM_BOT_USERNAME:-}
     ports:
     - 127.0.0.1:58000:8000
@@ -84,6 +85,8 @@ services:
       storage-init:
         condition: service_completed_successfully
       elasticsearch:
+        condition: service_healthy
+      searxng:
         condition: service_healthy
       migrations:
         condition: service_completed_successfully
@@ -96,6 +99,24 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
+  searxng:
+    image: searxng/searxng:latest
+    volumes:
+    - ./searxng:/etc/searxng:rw
+    environment:
+      SEARXNG_BASE_URL: ${URBEX_SEARXNG_BASE_URL:-http://searxng:8080/}
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - -q
+      - --spider
+      - --timeout=5
+      - http://127.0.0.1:8080/
+      interval: 10s
+      timeout: 8s
+      retries: 18
     restart: unless-stopped
   web:
     build:

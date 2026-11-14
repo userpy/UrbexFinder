@@ -133,6 +133,14 @@ def active_place_state(ctx: Ctx, id: int):
     return ctx[0].itineraries.active_place_state(signed(ctx), id)
 
 
+@router.get('/places/{id}/osint-report')
+def osint_report(id: int, request: Request, ctx: Ctx):
+    # Web→API often shares one Docker network IP; keep a higher ceiling than login.
+    ctx[1].throttle(f'osint:{request.client.host if request.client else "unknown"}', limit=60)
+    place = ctx[0].places.place(id, ctx[2])
+    return request.app.state.osint_report(place)
+
+
 @router.get('/places/{id}/{kind}')
 def related(id: int, kind: Literal['reviews', 'photos'], ctx: Ctx, page: int = Query(1, ge=1), source: Literal['telegram', 'website'] | None = None):
     return ctx[0].places.related(kind, id, ctx[2], page, source)

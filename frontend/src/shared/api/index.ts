@@ -14,14 +14,17 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     cache: "no-store",
   });
   if (!response.ok) {
-    const data = await response
-      .json()
-      .catch(() => ({ detail: "Сервис недоступен" }));
-    throw new Error(
-      typeof data.detail === "string"
-        ? data.detail
-        : "Проверьте заполнение полей",
-    );
+    const raw = await response.text().catch(() => "");
+    let detail = `Сервис недоступен (${response.status})`;
+    try {
+      const data = JSON.parse(raw) as { detail?: unknown };
+      if (typeof data.detail === "string" && data.detail.trim()) {
+        detail = data.detail;
+      }
+    } catch {
+      /* non-JSON gateway/proxy error */
+    }
+    throw new Error(detail);
   }
   return response.json();
 }

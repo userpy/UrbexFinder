@@ -18,9 +18,9 @@ class Auth:
     def __init__(self, repo: Repository, config, passwords: Passwords):
         self.repo, self.config, self.passwords = repo, config, passwords
 
-    def throttle(self, key):
+    def throttle(self, key, limit=10):
         count = self.repo.rate_attempt(sha256(key.encode()).hexdigest())
-        if count > 10:
+        if count > limit:
             raise DomainError('Слишком много попыток. Повторите через 15 минут', 429)
 
     def register(self, data):

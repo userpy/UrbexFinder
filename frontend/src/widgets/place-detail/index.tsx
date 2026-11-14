@@ -2,6 +2,7 @@
 import { DeleteReview } from "./delete-review";
 export { DeleteReview } from "./delete-review";
 import { ReportDialog } from "./report-dialog";
+import { OsintReportTrigger } from "./osint-report";
 import { PlaceDescription } from "./description";
 import { PlaceRating } from "./rating";
 import { PhotoGallery } from "./gallery";
@@ -338,6 +339,7 @@ export function PlaceDetail({
                     <Share2 size={14} aria-hidden="true" />
                     Поделиться
                   </button>
+                  <OsintReportTrigger placeId={place.id} />
                   {shareNotice && (
                     <span
                       className={

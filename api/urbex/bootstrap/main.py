@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager, suppress
 from urbex.infrastructure.search import ElasticSearch
 from urbex.infrastructure.geocoding import reverse_address
+from urbex.infrastructure.osint import build_osint_report
 from urbex.infrastructure.telegram import send_route
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -46,6 +47,7 @@ def create_app(config=None, storage=None):
     app.state.config = config
     app.state.send_route = lambda chat_id, route: send_route(config.telegram_bot_token, chat_id, route)
     app.state.reverse_address = lambda latitude, longitude: reverse_address(config.geocoder_url, config.origin, latitude, longitude)
+    app.state.osint_report = lambda place: build_osint_report(config.searxng_url, config.origin, place)
     app.state.engine = create_engine(config.database_url, pool_pre_ping=True)
     app.state.search = ElasticSearch(config, app.state.engine)
     app.state.storage = storage or S3Storage(config)
