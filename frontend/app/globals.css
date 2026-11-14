@@ -70,7 +70,7 @@ dialog.admin-inspector{position:fixed;inset:0;margin:auto;width:min(850px,calc(1
 .submit-toolbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px}
 
 .coordinate-copy-notice{font-size:10px;color:var(--accent)}.coordinate-copy-notice:empty{display:none}
-.coordinate-copy-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:1100;padding:8px 14px;border:1px solid var(--accent);border-radius:999px;background:var(--panel);color:var(--foreground);box-shadow:0 6px 20px #0005;font-size:12px;white-space:nowrap;pointer-events:none}
+.coordinate-copy-toast{position:fixed;top:90px;left:50%;transform:translateX(-50%);z-index:1100;padding:8px 14px;border:1px solid var(--accent);border-radius:999px;background:var(--panel);color:var(--foreground);box-shadow:0 6px 20px #0005;font-size:12px;white-space:nowrap;pointer-events:none}
 
 .place-coordinates .coords.coords-copied{font-weight:700;color:var(--accent)}
 
