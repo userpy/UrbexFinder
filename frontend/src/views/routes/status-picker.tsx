@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 
 const statuses = [
@@ -16,8 +17,15 @@ export function StatusPicker({ value, onChange, disabled }: {
   disabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    maxHeight: number;
+  } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const options = useRef<(HTMLButtonElement | null)[]>([]);
   const id = useId();
   const selected = statuses.findIndex((status) => status.value === value);
@@ -26,11 +34,43 @@ export function StatusPicker({ value, onChange, disabled }: {
     if (!visible) return;
     options.current[selected]?.focus();
     const dismiss = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target;
+      if (!(target instanceof Node) || (
+        !root.current?.contains(target) && !menu.current?.contains(target)
+      )) setOpen(false);
     };
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [visible, selected]);
+  useLayoutEffect(() => {
+    if (!visible) return;
+    const updatePosition = () => {
+      const triggerRect = trigger.current?.getBoundingClientRect();
+      const menuElement = menu.current;
+      if (!triggerRect || !menuElement) return;
+
+      const gap = 4;
+      const spaceBelow = window.innerHeight - triggerRect.bottom - gap;
+      const spaceAbove = triggerRect.top - gap;
+      const opensUp = spaceBelow < menuElement.scrollHeight && spaceAbove > spaceBelow;
+      const maxHeight = Math.max(0, opensUp ? spaceAbove : spaceBelow);
+      setMenuPosition({
+        ...(opensUp
+          ? { bottom: window.innerHeight - triggerRect.top + gap }
+          : { top: triggerRect.bottom + gap }),
+        left: Math.max(8, Math.min(triggerRect.left, window.innerWidth - 148)),
+        maxHeight,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [visible]);
   function close() {
     setOpen(false);
     trigger.current?.focus();
@@ -38,7 +78,10 @@ export function StatusPicker({ value, onChange, disabled }: {
   return (
     <div ref={root} className="route-status-picker"
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+        const target = event.relatedTarget;
+        if (!(target instanceof Node) || (
+          !event.currentTarget.contains(target) && !menu.current?.contains(target)
+        )) setOpen(false);
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape" && visible) {
@@ -59,7 +102,9 @@ export function StatusPicker({ value, onChange, disabled }: {
         }}>
         <span>{statuses[selected].label}</span><ChevronDown size={14} aria-hidden="true" />
       </button>
-      {visible && <div id={id} role="listbox" aria-label="Статус точки" className="route-status-options">
+      {visible && createPortal(<div ref={menu} id={id} role="listbox"
+        aria-label="Статус точки" className="route-status-options"
+        style={menuPosition ?? undefined}>
         {statuses.map((status, index) => <button type="button" role="option"
           key={status.value} aria-selected={value === status.value} tabIndex={-1}
           ref={(element) => { options.current[index] = element; }}
@@ -72,7 +117,7 @@ export function StatusPicker({ value, onChange, disabled }: {
           }}>
           <span>{status.label}</span>{value === status.value && <Check size={14} aria-hidden="true" />}
         </button>)}
-      </div>}
+      </div>, document.body)}
     </div>
   );
 }
