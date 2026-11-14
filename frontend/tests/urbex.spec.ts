@@ -69,6 +69,111 @@ test("guest map covers all pages; search, empty state and selection", async ({
   await expect(page.locator(".place-row")).toHaveCount(30);
 });
 
+test("Telegram Mini App signs the browser in automatically", async ({ page }) => {
+  const telegramInitData = "signed-telegram-mini-app-data";
+  const user = {
+    id: 987,
+    email: null,
+    name: "Telegram исследователь",
+    role: "user" as const,
+    blocked: false,
+  };
+  let receivedInitData = "";
+  await page.route("https://telegram.org/js/telegram-web-app.js", (route) =>
+    route.fulfill({ body: "" }),
+  );
+  await page.addInitScript((initData) => {
+    Object.defineProperty(window, "Telegram", {
+      configurable: true,
+      value: { WebApp: { initData, ready: () => {} } },
+    });
+  }, telegramInitData);
+  await page.route("**/api/auth/telegram/mini-app", async (route) => {
+    receivedInitData = (
+      route.request().postDataJSON() as { init_data: string }
+    ).init_data;
+    await route.fulfill({
+      json: { user, csrf: "mini-app-csrf" },
+    });
+  });
+  let sessionRequests = 0;
+  await page.route("**/api/auth/me", (route) => {
+    sessionRequests += 1;
+    return route.fulfill({
+      json:
+        sessionRequests === 1
+          ? { user: null, csrf: null }
+          : { user, csrf: "mini-app-csrf" },
+    });
+  });
+
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("link", { name: "Telegram исследователь" }),
+  ).toBeVisible();
+  expect(receivedInitData).toBe(telegramInitData);
+});
+
+test("place detail copies a link that opens the selected place", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    let copiedText = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          copiedText = text;
+        },
+        readText: async () => copiedText,
+      },
+    });
+  });
+  await page.goto("/");
+  await page.locator(".place-row").first().click();
+  const placeName = (await page.locator(".detail h2").textContent())!.trim();
+  await page.getByRole("button", { name: "Во весь экран" }).click();
+  const shareButton = page.getByRole("button", { name: "Поделиться местом" });
+  await expect(shareButton).toBeVisible();
+  await shareButton.click();
+  const copiedLinkNotice = page
+    .getByRole("status")
+    .filter({ hasText: "Ссылка скопирована" });
+  await expect(copiedLinkNotice).toBeVisible();
+  await expect(copiedLinkNotice).toHaveClass("coordinate-copy-toast");
+
+  const copiedUrl = new URL(
+    await page.evaluate(() => navigator.clipboard.readText()),
+  );
+  expect(copiedUrl.pathname).toBe("/");
+  expect(copiedUrl.searchParams.get("place")).toMatch(/^\d+$/);
+  await page.goto(`${copiedUrl.pathname}${copiedUrl.search}`);
+  const sharedCard = page.locator("dialog.place-fullscreen");
+  await expect(sharedCard).toBeVisible();
+  await expect(sharedCard.locator(".detail h2")).toHaveText(placeName);
+  const copyCoordinates = sharedCard.getByRole("button", {
+    name: "Скопировать координаты",
+  });
+  await expect(copyCoordinates).toBeVisible();
+  await expect(copyCoordinates).not.toContainText("Скопировать");
+  await copyCoordinates.click();
+  const copiedNotice = page
+    .getByRole("status")
+    .filter({ hasText: "Скопировано" });
+  await expect(copiedNotice).toBeVisible();
+  await expect(sharedCard.locator(".coords")).toHaveCSS("font-weight", "700");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(
+    /^-?\d+(?:\.\d+)?, -?\d+(?:\.\d+)?$/,
+  );
+  await expect(copiedNotice).toBeHidden({ timeout: 3000 });
+  await expect(
+    sharedCard.getByRole("button", { name: "Поделиться местом" }),
+  ).toBeVisible();
+  await sharedCard.getByRole("button", { name: "Закрыть" }).click();
+  await expect(sharedCard).not.toBeVisible();
+});
+
 test("registration → submission → moderator approval → map → persistent favorite", async ({
   page,
   browser,
@@ -264,4 +369,35 @@ test("personal itinerary adds a place and persists visited status", async ({page
   await expect(page.getByLabel("Статус точки")).toHaveValue("visited");
   await page.locator(".route-stop h3 button").click();
   await expect(page.locator(".detail")).toBeVisible();
+});
+
+test("itinerary share copies a public read-only link", async ({page}) => {
+  await page.addInitScript(() => {
+    let copiedText = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          copiedText = text;
+        },
+        readText: async () => copiedText,
+      },
+    });
+  });
+  await login(page, "admin");
+  await page.goto("/routes");
+  await expect(page.locator(".route-editor")).toBeVisible();
+  await page.getByRole("button", { name: "Поделиться маршрутом" }).click();
+  await expect(page.getByRole("status")).toContainText("Ссылка скопирована");
+
+  const copiedUrl = new URL(
+    await page.evaluate(() => navigator.clipboard.readText()),
+  );
+  expect(copiedUrl.pathname).toBe("/routes/share");
+  expect(copiedUrl.searchParams.get("token")).toBeTruthy();
+  await page.goto(`${copiedUrl.pathname}${copiedUrl.search}`);
+  await expect(page.getByText("Маршрут для просмотра")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Поделиться маршрутом" }),
+  ).toHaveCount(0);
 });

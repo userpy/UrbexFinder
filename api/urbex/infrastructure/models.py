@@ -109,6 +109,7 @@ class Itinerary(Base):
     id = Column(Integer, primary_key=True)
     author_id = Column(Integer, ForeignKey('web_users.id'), nullable=False)
     name = Column(String(120), nullable=False)
+    share_token = Column(String(64), unique=True)
     trip_date = Column(Date)
     notes = Column(Text, nullable=False, server_default='')
     stops = Column(JSONB, nullable=False, server_default='[]')

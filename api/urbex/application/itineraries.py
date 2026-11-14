@@ -1,5 +1,6 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from secrets import token_urlsafe
 from urbex.domain.rules import DomainError
 
 
@@ -24,6 +25,42 @@ class ItinerariesService:
                 place = None
             items.append(dict(stop,place=place))
         return dict(route,items=items)
+
+    def share(self, actor, id):
+        self.owned(actor, id, lock=True)
+        token = self.repo.itinerary_share_token(id)
+        if token is None:
+            token = token_urlsafe(32)
+            self.repo.update('itineraries', id, {'share_token': token})
+        return {'token': token}
+
+    def shared_detail(self, token):
+        route = self.repo.itinerary_by_share_token(token)
+        if route is None:
+            raise DomainError('Маршрут не найден', 404)
+        items = []
+        for stop in route['stops']:
+            try:
+                place = self.places.place(stop['place_id'])
+            except DomainError as error:
+                if error.status != 404:
+                    raise
+                place = None
+            if place is not None:
+                place = {
+                    field: place[field]
+                    for field in ('id', 'name', 'region', 'latitude', 'longitude')
+                }
+            items.append({
+                'place_id': stop['place_id'],
+                'status': stop['status'],
+                'place': place,
+            })
+        return {
+            'name': route['name'],
+            'trip_date': route['trip_date'],
+            'items': items,
+        }
 
     def save(self, actor, data, id=None):
         self.repo.get("users", actor.id, lock=True)

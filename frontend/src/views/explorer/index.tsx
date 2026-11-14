@@ -34,6 +34,7 @@ export function Explorer() {
   const searchInput = useRef<HTMLInputElement>(null);
   const [places, setPlaces] = useState<Place[]>([]),
     [selected, setSelected] = useState<Place | null>(null),
+    [sharedPlace, setSharedPlace] = useState(false),
     [categories, setCategories] = useState<Category[]>([]);
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState(""),
@@ -53,6 +54,7 @@ export function Explorer() {
     api<Place>(`/places/${id}`, { signal: abort.signal })
       .then((place) => {
         setSelected(place);
+        setSharedPlace(true);
         setMobile("map");
       })
       .catch((e) => {
@@ -230,6 +232,7 @@ export function Explorer() {
     try {
       const p =
         places.find((p) => p.id === id) || (await api<Place>(`/places/${id}`));
+      setSharedPlace(false);
       setSelected(p);
     } catch (e) {
       setError((e as Error).message);
@@ -572,7 +575,11 @@ export function Explorer() {
         <PlaceDetail
           key={selected.id}
           place={selected}
-          onClose={() => setSelected(null)}
+          fullscreen={sharedPlace}
+          onClose={() => {
+            setSharedPlace(false);
+            setSelected(null);
+          }}
         />
       ) : (
         <aside className="detail detail-idle">

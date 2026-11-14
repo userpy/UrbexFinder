@@ -1,7 +1,24 @@
+import hmac
+import json
+import time
 from hashlib import sha256
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+
+
+BOT_TOKEN = '123456:test-mini-app-token'
+
+
+def mini_app_data(user_id=12345678901, auth_date=None):
+    fields = {
+        'auth_date': str(auth_date or int(time.time())),
+        'user': json.dumps({'id': user_id, 'first_name': 'Исследователь'}, separators=(',', ':')),
+    }
+    data_check_string = '\n'.join(f'{key}={value}' for key, value in sorted(fields.items()))
+    secret_key = hmac.new(b'WebAppData', BOT_TOKEN.encode(), sha256).digest()
+    fields['hash'] = hmac.new(secret_key, data_check_string.encode(), sha256).hexdigest()
+    return urlencode(fields)
 
 
 def begin(client, app):
@@ -55,3 +72,34 @@ def test_blocked_telegram_user(client, app):
     client.cookies.clear()
     approve(app, begin(client, app))
     assert client.post('/api/auth/telegram/complete').status_code == 403
+
+
+def test_mini_app_login_verifies_data_and_reuses_telegram_account(client, app):
+    app.state.config.telegram_bot_token = BOT_TOKEN
+    init_data = mini_app_data()
+    response = client.post('/api/auth/telegram/mini-app', json={'init_data': init_data})
+    assert response.status_code == 200, response.text
+    user = response.json()['user']
+    assert user['email'] is None
+    assert user['name'] == 'Исследователь'
+    assert client.get('/api/auth/me').json()['user']['id'] == user['id']
+
+    client.headers['X-CSRF-Token'] = response.json()['csrf']
+    again = client.post('/api/auth/telegram/mini-app', json={'init_data': init_data})
+    assert again.status_code == 200, again.text
+    assert again.json()['user']['id'] == user['id']
+    with app.state.engine.connect() as connection:
+        assert connection.scalar(text('SELECT count(*) FROM web_users WHERE telegram_id=12345678901')) == 1
+    app.state.config.telegram_bot_username = 'test_bot'
+    with TestClient(app, base_url='http://localhost:3100', headers={'Origin': 'http://localhost:3100'}) as browser:
+        approve(app, begin(browser, app))
+        assert browser.post('/api/auth/telegram/complete').json()['user']['id'] == user['id']
+
+
+def test_mini_app_rejects_bad_signature_and_expired_init_data(client, app):
+    app.state.config.telegram_bot_token = BOT_TOKEN
+    valid = mini_app_data()
+    invalid = valid[:-1] + ('0' if valid[-1] != '0' else '1')
+    assert client.post('/api/auth/telegram/mini-app', json={'init_data': invalid}).status_code == 401
+    expired = mini_app_data(auth_date=int(time.time()) - 301)
+    assert client.post('/api/auth/telegram/mini-app', json={'init_data': expired}).status_code == 401

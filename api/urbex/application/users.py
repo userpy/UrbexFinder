@@ -1,7 +1,12 @@
 from .ports import Repository, Passwords
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+import hashlib
+import hmac
+import json
+import re
 import secrets
+from urllib.parse import parse_qsl
 from urbex.domain.rules import Actor, DomainError
 
 
@@ -94,6 +99,46 @@ class Auth:
         user=self.repo.telegram_user(challenge['telegram_id'], challenge['display_name'], self.passwords.hash(secrets.token_urlsafe(48)))
         if user['blocked']:raise DomainError('Учётная запись заблокирована',403)
         self.repo.update('telegram_logins',challenge['id'],{'consumed':True})
+        return user
+
+    def telegram_mini_app(self, init_data, ip):
+        if not self.config.telegram_bot_token:
+            raise DomainError('Вход через Telegram не настроен',503)
+        self.throttle('telegram-mini-app:'+ip)
+        try:
+            pairs=parse_qsl(init_data, keep_blank_values=True, strict_parsing=True, max_num_fields=32)
+        except ValueError:
+            raise DomainError('Некорректные данные Telegram Mini App',401) from None
+        data=dict(pairs)
+        if len(data) != len(pairs):
+            raise DomainError('Некорректные данные Telegram Mini App',401)
+        received_hash=data.pop('hash',None)
+        if not received_hash or not re.fullmatch(r'[0-9a-f]{64}',received_hash):
+            raise DomainError('Некорректные данные Telegram Mini App',401)
+        data_check_string='\n'.join(f'{key}={value}' for key,value in sorted(data.items()))
+        secret_key=hmac.new(b'WebAppData',self.config.telegram_bot_token.encode(),hashlib.sha256).digest()
+        expected_hash=hmac.new(secret_key,data_check_string.encode(),hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected_hash,received_hash):
+            raise DomainError('Подпись Telegram Mini App недействительна',401)
+        try:
+            auth_date=int(data['auth_date'])
+            now=int(datetime.now(timezone.utc).timestamp())
+            telegram_user=json.loads(data['user'])
+            if not isinstance(telegram_user,dict):
+                raise ValueError
+            telegram_id=telegram_user['id']
+            if (auth_date > now+30 or now-auth_date > 300
+                    or isinstance(telegram_id,bool) or not isinstance(telegram_id,int) or telegram_id <= 0):
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise DomainError('Данные Telegram Mini App истекли или некорректны',401) from None
+        name=' '.join(part for part in (telegram_user.get('first_name'),telegram_user.get('last_name')) if isinstance(part,str)).strip()
+        if not name and isinstance(telegram_user.get('username'),str):
+            name=telegram_user['username']
+        user=self.repo.telegram_user(telegram_id,name[:100] or f'Telegram {telegram_id}',
+            self.passwords.hash(secrets.token_urlsafe(48)))
+        if user['blocked']:
+            raise DomainError('Учётная запись заблокирована',403)
         return user
 
     def delete_user(self, actor, id):

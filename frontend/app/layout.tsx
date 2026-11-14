@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import { SessionProvider } from "@/entities/session";
 import { Header } from "@/widgets/shell";
 import "./globals.css";
@@ -24,6 +25,10 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <body>
+        <Script
+          src="https://telegram.org/js/telegram-web-app.js"
+          strategy="beforeInteractive"
+        />
         <div className="app-shell">
           <SessionProvider>
             <div className="app-content">

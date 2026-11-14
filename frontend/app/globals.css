@@ -70,6 +70,7 @@ dialog.admin-inspector{position:fixed;inset:0;margin:auto;width:min(850px,calc(1
 .submit-toolbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px}
 
 .coordinate-copy-notice{font-size:10px;color:var(--accent)}.coordinate-copy-notice:empty{display:none}
+.coordinate-copy-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:1100;padding:8px 14px;border:1px solid var(--accent);border-radius:999px;background:var(--panel);color:var(--foreground);box-shadow:0 6px 20px #0005;font-size:12px;white-space:nowrap;pointer-events:none}
 
 .place-coordinates .coords.coords-copied{font-weight:700;color:var(--accent)}
 
@@ -356,7 +357,7 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 
 @media (min-width: 761px) {
   :root {
-    --app-safe-area-top: 0px;
+    --app-safe-area-top: 8px;
     --app-safe-area-bottom: 0px;
   }
 }
@@ -428,3 +429,32 @@ body {
 .route-status-options button { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 36px; padding: 6px; text-align: left; font-size: 11px; border-radius: 3px; }
 .route-status-options button:hover, .route-status-options button:focus-visible { background: #263b48; outline: none; }
 .route-status-options button[aria-selected="true"] { color: var(--accent); }
+
+@media (min-width: 761px) {
+  .header { height: 48px; }
+  .explorer {
+    height: calc(
+      100dvh - 48px - var(--app-safe-area-top) - var(--app-safe-area-bottom)
+    );
+  }
+  .catalog-heading { padding-top: 8px; padding-bottom: 0; }
+  .catalog-heading h1 { margin-top: 0; }
+  .filters { padding-bottom: 0; }
+  .catalog .place-row { padding-bottom: 0; }
+  .app-shell { background: var(--background); }
+}
+
+.shared-route-page { max-width: 850px; }
+.shared-route-caption { color: var(--muted); font-size: 12px; }
+.shared-route-stops { display: grid; gap: 10px; margin: 20px 0; padding: 0; list-style: none; }
+.shared-route-stop { display: flex; align-items: flex-start; gap: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 5px; background: var(--panel); }
+.shared-route-number { display: grid; flex: 0 0 32px; width: 32px; height: 32px; place-items: center; border: 1px solid #405365; color: var(--accent); }
+.shared-route-stop-content { display: grid; justify-items: start; gap: 8px; min-width: 0; }
+.shared-route-stop-content h2 { margin: 0; overflow-wrap: anywhere; }
+.shared-route-stop-content p { display: flex; align-items: center; gap: 5px; margin: 0; font-size: 12px; }
+.shared-route-status { color: var(--muted); font-size: 11px; }
+.shared-route-stop-content .button { margin-top: 2px; }
+@media (max-width: 600px) {
+  .shared-route-page { padding: 28px 18px; }
+  .shared-route-stop { padding: 12px; }
+}

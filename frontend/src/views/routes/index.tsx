@@ -10,6 +10,7 @@ import {
   FileCheck,
   ChevronUp,
   ListRestart,
+  Share2,
   Send,
 } from "lucide-react";
 import Link from "next/link";
@@ -54,6 +55,14 @@ export function RoutesView() {
   const [deleteTarget, setDeleteTarget] = useState<Route | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const deleteDialog = useRef<HTMLDialogElement>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+  const shareNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (shareNoticeTimer.current) clearTimeout(shareNoticeTimer.current);
+    },
+    [],
+  );
   useEffect(() => {
     if (message !== "Сохранено") return;
     const timer = setTimeout(() => setMessage(""), 3000);
@@ -398,6 +407,47 @@ export function RoutesView() {
                 {editing ? "Скрыть редактирование" : "Редактировать"}
               </Button>
 
+              <Button
+                variant="outline"
+                type="button"
+                onClick={async () => {
+                  if (!route) return;
+                  setBusy(true);
+                  setError("");
+                  setMessage("");
+                  setShareCopied(false);
+                  if (shareNoticeTimer.current)
+                    clearTimeout(shareNoticeTimer.current);
+                  try {
+                    const { token } = await api<{ token: string }>(
+                      `/itineraries/${route.id}/share`,
+                      { method: "POST" },
+                    );
+                    const shareUrl = new URL(
+                      `/routes/share?token=${encodeURIComponent(token)}`,
+                      window.location.origin,
+                    );
+                    await navigator.clipboard.writeText(shareUrl.toString());
+                    setShareCopied(true);
+                    shareNoticeTimer.current = setTimeout(
+                      () => setShareCopied(false),
+                      2500,
+                    );
+                  } catch (e) {
+                    setError(
+                      e instanceof Error
+                        ? e.message
+                        : "Не удалось скопировать ссылку",
+                    );
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <Share2 size={16} aria-hidden="true" />
+                Поделиться маршрутом
+              </Button>
+
               <Button onClick={() => void save()} disabled={!route.name.trim()}>
                 <Save size={16} aria-hidden="true" />
                 Сохранить маршрут
@@ -617,6 +667,12 @@ export function RoutesView() {
               </Button>
             </div>
           </fieldset>
+          {shareCopied && (
+            <p className="success-toast" role="status">
+              <Share2 size={20} aria-hidden="true" />
+              Ссылка скопирована
+            </p>
+          )}
         </section>
       )}
       {selected && (

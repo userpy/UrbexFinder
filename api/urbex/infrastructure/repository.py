@@ -6,11 +6,13 @@ from sqlalchemy import select, func, delete, text, Numeric, bindparam, Integer, 
 from sqlalchemy.dialects.postgresql import ARRAY
 from urbex.domain.rules import DomainError
 from .locations import component_filter, resolve_locations
-from .models import MODELS, Place, Favorite, Category
+from .models import MODELS, Place, Favorite, Category, Itinerary
 
 
 def serialize(obj):
     values = {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+    if isinstance(obj, Itinerary):
+        values.pop('share_token', None)
     if isinstance(obj, Place) and obj.category_id:
         session = object_session(obj)
         category = session.get(Category, obj.category_id) if session else None
@@ -59,6 +61,13 @@ class SqlRepository:
         if obj is None:
             raise DomainError('Объект не найден', 404)
         return serialize(obj)
+
+    def itinerary_share_token(self, id):
+        return self.session.scalar(select(Itinerary.share_token).where(Itinerary.id == id))
+
+    def itinerary_by_share_token(self, token):
+        obj = self.session.scalar(select(Itinerary).where(Itinerary.share_token == token))
+        return serialize(obj) if obj is not None else None
 
     def add(self, kind, values):
         if kind == "telegram_logins":

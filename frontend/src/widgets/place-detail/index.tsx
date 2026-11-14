@@ -20,6 +20,7 @@ import {
   Copy,
   ExternalLink,
   Mail,
+  Share2,
 } from "lucide-react";
 import {
   Place,
@@ -53,9 +54,25 @@ export function PlaceDetail({
   } | null>(null);
   const [copyNotice, setCopyNotice] = useState("");
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [shareNotice, setShareNotice] = useState("");
+  const shareTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  async function sharePlace() {
+    if (shareTimer.current) clearTimeout(shareTimer.current);
+    try {
+      const url = new URL("/", window.location.origin);
+      url.searchParams.set("place", String(place.id));
+      await navigator.clipboard.writeText(url.toString());
+      setShareNotice("Ссылка скопирована");
+      shareTimer.current = setTimeout(() => setShareNotice(""), 2500);
+    } catch {
+      setShareNotice("Не удалось скопировать ссылку");
+      shareTimer.current = setTimeout(() => setShareNotice(""), 3500);
+    }
+  }
   useEffect(
     () => () => {
       if (copyTimer.current) clearTimeout(copyTimer.current);
+      if (shareTimer.current) clearTimeout(shareTimer.current);
     },
     [],
   );
@@ -272,6 +289,7 @@ export function PlaceDetail({
                   <button
                     type="button"
                     aria-label="Скопировать координаты"
+                    title="Скопировать координаты"
                     onClick={async () => {
                       if (copyTimer.current) clearTimeout(copyTimer.current);
                       try {
@@ -292,13 +310,12 @@ export function PlaceDetail({
                       }
                     }}
                   >
-                    <Copy size={14} />
-                    Скопировать
+                    <Copy size={14} aria-hidden="true" />
                   </button>
                   <span
                     className={
                       copyNotice === "Скопировано"
-                        ? "sr-only"
+                        ? "coordinate-copy-toast"
                         : "coordinate-copy-notice"
                     }
                     role="status"
@@ -313,6 +330,26 @@ export function PlaceDetail({
                     <ExternalLink size={14} />
                     На карту
                   </a>
+                  <button
+                    type="button"
+                    aria-label="Поделиться местом"
+                    onClick={() => void sharePlace()}
+                  >
+                    <Share2 size={14} aria-hidden="true" />
+                    Поделиться
+                  </button>
+                  {shareNotice && (
+                    <span
+                      className={
+                        shareNotice === "Ссылка скопирована"
+                          ? "coordinate-copy-toast"
+                          : "coordinate-copy-notice"
+                      }
+                      role="status"
+                    >
+                      {shareNotice}
+                    </span>
+                  )}
                 </div>
               )}
           </div>

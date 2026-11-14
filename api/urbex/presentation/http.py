@@ -2,7 +2,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Request, Response, UploadFile, Query
 from urbex.domain.rules import DomainError
 from urbex.application.users import public_user
-from .schemas import Register, Login, PlaceInput, Search, ReviewInput, ReportInput, Decision, UserUpdate, CategoryInput, DescriptionUpdate, AdminPlaceUpdate, ItineraryInput
+from .schemas import Register, Login, TelegramMiniAppAuth, PlaceInput, Search, ReviewInput, ReportInput, Decision, UserUpdate, CategoryInput, DescriptionUpdate, AdminPlaceUpdate, ItineraryInput
 
 router = APIRouter(prefix='/api')
 
@@ -219,10 +219,18 @@ def reverse_geocode(request: Request, ctx: Ctx,
 def itineraries(ctx: Ctx, page: int = Query(1,ge=1)):
     return ctx[0].repo.list('itineraries', {'author_id':signed(ctx).id},page)
 
+@router.get('/itineraries/shared/{token}')
+def shared_itinerary(ctx: Ctx, token: str):
+    return ctx[0].itineraries.shared_detail(token)
+
 
 @router.post('/itineraries', status_code=201)
 def create_itinerary(ctx: Ctx, data: ItineraryInput):
     return ctx[0].itineraries.save(signed(ctx),data.model_dump())
+
+@router.post('/itineraries/{id}/share')
+def share_itinerary(ctx: Ctx, id: int):
+    return ctx[0].itineraries.share(signed(ctx), id)
 
 
 @router.get('/itineraries/{id}')
@@ -253,6 +261,12 @@ def telegram_complete(request: Request, response: Response, ctx: Ctx):
     user=ctx[1].telegram_complete(request.cookies.get('urbex_tg_login'))
     if user is None:return {'pending':True}
     response.delete_cookie('urbex_tg_login',path='/api/auth/telegram')
+    return session_response(ctx[1],user,request,response)
+
+
+@router.post('/auth/telegram/mini-app')
+def telegram_mini_app(data: TelegramMiniAppAuth, request: Request, response: Response, ctx: Ctx):
+    user=ctx[1].telegram_mini_app(data.init_data,request.client.host)
     return session_response(ctx[1],user,request,response)
 
 

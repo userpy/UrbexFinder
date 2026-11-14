@@ -32,6 +32,43 @@ def test_private_itinerary_lifecycle_and_concurrency(client):
     assert client.get(f'/api/itineraries/{id}').status_code==404
 
 
+def test_itinerary_share_link_is_public_read_only_and_hides_private_notes(client):
+    place=insert(client.app,'Место для общей ссылки')
+    register(client)
+    route=client.post('/api/itineraries',json={
+        'name':'Маршрут для друзей',
+        'notes':'Личные заметки',
+        'stops':[{'place_id':place,'note':'Взять фонарь','status':'planned'}],
+    }).json()
+    share=client.post(f"/api/itineraries/{route['id']}/share")
+    assert share.status_code==200,share.text
+    token=share.json()['token']
+    assert len(token)>=40
+    assert client.post(f"/api/itineraries/{route['id']}/share").json()['token']==token
+    assert 'share_token' not in client.get(f"/api/itineraries/{route['id']}").json()
+    assert 'share_token' not in client.get('/api/itineraries').json()['items'][0]
+    with TestClient(client.app,base_url='http://localhost:3100',headers={'Origin':'http://localhost:3100'}) as visitor:
+        response=visitor.get(f'/api/itineraries/shared/{token}')
+        assert response.status_code==200,response.text
+        data=response.json()
+        assert data['name']=='Маршрут для друзей'
+        assert data['items'][0]['place']['name']=='Место для общей ссылки'
+        assert 'author_id' not in data['items'][0]['place']
+        assert data['items'][0]['status']=='planned'
+        assert 'notes' not in data and 'note' not in data['items'][0]
+        assert visitor.get('/api/itineraries').status_code==401
+        assert visitor.get('/api/itineraries/shared/not-a-token').status_code==404
+
+
+def test_only_route_owner_can_enable_public_sharing(client):
+    register(client)
+    route=client.post('/api/itineraries',json={'name':'Приватный маршрут'}).json()
+    with TestClient(client.app,base_url='http://localhost:3100',headers={'Origin':'http://localhost:3100'}) as visitor:
+        assert visitor.post(f"/api/itineraries/{route['id']}/share").status_code==401
+        register(visitor,'visitor@example.com')
+        assert visitor.post(f"/api/itineraries/{route['id']}/share").status_code==404
+
+
 def test_telegram_reviews_are_public_and_moderatable(client,moderator):
     id=insert(client.app,'Место')
     with client.app.state.engine.begin() as c:

@@ -17,6 +17,10 @@ class Login(Input):
         return value.lower()
 
 
+class TelegramMiniAppAuth(Input):
+    init_data: str = Field(min_length=1, max_length=4096)
+
+
 class Register(Login):
     name: str = Field(min_length=2, max_length=100)
 
