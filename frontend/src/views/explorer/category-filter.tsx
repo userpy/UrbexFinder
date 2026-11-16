@@ -27,10 +27,9 @@ export function CategoryFilter({
       )
       .map((c) => ({ ...c, id: String(c.id) })),
   ];
-  const selected = Math.max(
-    0,
-    items.findIndex((item) => item.id === value),
-  );
+  const selectedIndex = items.findIndex((item) => item.id === value);
+  const selected = selectedIndex >= 0 ? selectedIndex : 0;
+  const selectedItem = items[selected] ?? items[0];
   function focus(index: number) {
     options.current[(index + items.length) % items.length]?.focus();
   }
@@ -82,7 +81,7 @@ export function CategoryFilter({
       >
         <SlidersHorizontal className="category-picker-filter-icon" size={18} aria-hidden="true" />
         <span className="category-picker-current-icon">{icon(selected)}</span>
-        <span>{items[selected].name}</span>
+        <span>{selectedItem.name}</span>
         <ChevronDown size={14} aria-hidden="true" />
       </button>
       <button

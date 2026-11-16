@@ -10,7 +10,7 @@ export const categoryVisuals = {
     color: "#dfb572",
     paths: [
       "M3 21h18M5 21V10h14v11M3 10l9-7 9 7Z",
-      "M9 21v-6h6v6M8 12h.01M16 12h.01",
+      "M9 21v-6h6v6M8 11.5h1.5M14.5 11.5h1.5",
     ],
   },
   shelter: {

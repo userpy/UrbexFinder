@@ -84,6 +84,14 @@ _URBAN3P_OBJECT_RE = re.compile(
     r'(?:https?:)?//(?:www\.)?urban3p\.ru/object(?P<oid>\d+)\b',
     re.IGNORECASE,
 )
+_URBAN3P_BLOG_RE = re.compile(
+    r'(?:https?:)?//(?:www\.)?urban3p\.ru/blogs/(?P<bid>\d+)\b',
+    re.IGNORECASE,
+)
+_URBAN3P_CDN_OBJECT_RE = re.compile(
+    r'(?:https?:)?//(?:img\d*\.)?urban3p\.ru/up/o/(?P<oid>\d+)/',
+    re.IGNORECASE,
+)
 _URBAN3P_GALLERY_RE = re.compile(
     r'(?:https?:)?//(?P<host>img\d*\.urban3p\.ru)/up/o/(?P<oid>\d+)/gallery/(?P<pid>\d+)(?:_p)?\.jpg',
     re.IGNORECASE,
@@ -95,6 +103,15 @@ _URBAN3P_COVER_RE = re.compile(
 _URBAN3P_TITLE_RE = re.compile(
     r'<h1[^>]*>(.*?)</h1>',
     re.IGNORECASE | re.DOTALL,
+)
+_URBAN3P_BLOG_BODY_RE = re.compile(
+    r'class=["\'][^"\']*blogText[^"\']*["\'][^>]*>(.*?)'
+    r'(?:class=["\'][^"\']*comment|id=["\']comments|id=["\']textComment)',
+    re.IGNORECASE | re.DOTALL,
+)
+_URBAN3P_BLOG_IMG_SKIP = (
+    'avatar', 'blank.gif', 'no_video', '/img/db/', '/img/touch',
+    'favicon', 'sprite', 'lvl1.png', 'yatablo',
 )
 _URBAN3P_BROWSER_HEADERS = {
     'User-Agent': (
@@ -211,8 +228,18 @@ def _is_urban3p_url(url: str) -> bool:
 
 
 def _urban3p_object_id(url: str) -> str | None:
-    match = _URBAN3P_OBJECT_RE.search(url or '')
+    """Object id from /objectN, gallery CDN, or cover photo URLs."""
+    text = url or ''
+    match = _URBAN3P_OBJECT_RE.search(text)
+    if match:
+        return match.group('oid')
+    match = _URBAN3P_CDN_OBJECT_RE.search(text)
     return match.group('oid') if match else None
+
+
+def _urban3p_blog_id(url: str) -> str | None:
+    match = _URBAN3P_BLOG_RE.search(url or '')
+    return match.group('bid') if match else None
 
 
 def _is_ymaps_host(host: str) -> bool:
@@ -1114,6 +1141,10 @@ def _urban3p_object_url(oid: str) -> str:
     return f'https://urban3p.ru/object{oid}'
 
 
+def _urban3p_blog_url(bid: str) -> str:
+    return f'https://urban3p.ru/blogs/{bid}'
+
+
 def _normalize_urban3p_image(url: str) -> str | None:
     text = str(url or '').strip().replace('\\/', '/')
     if text.startswith('//'):
@@ -1131,6 +1162,33 @@ def _normalize_urban3p_image(url: str) -> str | None:
     if '/up/o/' not in parsed.casefold():
         return None
     return parsed
+
+
+def _normalize_urban3p_blog_image(url: str, page_url: str = '') -> str | None:
+    """Blog reports often host photos on VK CDN, not img*.urban3p.ru."""
+    text = str(url or '').strip().replace('\\/', '/')
+    if not text or text.startswith(('data:', 'javascript:')):
+        return None
+    if text.startswith('//'):
+        text = 'https:' + text
+    absolute = urljoin(page_url or 'https://urban3p.ru/', text)
+    parsed = _http_url(absolute)
+    if not parsed:
+        return None
+    lower = parsed.casefold()
+    if any(skip in lower for skip in _URBAN3P_BLOG_IMG_SKIP):
+        return None
+    if not re.search(r'\.(jpe?g|png|webp)(\?|$)', lower):
+        return None
+    host = (urlparse(parsed).hostname or '').casefold()
+    if 'userapi.com' in host or host.endswith('.vkuservideo.net'):
+        return parsed
+    if host.endswith('urban3p.ru'):
+        if '/up/o/' in lower:
+            return _normalize_urban3p_image(parsed)
+        if '/uploaded/' in lower and 'avatar' not in lower:
+            return parsed
+    return None
 
 
 def _extract_urban3p_image_urls(html: str, oid: str | None = None) -> list[str]:
@@ -1158,6 +1216,50 @@ def _extract_urban3p_image_urls(html: str, oid: str | None = None) -> list[str]:
         host = match.group('host')
         obj = match.group('oid')
         add(f'https://{host}/up/o/{obj}/photo.jpg')
+    return found
+
+
+def _extract_urban3p_blog_image_urls(html: str, page_url: str) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: object) -> None:
+        url = _normalize_urban3p_blog_image(str(raw or ''), page_url)
+        if not url:
+            return
+        key = url.rstrip('/').casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(url)
+
+    body_match = _URBAN3P_BLOG_BODY_RE.search(html or '')
+    scan = body_match.group(1) if body_match else (html or '')
+    for match in _OG_IMAGE_RE.finditer(html or ''):
+        add(match.group(1) or match.group(2))
+    for match in _GENERIC_IMG_RE.finditer(scan):
+        add(match.group(1))
+    # Object galleries sometimes appear inside a report too.
+    for url in _extract_urban3p_image_urls(scan):
+        add(url)
+    return found
+
+
+def _urban3p_object_ids_in_html(html: str) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _URBAN3P_OBJECT_RE.finditer(html or ''):
+        oid = match.group('oid')
+        if oid in seen:
+            continue
+        seen.add(oid)
+        found.append(oid)
+    for match in _URBAN3P_CDN_OBJECT_RE.finditer(html or ''):
+        oid = match.group('oid')
+        if oid in seen:
+            continue
+        seen.add(oid)
+        found.append(oid)
     return found
 
 
@@ -1247,51 +1349,154 @@ def _urban3p_cover_urls(oid: str) -> list[str]:
     return [f'https://{host}.urban3p.ru/up/o/{oid}/photo.jpg' for host in _URBAN3P_IMG_HOSTS[:1]]
 
 
+def _urban3p_append_photos(
+    photos: list[dict],
+    *,
+    images: list[str],
+    title: str,
+    source_url: str,
+    seen: set[str],
+    limit: int,
+    score: float = 12.5,
+) -> None:
+    for image in images:
+        if len(photos) >= limit:
+            return
+        key = image.rstrip('/').casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        photos.append({
+            'title': title,
+            'image_url': image,
+            'thumbnail_url': image,
+            'source_url': source_url,
+            'engine': 'urban3p',
+            'score': score,
+            'query': source_url,
+        })
+
+
+def _urban3p_photos_from_object(
+    oid: str,
+    *,
+    title_hint: str,
+    photos: list[dict],
+    seen: set[str],
+    seen_objects: set[str],
+    limit: int,
+) -> None:
+    if not oid or oid in seen_objects or len(photos) >= limit:
+        return
+    seen_objects.add(oid)
+    page_url = _urban3p_object_url(oid)
+    html = _fetch_urban3p_html(page_url)
+    title = (
+        title_hint.strip()
+        or (_urban3p_title_from_html(html) if html else '')
+        or 'Фото с Urban3P'
+    )[:300]
+    images = _extract_urban3p_image_urls(html, oid) if html else []
+    if not images:
+        # Page TLS often flaps; cover path is enough to avoid an empty gallery.
+        images = _urban3p_cover_urls(oid)
+    _urban3p_append_photos(
+        photos,
+        images=images,
+        title=title,
+        source_url=page_url,
+        seen=seen,
+        limit=limit,
+        score=12.5,
+    )
+
+
+def _urban3p_photos_from_blog(
+    bid: str,
+    *,
+    title_hint: str,
+    photos: list[dict],
+    seen: set[str],
+    seen_blogs: set[str],
+    seen_objects: set[str],
+    limit: int,
+) -> None:
+    if not bid or bid in seen_blogs or len(photos) >= limit:
+        return
+    seen_blogs.add(bid)
+    page_url = _urban3p_blog_url(bid)
+    html = _fetch_urban3p_html(page_url)
+    if not html:
+        return
+    title = (
+        title_hint.strip()
+        or _urban3p_title_from_html(html)
+        or 'Фото с Urban3P'
+    )[:300]
+    images = _extract_urban3p_blog_image_urls(html, page_url)
+    _urban3p_append_photos(
+        photos,
+        images=images,
+        title=title,
+        source_url=page_url,
+        seen=seen,
+        limit=limit,
+        score=12.0,
+    )
+    # Follow object cards linked/mentioned inside the report.
+    for oid in _urban3p_object_ids_in_html(html):
+        if len(photos) >= limit:
+            break
+        _urban3p_photos_from_object(
+            oid,
+            title_hint=title,
+            photos=photos,
+            seen=seen,
+            seen_objects=seen_objects,
+            limit=limit,
+        )
+
+
 def urban3p_photos_for_links(
     links: list[dict],
     limit: int = _MAX_URBAN3P_PHOTOS,
 ) -> list[dict]:
-    """Soft-scrape object gallery photos from Urban3P (urbantrip) links."""
+    """Soft-scrape Urban3P photos from object cards, blogs, and CDN image links."""
     if limit <= 0:
         return []
     photos: list[dict] = []
     seen: set[str] = set()
     seen_objects: set[str] = set()
+    seen_blogs: set[str] = set()
     for link in links:
         if len(photos) >= limit:
             break
         url = str(link.get('url') or '')
-        oid = _urban3p_object_id(url)
-        if not oid or oid in seen_objects:
+        if not url or not _is_urban3p_url(url):
             continue
-        seen_objects.add(oid)
-        page_url = _urban3p_object_url(oid)
-        html = _fetch_urban3p_html(page_url)
-        title = (
-            str(link.get('title') or '').strip()
-            or (_urban3p_title_from_html(html) if html else '')
-            or 'Фото с Urban3P'
-        )[:300]
-        images = _extract_urban3p_image_urls(html, oid) if html else []
-        if not images:
-            # Page TLS often flaps; cover path is enough to avoid an empty gallery.
-            images = _urban3p_cover_urls(oid)
-        for image in images:
-            if len(photos) >= limit:
-                break
-            key = image.rstrip('/').casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            photos.append({
-                'title': title,
-                'image_url': image,
-                'thumbnail_url': image,
-                'source_url': page_url,
-                'engine': 'urban3p',
-                'score': 12.5,
-                'query': page_url,
-            })
+        title_hint = str(link.get('title') or '')
+        bid = _urban3p_blog_id(url)
+        if bid:
+            _urban3p_photos_from_blog(
+                bid,
+                title_hint=title_hint,
+                photos=photos,
+                seen=seen,
+                seen_blogs=seen_blogs,
+                seen_objects=seen_objects,
+                limit=limit,
+            )
+            continue
+        oid = _urban3p_object_id(url)
+        if oid:
+            _urban3p_photos_from_object(
+                oid,
+                title_hint=title_hint,
+                photos=photos,
+                seen=seen,
+                seen_objects=seen_objects,
+                limit=limit,
+            )
     return photos
 
 

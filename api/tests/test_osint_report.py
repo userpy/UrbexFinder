@@ -639,6 +639,66 @@ def test_osint_filters_volna_from_leningrad_oblast():
     }
 
 
+def test_osint_filters_ogonek_moscow_from_tula():
+    """Same camp name in MO must not leak into a Tula «Огонёк» card."""
+    place = {
+        'name': 'Пионерский лагерь Огонёк',
+        'region': 'Тульская область',
+        'full_address': 'Тульская область',
+    }
+    kept = osint._filter_photos([
+        {
+            'title': 'Пионерский лагерь «Огонёк» (Московск…',
+            'image_url': 'https://img04.urban3p.ru/up/o/1/gallery/1.jpg',
+            'source_url': 'https://urban3p.ru/object-ogonek-mo',
+        },
+        {
+            'title': 'Пионерский лагерь «Огонёк» (Московская область)',
+            'image_url': 'https://cdn.example.org/mo-full.jpg',
+            'source_url': 'https://urban3p.ru/object-ogonek-mo-full',
+        },
+        {
+            'title': 'Заброшенный лагерь «Огонек» под Тулой снова не нашел покупателя',
+            'image_url': 'https://cdn.example.org/tula-news.jpg',
+            'source_url': 'https://example.org/ogonek-tula-sale',
+        },
+        {
+            'title': 'Пионерский лагерь Огонёк, Тульская область',
+            'image_url': 'https://cdn.example.org/tula-urban.jpg',
+            'source_url': 'https://urban3p.ru/object-ogonek-tula',
+        },
+        {
+            'title': 'Пионерский лагерь «Огонёк» без региона',
+            'image_url': 'https://cdn.example.org/bare.jpg',
+            'source_url': 'https://example.org/ogonek-bare',
+        },
+    ], place)
+    assert {item['title'] for item in kept} == {
+        'Заброшенный лагерь «Огонек» под Тулой снова не нашел покупателя',
+        'Пионерский лагерь Огонёк, Тульская область',
+    }
+
+    mo_place = {
+        'name': 'Пионерский лагерь Огонёк',
+        'region': 'Московская область',
+    }
+    mo_kept = osint._filter_photos([
+        {
+            'title': 'Пионерский лагерь «Огонёк» (Московск…',
+            'image_url': 'https://img04.urban3p.ru/up/o/1/gallery/1.jpg',
+            'source_url': 'https://urban3p.ru/object-ogonek-mo',
+        },
+        {
+            'title': 'Пионерский лагерь Огонёк, Тульская область',
+            'image_url': 'https://cdn.example.org/tula-urban.jpg',
+            'source_url': 'https://urban3p.ru/object-ogonek-tula',
+        },
+    ], mo_place)
+    assert {item['title'] for item in mo_kept} == {
+        'Пионерский лагерь «Огонёк» (Московск…',
+    }
+
+
 def test_osint_filters_wrong_recreation_bases():
     place = {
         'name': 'Заброшенная база отдыха Жохово',
@@ -1180,6 +1240,71 @@ def test_urban3p_photos_cover_fallback_when_html_unavailable(monkeypatch):
     assert photos[0]['engine'] == 'urban3p'
     assert 'детский сад' in photos[0]['title'].casefold()
     assert od._URBAN3P_IMPERSONATE[0] in {'chrome136', 'chrome131', 'chrome124'}
+
+
+def test_urban3p_photos_from_blog_and_cdn_link(monkeypatch):
+    from urbex.infrastructure import osint_description as od
+
+    blog_html = '''
+    <html><head>
+      <title>Соколенок</title>
+      <meta property="og:image" content="https://pp.userapi.com/c625716/v625716471/c7b4/cover.jpg"/>
+    </head><body>
+      <div class="blogText">
+        <img src="https://pp.userapi.com/c625716/v625716471/c7b4/cover.jpg" alt="Image"/>
+        <img src="https://pp.userapi.com/c625716/v625716471/c6f5/gate.jpg" alt="Image"/>
+        <img src="/uploaded/db/avatar/alex66.jpg" alt="avatar"/>
+        <img src="/img/db/common/blank.gif" alt="blank"/>
+        <a href="https://urban3p.ru/object5161">карточка</a>
+      </div>
+      <div class="comment comment--level-0 messageBody">
+        <img src="https://pp.userapi.com/c314216/v314216471/3505/factory.jpg" alt="comment"/>
+      </div>
+    </body></html>
+    '''
+    object_html = '''
+    <html><body>
+      <h1>Соколёнок</h1>
+      <img src="//img04.urban3p.ru/up/o/5161/photo.jpg" alt="cover"/>
+      <a href="https://img04.urban3p.ru/up/o/5161/gallery/111.jpg">1</a>
+    </body></html>
+    '''
+
+    def fake_fetch(url: str) -> str:
+        if '/blogs/36530' in url:
+            return blog_html
+        if 'object5161' in url:
+            return object_html
+        return ''
+
+    monkeypatch.setattr(od, '_fetch_urban3p_html', fake_fetch)
+
+    blog_photos = od.urban3p_photos_for_links([
+        {'url': 'https://urban3p.ru/blogs/36530', 'title': 'Соколенок'},
+    ])
+    blog_urls = {item['image_url'] for item in blog_photos}
+    assert 'https://pp.userapi.com/c625716/v625716471/c7b4/cover.jpg' in blog_urls
+    assert 'https://pp.userapi.com/c625716/v625716471/c6f5/gate.jpg' in blog_urls
+    assert 'https://img04.urban3p.ru/up/o/5161/photo.jpg' in blog_urls
+    assert 'https://img04.urban3p.ru/up/o/5161/gallery/111.jpg' in blog_urls
+    assert all('factory.jpg' not in u and 'avatar' not in u for u in blog_urls)
+    assert all(item['engine'] == 'urban3p' for item in blog_photos)
+    assert blog_photos[0]['source_url'] == 'https://urban3p.ru/blogs/36530'
+
+    cdn_photos = od.urban3p_photos_for_links([
+        {
+            'url': 'https://img04.urban3p.ru/up/o/5161/gallery/999.jpg',
+            'title': 'CDN',
+        },
+    ])
+    assert {item['image_url'] for item in cdn_photos} >= {
+        'https://img04.urban3p.ru/up/o/5161/photo.jpg',
+        'https://img04.urban3p.ru/up/o/5161/gallery/111.jpg',
+    }
+    assert od._urban3p_object_id(
+        'https://img04.urban3p.ru/up/o/5161/gallery/999.jpg',
+    ) == '5161'
+    assert od._urban3p_blog_id('https://urban3p.ru/blogs/36530') == '36530'
 
 
 def test_swalker_photos_from_article_link(monkeypatch):

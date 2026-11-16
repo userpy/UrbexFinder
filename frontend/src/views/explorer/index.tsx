@@ -462,6 +462,10 @@ export function Explorer() {
                       categories.find((c) => c.id === p.category_id)?.name ||
                       p.category
                     }
+                    icon={
+                      categories.find((c) => c.id === p.category_id)?.icon ||
+                      p.category_icon
+                    }
                   />
                 </div>
                 <div>
