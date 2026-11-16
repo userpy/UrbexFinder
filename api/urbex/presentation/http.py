@@ -146,6 +146,14 @@ def osint_report(
     return request.app.state.osint_report(place, refresh=refresh)
 
 
+@router.get('/osint/urban3p/{host}/{oid}/{kind}/{filename}')
+def urban3p_image(host: str, oid: int, kind: str, filename: str, request: Request):
+    data = request.app.state.urban3p_image(host, oid, kind, filename)
+    return Response(data, media_type='image/jpeg', headers={
+        'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff',
+    })
+
+
 @router.get('/places/{id}/{kind}')
 def related(id: int, kind: Literal['reviews', 'photos'], ctx: Ctx, page: int = Query(1, ge=1), source: Literal['telegram', 'website'] | None = None):
     return ctx[0].places.related(kind, id, ctx[2], page, source)

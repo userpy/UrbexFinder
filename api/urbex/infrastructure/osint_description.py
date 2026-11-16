@@ -47,7 +47,7 @@ _MAX_YMAPS_PHOTOS = 12
 _MAX_URBAN3P_PHOTOS = 12
 _MAX_GENERIC_PHOTOS = 12
 _MAX_GENERIC_PER_PAGE = 6
-_URBAN3P_HOSTS = frozenset({'urban3p.ru', 'www.urban3p.ru'})
+_URBAN3P_HOSTS = frozenset({'urban3p.ru', 'www.urban3p.ru', 'urban3p.com', 'www.urban3p.com'})
 _GENERIC_BROWSER_HEADERS = {
     'User-Agent': (
         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
@@ -82,11 +82,11 @@ _GENERIC_CONTENT_HINTS = (
     '/files/', '/img/', '/images/',
 )
 _URBAN3P_OBJECT_RE = re.compile(
-    r'(?:https?:)?//(?:www\.)?urban3p\.ru/object(?P<oid>\d+)\b',
+    r'(?:https?:)?//(?:www\.)?urban3p\.(?:ru|com)/object(?P<oid>\d+)\b',
     re.IGNORECASE,
 )
 _URBAN3P_BLOG_RE = re.compile(
-    r'(?:https?:)?//(?:www\.)?urban3p\.ru/blogs/(?P<bid>\d+)\b',
+    r'(?:https?:)?//(?:www\.)?urban3p\.(?:ru|com)/blogs/(?P<bid>\d+)\b',
     re.IGNORECASE,
 )
 _URBAN3P_CDN_OBJECT_RE = re.compile(

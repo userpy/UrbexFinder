@@ -24,6 +24,21 @@ def test_short_acronym_is_not_discarded_for_longer_generic_words():
     assert osint._unique_name_tokens('корпуса тгса') == {'тгса'}
 
 
+@pytest.mark.parametrize('title', ['СПТУ-23', 'СПТУ №23', 'спту 23', 'СПТУ — 23'])
+def test_numbered_institution_requires_complete_number(title):
+    place = {'name': 'СПТУ-23', 'region': 'Владимирская область'}
+    def item(name):
+        return {'title': name, 'snippet': 'Дата 23.10.2022', 'engine': 'swalker',
+                'url': 'https://swalker.ru/23.html',
+                'source_url': 'https://swalker.ru/23.html',
+                'image_url': 'https://swalker.ru/23.jpg'}
+    right = item(title)
+    wrong = [item('СПТУ-3'), item('СПТУ-230'), item('СПТУ-123'), item('СПТУ')]
+    assert osint._filter_sources(wrong + [right], place) == [right]
+    assert osint._filter_photos(wrong + [right], place) == [right]
+    assert osint._refilter_report({'items': wrong + [right]}, place)['items'] == [right]
+
+
 def test_summer_kindergarten_does_not_match_age_in_biography():
     place = {'name': 'Летний детский сад', 'region': 'Московская область'}
     biography = {'title': 'Ян, Василий Григорьевич — Википедия',

@@ -835,6 +835,18 @@ def _matches_place(
     location_tokens = _location_tokens(place)
     fine_location = _fine_location_tokens(place)
 
+    # The number is part of an institution's identity, not a disposable token.
+    # Require the same acronym + full number in human-readable evidence;
+    # unrelated dates, URL IDs and image filenames cannot establish a match.
+    numbered_codes = re.findall(
+        r'(?<!\w)([A-ZА-ЯЁ]{2,10})\s*(?:[-–—]\s*№?\s*|№\s*|\s+)(\d+)(?!\w)', name,
+    )
+    evidence = ' '.join(str(item.get(key) or '') for key in ('title', 'snippet'))
+    for code, number in numbered_codes:
+        pattern = rf'(?<!\w){re.escape(code)}\s*(?:[-–—]\s*№?\s*|№\s*|\s+){re.escape(number)}(?!\w)'
+        if not re.search(pattern, evidence, re.IGNORECASE):
+            return False
+
     # Preserve compound object types: "летний" alone also matches ages
     # such as "21-летний" in biographies, which are not kindergarten hits.
     kindergarten = r'\bдетск[а-яё]*\s+сад[а-яё]*\b'
