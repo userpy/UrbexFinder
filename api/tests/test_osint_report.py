@@ -602,6 +602,248 @@ def test_osint_filters_bjhrk_museum_from_nazarovo_unit():
     }
 
 
+def test_osint_keeps_vladimir_oblast_urban3p_for_kudryavtsevo():
+    """«Владимирская область» on Urban3P must not be treated as foreign geo."""
+    place = {
+        'name': 'Пионерский лагерь "Кудрявцево"',
+        'region': (
+            'Детский лагерь "Кудрявцево", Вишневый — Кудрявцево — Поздняково, '
+            'Кудрявцево, Кольчугинский муниципальный округ, Владимирская область'
+        ),
+        'full_address': (
+            'Детский лагерь "Кудрявцево", Вишневый — Кудрявцево — Поздняково, '
+            'Кудрявцево, Кольчугинский муниципальный округ, Владимирская область'
+        ),
+    }
+    kept = osint._filter_photos([
+        {
+            'title': 'Детский лагерь «Кудрявцево» (Владимирская область) / Остальное',
+            'image_url': 'https://img04.urban3p.ru/up/o/19631/gallery/769249.jpg',
+            'source_url': 'https://urban3p.ru/object19631',
+            'engine': 'urban3p',
+        },
+        {
+            'title': 'Пионерский лагерь Кудрявцево (Московская область)',
+            'image_url': 'https://cdn.example.org/mo.jpg',
+            'source_url': 'https://example.org/mo-kudryavtsevo',
+        },
+    ], place)
+    assert {item['title'] for item in kept} == {
+        'Детский лагерь «Кудрявцево» (Владимирская область) / Остальное',
+    }
+
+
+def test_osint_filters_sverdlovsk_photos_for_tver_transfiguration_church():
+    """Common «Спаса Преображения» must not keep other oblasts or Novgorod."""
+    place = {
+        'name': 'Церковь Спаса Преображения',
+        'region': (
+            'Церковь Преображения Господня, Ильинское — Печетово — Скорнево, '
+            'Лосево, Кимрский муниципальный округ, Тверская область, Россия'
+        ),
+        'full_address': (
+            'Церковь Преображения Господня, Ильинское — Печетово — Скорнево, '
+            'Лосево, Кимрский муниципальный округ, Тверская область, Россия'
+        ),
+    }
+    kept = osint._filter_photos([
+        {
+            'title': 'Церковь Спаса Преображения (Тверская область) / Культура',
+            'image_url': 'https://img04.urban3p.ru/up/o/1/photo.jpg',
+            'source_url': 'https://urban3p.ru/object1',
+            'engine': 'urban3p',
+        },
+        {
+            'title': 'Церковь Спаса Преображения (Сверд…',
+            'image_url': 'https://img04.urban3p.ru/up/o/4945/photo.jpg',
+            'source_url': 'https://urban3p.ru/object4945',
+            'engine': 'urban3p',
+        },
+        {
+            'title': 'Церковь Спаса Преображения на Ильине улице',
+            'image_url': 'https://i.novgorod.ru/www/images/x.jpg',
+            'source_url': 'https://www.novgorod.ru/read/information/sightseen/novgorod/spasa/',
+        },
+        {
+            'title': 'Церковь Спаса Преображения на …',
+            'image_url': 'https://cdn.example.org/wiki.jpg',
+            'source_url': 'https://ru.ruwiki.ru/wiki/Церковь_Спаса_Преображения_на_Ильине_улице',
+        },
+        {
+            'title': 'Церковь Спаса Преображения на Ильине улице',
+            'image_url': 'https://cdn.example.org/ilyina.jpg',
+            'source_url': 'https://example.org/ilyina-street',
+        },
+        {
+            'title': 'Церковь Преображения, Лосево, Тверская область',
+            'image_url': 'https://cdn.example.org/losevo.jpg',
+            'source_url': 'https://example.org/losevo',
+        },
+    ], place)
+    assert {item['title'] for item in kept} == {
+        'Церковь Спаса Преображения (Тверская область) / Культура',
+        'Церковь Преображения, Лосево, Тверская область',
+    }
+
+
+def test_osint_filters_kazan_cathedral_photos_for_ryazan_church():
+    """«Казанской иконы…» in Voyeikovo must not keep the cathedral in Kazan."""
+    place = {
+        'name': 'Церковь Казанской иконы Божией Матери',
+        'region': (
+            '61К-024, Воейково, Милославский муниципальный округ, '
+            'Рязанская область, Центральный федеральный округ, 391785, Россия'
+        ),
+        'full_address': (
+            '61К-024, Воейково, Милославский муниципальный округ, '
+            'Рязанская область, Центральный федеральный округ, 391785, Россия'
+        ),
+    }
+    kept = osint._filter_photos([
+        {
+            'title': 'Собор Казанской иконы Божией Матери, православный храм, Казань, Вахитовский район',
+            'image_url': 'https://cdn.example.org/kazan.jpg',
+            'source_url': 'https://yandex.com/maps/org/cathedral_of_the_kazan_icon/1/',
+            'engine': 'yandex_maps',
+        },
+        {
+            'title': 'Церковь Казанской иконы Божией Матери, Воейково, Рязанская область',
+            'image_url': 'https://cdn.example.org/voyeikovo.jpg',
+            'source_url': 'https://example.org/voyeikovo-church',
+        },
+        {
+            'title': 'Церковь Казанской иконы Божией Матери',
+            'image_url': 'https://cdn.example.org/vague.jpg',
+            'source_url': 'https://example.org/vague',
+        },
+    ], place)
+    assert {item['title'] for item in kept} == {
+        'Церковь Казанской иконы Божией Матери, Воейково, Рязанская область',
+    }
+
+
+def test_osint_filters_poetic_geocache_away_from_borodino():
+    """Geocache poem titles must not match unrelated «Отечества» memorials."""
+    place = {
+        'name': 'Спите спокойно, верные сыны Отечества',
+        'region': (
+            'Братское захоронение, Наро-Фоминское шоссе, Кубинка-10, '
+            'Одинцовский городской округ, Московская область'
+        ),
+        'full_address': (
+            'Братское захоронение, Наро-Фоминское шоссе, Кубинка-10, '
+            'Одинцовский городской округ, Московская область'
+        ),
+        'description': 'Источник: https://geocaching.su/cache/35864',
+    }
+    kept = osint._filter_sources([
+        {
+            'engine': 'description',
+            'category': 'geocache',
+            'title': 'https://geocaching.su/cache/35864',
+            'snippet': 'Ссылка из описания места.',
+            'url': 'https://geocaching.su/cache/35864',
+        },
+        {
+            'engine': 'duckduckgo',
+            'title': 'Памятники Бородинского поля - список, карта, фото, история памятников',
+            'snippet': 'Мемориальный комплекс увековечивает подвиг защитников Отечества.',
+            'url': 'https://www.planetadorog.ru/r/pamjatniki_borodinskogo_polja/',
+        },
+        {
+            'engine': 'google cse',
+            'title': 'Мемориал Великой Отечественной войны в Акулово (Кубинка-10)',
+            'snippet': 'Братское захоронение на мемориале в Кубинке-10.',
+            'url': 'http://safe-rgs.ru/3661-memorial-velikoy-otechestvennoy-voyny-v-akulovo-kubinka-10.html',
+        },
+    ], place)
+    titles = {item['title'] for item in kept}
+    assert titles == {
+        'https://geocaching.su/cache/35864',
+        'Мемориал Великой Отечественной войны в Акулово (Кубинка-10)',
+    }
+
+
+def test_osint_refilter_restores_description_geocache_link():
+    place = {
+        'id': 38689,
+        'name': 'Спите спокойно, верные сыны Отечества',
+        'description': 'Источник: https://geocaching.su/cache/35864',
+        'region': 'Кубинка-10, Московская область',
+        'full_address': 'Кубинка-10, Московская область',
+    }
+    restored = osint._refilter_report(
+        {
+            'items': [
+                {
+                    'engine': 'duckduckgo',
+                    'title': 'Памятники Бородинского поля - список, карта, фото',
+                    'snippet': 'защитников Отечества',
+                    'url': 'https://www.planetadorog.ru/r/pamjatniki_borodinskogo_polja/',
+                },
+            ],
+            'photos': [],
+            'assessment': {'security': {'level': 'unknown'}, 'condition': {'level': 'unknown'}},
+        },
+        place,
+    )
+    urls = [item['url'] for item in restored['items']]
+    assert urls == ['https://geocaching.su/cache/35864']
+
+
+def test_osint_filters_offtopic_churches_for_bunyakovo():
+    """«Церковь в Буняково» must not keep other MO churches or category listings."""
+    place = {
+        'name': 'Церковь в Буняково',
+        'region': (
+            'Церковь Покрова Пресвятой Богородицы, Покровская улица, Буняково, '
+            'городской округ Домодедово, Московская область'
+        ),
+        'full_address': (
+            'Церковь Покрова Пресвятой Богородицы, Покровская улица, Буняково, '
+            'городской округ Домодедово, Московская область'
+        ),
+    }
+    kept = osint._filter_sources([
+        {
+            'engine': 'description',
+            'category': 'link',
+            'title': 'https://geocaching.su/cache/25719',
+            'snippet': 'Ссылка из описания места',
+            'url': 'https://geocaching.su/cache/25719',
+        },
+        {
+            'engine': 'duckduckgo',
+            'title': 'Заброшенные усадьбы, церкви, замки в Московская область (Россия)',
+            'snippet': 'Каталог объектов культуры.',
+            'url': 'https://www.urban3p.ru/category/culture?region_id=2',
+        },
+        {
+            'engine': 'duckduckgo',
+            'title': 'Церковь Иконы Божией Матери Знамение в урочище Теплово',
+            'snippet': 'Храм 1912 года, Московская область.',
+            'url': 'https://www.urban3p.ru/object1085/',
+        },
+        {
+            'engine': 'duckduckgo',
+            'title': 'Церковь Воскресения Христова (Московская область) / Культура',
+            'snippet': 'Храм 1809–1817 годов.',
+            'url': 'https://www.urban3p.ru/object6915/',
+        },
+        {
+            'engine': 'duckduckgo',
+            'title': 'Церковь Покрова в Буняково',
+            'snippet': 'Буняково, Домодедово, Московская область.',
+            'url': 'https://www.urban3p.ru/object999/',
+        },
+    ], place)
+    titles = {item['title'] for item in kept}
+    assert titles == {
+        'https://geocaching.su/cache/25719',
+        'Церковь Покрова в Буняково',
+    }
+
+
 def test_osint_filters_voskresenki_kyiv_photo():
     place = {
         'name': 'Воскресенки',

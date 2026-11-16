@@ -162,6 +162,9 @@ _YMAPS_NAME_STOP = frozenset({
     'лагерь', 'база', 'завод', 'фабрика', 'школа', 'дом', 'усадьба', 'парк',
     'площадка', 'территория', 'пионерский', 'детский', 'заброшенный', 'бывший',
     'бывшая', 'объект', 'место', 'здание', 'корпус', 'комплекс', 'центр',
+    'церковь', 'храм', 'собор', 'часовня', 'монастырь',
+    'казанской', 'казанская', 'казанский', 'иконы', 'божией', 'божьей', 'матери',
+    'пресвятой', 'богородицы', 'православный', 'православная',
 })
 
 
@@ -212,6 +215,7 @@ def links_from_description(description: str) -> list[dict]:
                 else 'swalker' if _is_swalker_url(url)
                 else 'youtube' if _is_youtube_url(url)
                 else 'rutube' if _is_rutube_url(url)
+                else 'geocache' if _is_geocache_url(url)
                 else 'link'
             ),
             'score': 10.0,
@@ -1108,8 +1112,21 @@ def yandex_maps_photos_for_place(
         return []
     slug, oid = org
     title = _ymaps_title_from_html(html)
-    if not _ymaps_names_match(name, title or slug.replace('_', ' ')):
+    org_label = title or slug.replace('_', ' ')
+    if not _ymaps_names_match(name, org_label):
         return []
+    # Drop famous namesakes in other cities (Казань vs «Казанской» church in Ryazan).
+    address_blob = ' '.join(
+        str(place.get(key) or '')
+        for key in ('full_address', 'region', 'name')
+    ).casefold()
+    org_blob = f'{org_label} {slug}'.casefold()
+    for foreign_city in (
+        'казань', 'вахитовск', 'москва', 'санкт-петербург', 'петербург',
+        'екатеринбург', 'новосибирск',
+    ):
+        if foreign_city in org_blob and foreign_city not in address_blob:
+            return []
     source = _ymaps_org_page_url(slug, oid, gallery=False)
     # Prefer photos already embedded in the search/org landing HTML.
     seen: set[str] = set()
@@ -1566,6 +1583,21 @@ _SWALKER_FOLDER_RE = re.compile(r'/uploads/posts/(\d{4}-\d{2})/', re.IGNORECASE)
 def _is_swalker_url(url: str) -> bool:
     host = (urlparse(url).hostname or '').casefold()
     return host in _SWALKER_HOSTS or host.endswith('.swalker.ru') or host.endswith('.swalker.org')
+
+
+_GEOCACHE_HOSTS = frozenset({
+    'geocaching.su', 'www.geocaching.su',
+    'geocaching.ru', 'www.geocaching.ru',
+    'geocaching.com', 'www.geocaching.com',
+    'opencaching.pl', 'www.opencaching.pl',
+})
+
+
+def _is_geocache_url(url: str) -> bool:
+    host = (urlparse(url).hostname or '').casefold()
+    if not host:
+        return False
+    return any(host == domain or host.endswith('.' + domain) for domain in _GEOCACHE_HOSTS)
 
 
 def _normalize_swalker_image(url: str, page_url: str = 'https://swalker.ru/') -> str | None:

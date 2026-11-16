@@ -10,7 +10,14 @@ const compiled = ts.transpileModule(
 ).outputText;
 const loaded = { exports: {} };
 new Function("module", "exports", "require", compiled)(loaded, loaded.exports, createRequire(import.meta.url));
-const { categoryVisual, CategoryIcon } = loaded.exports;
+const { categoryVisual, CategoryIcon, categoryVisuals, categoryMarkerSvg } = loaded.exports;
+
+test("nature marker svg stays maplibre-safe", () => {
+  const visual = categoryVisuals.nature;
+  assert.ok(visual.paths.every((d) => !/\bh\.0+\b|\bv\.0+\b|\b0\.0+1\b/.test(d)));
+  assert.match(categoryMarkerSvg("nature"), /<path d="/);
+  assert.equal(categoryVisual("nature", "Красивые природные места").key, "nature");
+});
 
 test("catalog without saved icons renders distinct category shapes", () => {
   for (const [name, key] of [

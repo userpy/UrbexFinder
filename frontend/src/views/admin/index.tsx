@@ -443,7 +443,7 @@ export function AdminView() {
                         );
                         setPlace(updated);
                         setPlaceName(updated.name);
-                        setDescription(updated.description);
+                        setDescription(updated.description ?? "");
                         setRevision((v) => v + 1);
                         setSavedMessage("Изменения сохранены");
                       } catch (error) {

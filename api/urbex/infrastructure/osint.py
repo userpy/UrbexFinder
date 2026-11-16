@@ -36,6 +36,7 @@ _URBEX_SITE_DOMAINS = (
     'urbexstalker.com',
     'geocaching.com',
     'geocaching.ru',
+    'geocaching.su',
     'opencaching.pl',
 )
 _URBEX_SITE_QUERY = (
@@ -116,9 +117,30 @@ _GENERIC_PLACE_TOKENS = frozenset({
     'ангар', 'ангара', 'ангары', 'склад', 'цех', 'завод', 'фабрика',
     'база', 'базы', 'отдых', 'отдыха', 'оздоров', 'санаторий', 'пансионат',
     'турбаза', 'гостиница', 'отель', 'курорт',
+    # Building types — «Церковь в Буняково» must not match every church hit.
+    'церковь', 'церкви', 'храм', 'храма', 'часовня', 'собор', 'собора',
+    'монастырь', 'монастыря', 'замок', 'замка', 'дворец', 'дворца',
     'войсковая', 'войсковой', 'войсковое', 'войсковые',
     'воинская', 'воинской', 'воинское', 'воинские',
     'часть', 'части', 'гарнизон', 'гарнизона', 'полигон', 'полигона',
+    # Icon dedications — «Казанской … Матери» is not the city of Kazan,
+    # and must not identify a specific church without a settlement cue.
+    'казанской', 'казанская', 'казанский', 'казанское', 'казански',
+    # Do NOT put смоленская/владимирская here — they are real oblast labels
+    # and stripping them makes Urban3P «(Владимирская область)» look foreign.
+    'покровской', 'покровская', 'никольской', 'никольская',
+    'успенской', 'успенская', 'троицкой', 'троицкая',
+    'преображения', 'преображенская', 'преображенской', 'преображенский',
+    'спаса', 'господня', 'господнего', 'вознесения', 'рождества',
+    'иконы', 'божией', 'божьей', 'матери', 'пресвятой', 'богородицы',
+    'православный', 'православная', 'православное',
+    'культура', 'архитектура',
+    # Poetic geocache titles («Спите спокойно, верные сыны Отечества») must
+    # not match every WWII page that only shares the word «Отечества».
+    'спите', 'спокойно', 'верные', 'верный', 'сыны', 'сынов',
+    'отечества', 'отечество',
+    'защитников', 'защитники', 'героев', 'герои', 'героям',
+    'памяти', 'память', 'павшим', 'павшие', 'вечная', 'вечной',
 })
 # Region aliases so «Московская область» also matches «Подмосковье».
 _LOCATION_SYNONYMS = {
@@ -152,10 +174,14 @@ _FOREIGN_GEO = (
     # Moscow / MO — truncated titles like «Огонёк (Московск…» lack «область».
     'московск', 'москва', 'подмосков',
     'сочи', 'краснодар', 'адыге', 'соузг', 'алтай', 'байкал',
-    'брянск', 'воронеж', 'казан', 'самар', 'ростов',
-    'екатеринбург', 'свердловск', 'новосибирск', 'калининград', 'владивосток',
+    # «казань» — not bare «казан» (that false-hits icon dedication «Казанской»).
+    'брянск', 'воронеж', 'казань', 'казани', 'казанью', 'вахитовск', 'самар', 'ростов',
+    'екатеринбург', 'свердловск', 'свердл', 'сверд',
+    'новосибирск', 'калининград', 'владивосток',
     'тюмен', 'ярославл', 'тула', 'рязан', 'твер', 'смоленск', 'псков', 'курск',
-    'белгород', 'нижегород', 'владимир', 'владимирск', 'иванов', 'костром',
+    'белгород', 'нижегород', 'новгород', 'novgorod', 'великий новгород',
+    'ильине улице', 'на ильине', 'ruwiki.ru',
+    'владимир', 'владимирск', 'иванов', 'костром',
     'калуж', 'орлов', 'липецк', 'тамбов', 'пенз', 'ульянов', 'саратов',
     'волгоград', 'астрахан', 'оренбург', 'перм', 'челябинск', 'курган',
     'омск', 'томск', 'кемеров', 'красноярск', 'иркутск', 'бурят',
@@ -471,8 +497,27 @@ def _location_tokens(place: dict) -> set[str]:
     blob = f'{region} {address}'
     tokens = _distinctive_tokens(blob)
     # Keep short region labels («Москва») even if they look generic.
+    # Do not re-import church dedications / building types from the address
+    # line («Церковь Преображения Господня, …, Тверская область»).
     for token in _significant_tokens(region):
         if token in {'россия', 'область', 'район', 'округ', 'край', 'город'}:
+            continue
+        if (
+            token in _GENERIC_PLACE_TOKENS
+            or token in _STRUCTURE_TYPE_TOKENS
+            or token in _NAME_FILLER_TOKENS
+        ):
+            continue
+        if len(token) >= 4 or token in {'москва', 'сочи'}:
+            tokens.add(token)
+    for token in _significant_tokens(address):
+        if (
+            token in _GENERIC_PLACE_TOKENS
+            or token in _STRUCTURE_TYPE_TOKENS
+            or token in _NAME_FILLER_TOKENS
+        ):
+            continue
+        if token in {'россия', 'область', 'район', 'округ', 'край', 'город', 'улица'}:
             continue
         if len(token) >= 4 or token in {'москва', 'сочи'}:
             tokens.add(token)
@@ -520,12 +565,42 @@ def _location_covers(word: str, location_tokens: set[str]) -> bool:
     return False
 
 
+def _location_owns_geo_hint(hint: str, location_tokens: set[str]) -> bool:
+    """True when the hint names our region/city — not a longer lookalike.
+
+    «казан» must not be covered by icon dedication «казанской»;
+    «московск» may be covered by «московская».
+    """
+    hint = (hint or '').casefold()
+    if not hint:
+        return False
+    for token in location_tokens:
+        if hint == token or token == hint:
+            return True
+        # Dedication / generic place words in the address are not geo ownership.
+        if token in _GENERIC_PLACE_TOKENS:
+            continue
+        if hint in token or token in hint:
+            shorter, longer = (hint, token) if len(hint) <= len(token) else (token, hint)
+            # Allow short inflection/suffix growth (московск→московская), not
+            # city stem inside an unrelated longer adjective (казан→казанской).
+            if longer.startswith(shorter) and len(longer) - len(shorter) <= 4:
+                return True
+            if shorter in longer and len(longer) - len(shorter) <= 2:
+                return True
+        for alias in _LOCATION_SYNONYMS.get(token, ()):
+            if hint == alias or alias.startswith(hint) or hint.startswith(alias):
+                if abs(len(alias) - len(hint)) <= 4:
+                    return True
+    return False
+
+
 def _has_foreign_geo(blob: str, location_tokens: set[str]) -> bool:
     for hint in _FOREIGN_GEO:
         if hint not in blob:
             continue
         # Hint is part of our own location (e.g. place in Sochi).
-        if any(hint in token or token in hint for token in location_tokens):
+        if _location_owns_geo_hint(hint, location_tokens):
             continue
         return True
     # Titles often spell the wrong oblast explicitly even when the stem
@@ -611,6 +686,56 @@ def _fine_location_tokens(place: dict) -> set[str]:
         and token not in oblast
         and _region_stem(token) not in oblast
     }
+
+
+_RELIGIOUS_NAME_MARKERS = frozenset({
+    'церковь', 'церкви', 'храм', 'храма', 'часовня', 'собор', 'собора',
+    'монастырь', 'монастыря',
+    'казанской', 'казанская', 'преображения', 'преображенская',
+    'покровской', 'покровская', 'никольской', 'никольская',
+    'успенской', 'успенская', 'успения', 'троицкой', 'троицкая',
+    'смоленской', 'смоленская', 'владимирской', 'владимирская',
+    'спаса', 'господня', 'иконы', 'божией', 'божьей', 'богородицы',
+    'вознесения', 'рождества', 'покрова', 'николая', 'димитрия',
+})
+# «в Соснице» / «в Буняково» — another village in the same oblast.
+_SETTLEMENT_IN_TITLE_RE = re.compile(
+    r'(?:^|[^\w])в\s+([а-яё]{4,})(?:\s|,|\)|/|$)',
+    re.IGNORECASE,
+)
+_SETTLEMENT_PREPOSITION_NOISE = frozenset({
+    'области', 'районе', 'округе', 'городе', 'селе', 'деревне', 'поселке',
+    'посёлке', 'центре', 'россии', 'честь', 'имя', 'годы', 'году',
+    'руинах', 'аварийном', 'состоянии',
+})
+
+
+def _is_religious_dedication_name(name: str) -> bool:
+    """True for «Церковь Спаса Преображения» / «Казанской иконы…»."""
+    return bool(_significant_tokens(name) & _RELIGIOUS_NAME_MARKERS)
+
+
+def _has_other_settlement(blob: str, fine_location: set[str]) -> bool:
+    """True when the hit names another village («в Соснице») not on our card."""
+    if not fine_location:
+        return False
+    for match in _SETTLEMENT_IN_TITLE_RE.finditer(blob):
+        word = match.group(1).casefold()
+        if word in _SETTLEMENT_PREPOSITION_NOISE or word in _GENERIC_PLACE_TOKENS:
+            continue
+        if _blob_has_any(word, fine_location):
+            continue
+        # Morphology: «Соснице» vs settlement token «сосница» if we had it —
+        # here we only accept overlap with OUR fine tokens.
+        if any(
+            word.startswith(token[: max(4, len(token) - 2)])
+            or token.startswith(word[: max(4, len(word) - 2)])
+            for token in fine_location
+            if len(token) >= 4 and len(word) >= 4
+        ):
+            continue
+        return True
+    return False
 
 
 def _is_structure_only_name(name: str) -> bool:
@@ -706,9 +831,37 @@ def _matches_place(
         if _has_foreign_geo(blob, location_tokens):
             return False
         # «Заброшенный ангар» + only oblast → too many unrelated MO hangars.
+        # Dedication-only church names («Спаса Преображения») may keep
+        # same-oblast catalog hits; foreign regions are already rejected above.
         if _is_structure_only_name(name):
-            if fine_location:
-                return _blob_has_any(blob, fine_location)
+            if fine_location and _has_other_settlement(blob, fine_location):
+                return False
+            if fine_location and _blob_has_any(blob, fine_location):
+                return True
+            if _is_religious_dedication_name(name):
+                if fine_location and _has_other_settlement(blob, fine_location):
+                    return False
+                # Oblast-only hits must still look like the same church family,
+                # not a random manor («особняк») or another dedication.
+                blob_tokens = _significant_tokens(blob)
+                if not (blob_tokens & _RELIGIOUS_NAME_MARKERS):
+                    return False
+                place_dedication = (
+                    _significant_tokens(name) & _RELIGIOUS_NAME_MARKERS
+                ) - {
+                    'церковь', 'церкви', 'храм', 'храма', 'часовня',
+                    'собор', 'собора', 'монастырь', 'монастыря',
+                }
+                if place_dedication and not _blob_has_any(blob, place_dedication):
+                    return False
+                oblast_tokens = set(_oblast_tokens_from_place(place))
+                for token in location_tokens:
+                    if token in _COARSE_LOCATION_TOKENS:
+                        oblast_tokens.add(token)
+                    for alias in _LOCATION_SYNONYMS.get(token, ()):
+                        oblast_tokens.add(alias)
+                if oblast_tokens and _blob_has_any(blob, oblast_tokens):
+                    return True
             return False
         # Prefer rare codes (АЗЛК); otherwise keep toponym cues («Сосновый»),
         # not category fillers like «пионерский лагерь».
@@ -751,11 +904,36 @@ def _filter_photos(photos: list[dict], place: dict) -> list[dict]:
     ]
 
 
+def _is_junk_source(item: dict) -> bool:
+    """Drop catalog listing pages that are not about one place."""
+    blob = ' '.join(
+        str(item.get(key) or '')
+        for key in ('title', 'snippet', 'url')
+    ).casefold()
+    if '/category/' in blob or '/categories/' in blob:
+        return True
+    if 'заброшенные усадьбы, церкви, замки' in blob:
+        return True
+    # Broad memorial / landmark indexes («список, карта, фото»).
+    if 'список, карта, фото' in blob or 'список карта фото' in blob:
+        return True
+    if 'полный список рунета' in blob or 'заброшенные объекты в' in blob:
+        return True
+    return False
+
+
 def _filter_sources(items: list[dict], place: dict) -> list[dict]:
-    return [
-        item for item in items
-        if _matches_place(item, place, ('title', 'snippet', 'url'))
-    ]
+    kept: list[dict] = []
+    for item in items:
+        # Links taken from the place description are trusted as-is.
+        if str(item.get('engine') or '') == 'description':
+            kept.append(item)
+            continue
+        if _is_junk_source(item):
+            continue
+        if _matches_place(item, place, ('title', 'snippet', 'url')):
+            kept.append(item)
+    return kept
 
 
 def _http_url(value: object) -> str | None:
@@ -956,8 +1134,11 @@ def build_osint_report(
     vk_token: str = '',
 ) -> dict:
     description_links = links_from_description(str(place.get('description') or ''))
-    curated_photos = description_photos_for_links(
-        description_links, vk_token=vk_token, limit=_MAX_PHOTOS, place=place,
+    curated_photos = _filter_photos(
+        description_photos_for_links(
+            description_links, vk_token=vk_token, limit=_MAX_PHOTOS, place=place,
+        ),
+        place,
     )
     vk_sources = vk_sources_for_links(vk_token, description_links, limit=_MAX_RESULTS)
 
@@ -1131,7 +1312,15 @@ def _refilter_report(payload: dict, place: dict) -> dict:
     report = dict(payload)
     items = list(report.get('items') or [])
     photos = list(report.get('photos') or [])
-    report['items'] = _filter_sources(items, place)
+    description_links = links_from_description(str(place.get('description') or ''))
+    filtered = _filter_sources(items, place)
+    # Description URLs are authoritative — keep them even if an older report
+    # omitted them or a prior filter drop removed the row.
+    report['items'] = _merge(
+        [tuple(description_links), tuple(filtered)],
+        'url',
+        _MAX_RESULTS,
+    )
     report['photos'] = _filter_photos(photos, place)
     report['total'] = len(report['items'])
     report['photos_total'] = len(report['photos'])

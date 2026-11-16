@@ -76,21 +76,32 @@ export function MapPanel({
       try {
         const maplibregl = await import("maplibre-gl");
         if (disposed || !root.current || !style) return;
-        const markers = await Promise.all(
-          (
-            Object.keys(categoryVisuals) as Array<keyof typeof categoryVisuals>
-          ).map(async (key) => {
-            const image = new Image();
-            image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(categoryMarkerSvg(key))}`;
-            await image.decode();
-            const canvas = document.createElement("canvas");
-            canvas.width = canvas.height = 72;
-            const context = canvas.getContext("2d");
-            if (!context) throw new Error("Marker rendering unavailable");
-            context.drawImage(image, 0, 0);
-            return { key, pixels: context.getImageData(0, 0, 72, 72) };
-          }),
-        );
+        const markerKeys = Object.keys(categoryVisuals) as Array<
+          keyof typeof categoryVisuals
+        >;
+        const markers = (
+          await Promise.all(
+            markerKeys.map(async (key) => {
+              try {
+                const image = new Image();
+                image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(categoryMarkerSvg(key))}`;
+                await image.decode();
+                const canvas = document.createElement("canvas");
+                canvas.width = canvas.height = 72;
+                const context = canvas.getContext("2d");
+                if (!context) return null;
+                context.drawImage(image, 0, 0);
+                return { key, pixels: context.getImageData(0, 0, 72, 72) };
+              } catch (cause) {
+                console.error(`Category marker "${key}" failed`, cause);
+                return null;
+              }
+            }),
+          )
+        ).filter((marker): marker is NonNullable<typeof marker> => marker !== null);
+        if (!markers.some((marker) => marker.key === "other")) {
+          throw new Error("Marker rendering unavailable");
+        }
         if (disposed) return;
         maplibregl.setWorkerUrl("/vendor/maplibre/maplibre-gl-worker.mjs");
         m = new maplibregl.Map({

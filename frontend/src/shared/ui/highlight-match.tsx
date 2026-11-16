@@ -18,7 +18,11 @@ export function HighlightMatch({ text, query }: { text: string; query: string })
   fragments.push(text.slice(cursor));
   return <>{fragments}</>;
 }
-export function descriptionExcerpt(description: string, query: string) {
+export function descriptionExcerpt(
+  description: string | null | undefined,
+  query: string,
+) {
+  if (!description) return "";
   const index = description
     .toLocaleLowerCase("ru")
     .replaceAll("ё", "е")

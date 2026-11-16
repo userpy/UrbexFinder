@@ -145,15 +145,19 @@ export function renderDescription(source: string): ReactNode[] {
   );
 }
 
-export function PlaceDescription({ description }: { description: string }) {
+export function PlaceDescription({
+  description,
+}: {
+  description: string | null | undefined;
+}) {
   const mounted = useSyncExternalStore(
     subscribe,
     clientSnapshot,
     serverSnapshot,
   );
-  const content = useMemo(
-    () => (mounted ? renderDescription(description) : description),
-    [description, mounted],
-  );
+  const content = useMemo(() => {
+    if (!description) return "Описание пока не добавлено.";
+    return mounted ? renderDescription(description) : description;
+  }, [description, mounted]);
   return <div className="place-description preserve">{content}</div>;
 }

@@ -44,7 +44,11 @@ export const categoryVisuals = {
     color: "#e6cc89",
     paths: ["M12 2v6M9 5h6M5 21V12l7-5 7 5v9ZM10 21v-6h4v6M3 21h18"],
   },
-  nature: { color: "#85c5a2", paths: ["m12 3-6 7h3l-5 7h6v4h4v-4h6l-5-7h3Z"] },
+  // Keep path segments chunky — MapLibre SDF crashes on near-zero strokes.
+  nature: {
+    color: "#85c5a2",
+    paths: ["M12 22V11", "m8 14 4-9 4 9Z", "m5.5 19 6.5-8 6.5 8Z"],
+  },
   geocache: {
     color: "#81c9ce",
     paths: [
