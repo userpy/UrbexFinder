@@ -24,6 +24,8 @@ def test_generic_shelter_article_and_its_images_are_removed_from_cached_report(t
         'source_url': 'https://example.org/shelter/123',
         'image_url': 'https://example.org/entrance.jpg',
     }
+    place['description'] = relevant['url']
+    relevant.update(engine='web_page', query=relevant['url'], gallery_scope='primary')
     report = osint._refilter_report({
         'items': [unrelated, relevant], 'photos': [unrelated, relevant],
     }, place)
@@ -65,6 +67,8 @@ def test_generic_shelter_publisher_suffix_does_not_identify_an_object(publisher)
         'source_url': 'https://yandex.ru/maps/org/123',
         'image_url': 'https://example.org/entrance.jpg',
     }
+    place['description'] = relevant['url']
+    relevant.update(engine='web_page', query=relevant['url'], gallery_scope='primary')
     report = osint._refilter_report({'items': [unrelated, relevant],
                                     'photos': [unrelated, relevant]}, place)
     assert report['items'] == [relevant]
@@ -92,7 +96,8 @@ def test_campus_acronym_is_required_in_external_sources(region):
     assert osint._unique_name_tokens(place['name']) == {'тгса'}
     assert osint._filter_photos(wrong + [right], place) == [right]
     assert osint._filter_sources(wrong + [right], place) == [right]
-    assert osint._refilter_report({'photos': wrong + [right]}, place)['photos'] == [right]
+    # A name/acronym match alone no longer confirms a cached gallery.
+    assert osint._refilter_report({'photos': wrong + [right]}, place)['photos'] == []
 
 
 def test_short_acronym_is_not_discarded_for_longer_generic_words():
@@ -112,7 +117,8 @@ def test_numbered_institution_requires_complete_number(title):
     wrong = [item('СПТУ-3'), item('СПТУ-230'), item('СПТУ-123'), item('СПТУ')]
     assert osint._filter_sources(wrong + [right], place) == [right]
     assert osint._filter_photos(wrong + [right], place) == [right]
-    assert osint._refilter_report({'items': wrong + [right]}, place)['items'] == [right]
+    # The caption has no locality or primary-source evidence.
+    assert osint._refilter_report({'items': wrong + [right]}, place)['items'] == []
 
 
 def test_summer_kindergarten_does_not_match_age_in_biography():
@@ -124,7 +130,8 @@ def test_summer_kindergarten_does_not_match_age_in_biography():
                     'snippet': 'Работал до 2009 года.',
                     'url': 'https://urban3p.ru/object28021', 'engine': 'duckduckgo'}
     assert osint._filter_sources([biography, kindergarten], place) == [kindergarten]
-    assert osint._refilter_report({'items': [biography, kindergarten]}, place)['items'] == [kindergarten]
+    # A generic kindergarten name and oblast do not establish object identity.
+    assert osint._refilter_report({'items': [biography, kindergarten]}, place)['items'] == []
     photo = dict(biography, source_url=biography['url'], image_url='https://example.org/portrait.jpg')
     assert osint._filter_photos([photo], place) == []
     inflected = dict(kindergarten, title='Фото летнего детского сада №1985')
@@ -172,3 +179,36 @@ def test_generic_shelter_without_address_does_not_match_city_alone():
         'title': 'Убежище, Москва, Дубровская улица',
         'url': 'https://example.org/object',
     }], {'name': 'Убежище гражданской обороны (ru)', 'region': 'Москва'}) == []
+
+
+@pytest.mark.parametrize('place', [
+    {'name': 'Усадьба Рождествено', 'region': 'Московская область'},
+    {'name': 'Рождествено', 'region': 'Московская область',
+     'description': 'Информация об усадьбе http://podmoskovnye.ru/usadba/example'},
+    {'name': 'Рождествено', 'region': 'Московская область', 'category_name': 'Усадьбы'},
+])
+@pytest.mark.parametrize('title', [
+    'Посёлок таунхаусов Рождествено - Москва - Wikimapia',
+    'Коттеджный поселок Рождествено',
+    'Жилой комплекс Рождествено',
+    'ЖК Рождествено',
+])
+def test_manor_does_not_match_namesake_housing(place, title):
+    wrong = {'title': title, 'snippet': 'Рядом находится усадьба Рождествено.',
+             'url': 'https://wikimapia.org/179731',
+             'source_url': 'https://wikimapia.org/179731',
+             'image_url': 'https://example.org/townhouses.jpg'}
+    right = {'title': 'Усадьба «Рождествено» - Рождествено',
+             'snippet': 'Усадебный дом XVIII века. Неподалёку построен посёлок таунхаусов.',
+             'url': 'https://wikimapia.org/17184089',
+             'source_url': 'https://wikimapia.org/17184089',
+             'image_url': 'https://example.org/manor.jpg'}
+    assert osint._filter_sources([wrong, right], place) == [right]
+    assert osint._filter_photos([wrong, right], place) == [right]
+    report = osint._refilter_report({'items': [wrong, right], 'photos': [wrong, right],
+                                   'assessment': {}}, place)
+    assert wrong not in report['items']
+    assert report['photos'] == []
+    assert any(row['candidate']['url'] == right['url'] and row['status'] == 'unconfirmed'
+               for row in report['verification']['sources'])
+    assert report['assessment'] == osint.assess_osint_items(report['items'])

@@ -5,6 +5,7 @@ import re
 from urllib.parse import quote, unquote, urlencode, urljoin, urlparse
 import httpx
 from .vk_album import parse_vk_album
+from .osint_identity import primary_gallery, extract_page_identity
 from .wikimapia import direct_photos, gallery_urls, is_object_url
 
 _log = logging.getLogger(__name__)
@@ -200,6 +201,8 @@ def links_from_description(description: str) -> list[dict]:
         url = _http_url(raw)
         if not url:
             continue
+        if match.group(1) is None:
+            label = url
         key = url.rstrip('/').casefold()
         if key in seen:
             continue
@@ -1990,6 +1993,9 @@ def _extract_generic_image_urls(html: str, page_url: str) -> list[str]:
             if image not in photos:
                 photos.append(image)
         return photos
+    scoped, images = primary_gallery(html, page_url)
+    if scoped:
+        return [image for image in images if _generic_image_ok(image)]
     found: list[str] = []
     seen: set[str] = set()
 
@@ -2095,6 +2101,8 @@ def generic_page_photos_for_links(
             or 'Фото со страницы'
         )[:300]
         engine = _generic_engine_for(url)
+        primary_scope, _ = primary_gallery(html, url)
+        page_identity = extract_page_identity(html, url)
         page_count = 0
         for image in _extract_generic_image_urls(html, url):
             if len(photos) >= limit or page_count >= _MAX_GENERIC_PER_PAGE:
@@ -2109,6 +2117,8 @@ def generic_page_photos_for_links(
                 'thumbnail_url': image,
                 'source_url': url[:2000],
                 'engine': engine,
+                'gallery_scope': 'primary' if primary_scope else 'unknown',
+                'page_identity': page_identity,
                 'score': 10.5 if engine == 'web_page' else 11.0,
                 'query': url,
             })

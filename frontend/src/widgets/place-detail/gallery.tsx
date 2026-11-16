@@ -18,6 +18,14 @@ export type SourcePhoto = {
   title: string;
 };
 
+export function sourcePhotoLabel(photo: SourcePhoto): string {
+  try {
+    const host = new URL(photo.source_url).hostname.replace(/^www\./, "");
+    if (host === "podmoskovnye.ru") return "Подмосковные";
+  } catch { /* Older records may have incomplete URLs. */ }
+  return "Geocaching";
+}
+
 export function SourceImage({ photo, alt }: { photo: SourcePhoto; alt: string }) {
   return (
     // External cache images retain their source URL; they are not community uploads.
@@ -132,7 +140,7 @@ export function PhotoGallery({
       {photo && (
         <div className="gallery-caption">
           <span>
-            {"image_url" in photo ? "Фото из Geocaching" : photo.status === "pending"
+            {"image_url" in photo ? `Фото · ${sourcePhotoLabel(photo)}` : photo.status === "pending"
               ? "На проверке"
               : photo.id < 0
                 ? "Фото из Telegram"
@@ -152,7 +160,7 @@ export function PhotoGallery({
           </a>
           {"image_url" in photo && (
             <a href={photo.source_url} target="_blank" rel="noreferrer">
-              Geocaching · источник <ExternalLink size={13} />
+              {sourcePhotoLabel(photo)} · источник <ExternalLink size={13} />
             </a>
           )}
         </div>

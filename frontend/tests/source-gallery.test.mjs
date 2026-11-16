@@ -31,7 +31,7 @@ test("cache photos populate the main gallery, retain attribution and cannot be d
   assert.match(html, /4 фото/);
   assert.match(html, /src="https:\/\/geocaching.su\/photos\/areas\/1.jpg"/);
   assert.match(html, /href="https:\/\/geocaching.su\/cache\/18398"/);
-  assert.match(html, /Фото из Geocaching/);
+  assert.match(html, /Фото · Geocaching/);
   assert.doesNotMatch(html, /Удалить фото|Фотографии пока не добавлены/);
 });
 
@@ -41,4 +41,15 @@ test("source failures are shown separately from an empty gallery", () => {
   }));
   assert.match(html, /Фото источника временно недоступны/);
   assert.doesNotMatch(html, /Фотографии пока не добавлены/);
+});
+
+
+test("estate source photos retain Podmoskovnye attribution", () => {
+  const html = renderToStaticMarkup(React.createElement(PhotoGallery, {
+    photos: [], name: "Шилля усадьба", onDeleted: () => {},
+    sourcePhotos: [{image_url: "https://podmoskovnye.ru/images/stories/photos/yaroslavskaya/shill/photo.jpg",
+      source_url: "https://podmoskovnye.ru/usadba/example", title: "Шилля усадьба"}],
+  }));
+  assert.match(html, /Фото · Подмосковные/);
+  assert.doesNotMatch(html, /Geocaching|Удалить фото/);
 });

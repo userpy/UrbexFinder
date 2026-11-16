@@ -1098,6 +1098,11 @@ def test_osint_filters_berezki_from_sverdlovsk():
 def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
     place_id = insert(client.app, 'Усадьба Липки')
     url = f'/api/places/{place_id}/osint-report'
+    from urbex.infrastructure.osint_identity import source_key
+    monkeypatch.setattr(osint, 'enrich_candidates', lambda place, rows, refs: [
+        dict(row, page_identity={'source_key': source_key(row['url']),
+             'latitude': 55.75, 'longitude': 37.62}) for row in rows
+    ])
     monkeypatch.setattr(osint, 'description_photos_for_links', lambda *args, **kwargs: [])
     monkeypatch.setattr(osint, 'vk_sources_for_links', lambda *args, **kwargs: [])
     monkeypatch.setattr(osint, 'site_photos_for_links', lambda *args, **kwargs: [])
@@ -1197,10 +1202,8 @@ def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
     assert payload['assessment']['security']['label'] == 'Низкая'
     assert payload['assessment']['condition']['level'] == 'abandoned'
     assert payload['assessment']['condition']['label'] == 'Заброшен'
-    assert payload['photos_total'] == 1
-    assert payload['photos'][0]['title'] == 'Усадьба Липки зимой'
-    assert payload['photos'][0]['image_url'] == 'https://cdn.example.org/lipki.jpg'
-    assert payload['photos'][0]['source_url'] == 'https://example.org/photo-page'
+    assert payload['photos_total'] == 0
+    assert payload['verification']['photos'][0]['status'] == 'unconfirmed'
     assert any('categories=images' in call for call in calls)
     assert any('categories=general' in call for call in calls)
     assert calls
@@ -1216,7 +1219,7 @@ def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
     cached = client.get(url)
     assert cached.status_code == 200, cached.text
     assert cached.json()['cached'] is True
-    assert cached.json()['photos_total'] == 1
+    assert cached.json()['photos_total'] == 0
     assert len(calls) == first_calls
     # Forced refresh still needs a live search backend.
     assert client.get(url + '?refresh=1').status_code == 502
@@ -1225,6 +1228,11 @@ def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
 def test_osint_report_keeps_sources_when_images_fail(client, monkeypatch):
     place_id = insert(client.app, 'Усадьба Липки')
     url = f'/api/places/{place_id}/osint-report'
+    from urbex.infrastructure.osint_identity import source_key
+    monkeypatch.setattr(osint, 'enrich_candidates', lambda place, rows, refs: [
+        dict(row, page_identity={'source_key': source_key(row['url']),
+             'latitude': 55.75, 'longitude': 37.62}) for row in rows
+    ])
     osint.clear_search_cache()
     monkeypatch.setattr(client.app.state.config, 'searxng_url', 'https://xng.example')
     monkeypatch.setattr(osint, 'description_photos_for_links', lambda *args, **kwargs: [])
@@ -1291,11 +1299,11 @@ def test_osint_report_keeps_photos_when_general_fails(client, monkeypatch):
     result = client.get(url)
     assert result.status_code == 200, result.text
     payload = result.json()
-    # Photo landing pages are promoted into sources when general search is empty.
-    assert payload['photos_total'] == 1
-    assert payload['total'] == 1
-    assert payload['items'][0]['url'] == 'https://example.org/photo-page'
-    assert payload['photos'][0]['source_url'] == 'https://example.org/photo-page'
+    # Image search alone is retained for review, not promoted into evidence.
+    assert payload['photos_total'] == 0
+    assert payload['total'] == 0
+    assert payload['verification']['photos'][0]['candidate']['source_url'] == 'https://example.org/photo-page'
+    assert payload['verification']['photos'][0]['status'] == 'unconfirmed'
 
 
 def test_osint_report_hides_pending_from_strangers(client, monkeypatch):

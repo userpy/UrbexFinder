@@ -58,6 +58,12 @@ export type OsintAssessment = {
   disclaimer: string;
 };
 
+type VerificationDecision = {
+  status: "accepted" | "unconfirmed" | "rejected";
+  reasons: string[];
+  candidate: { title?: string; url?: string; source_url?: string; image_url?: string };
+};
+
 export type OsintReport = {
   place_id: number;
   place_name: string;
@@ -68,6 +74,11 @@ export type OsintReport = {
   items: OsintItem[];
   photos?: OsintPhoto[];
   photos_total?: number;
+  verification?: {
+    version: number;
+    sources: VerificationDecision[];
+    photos: VerificationDecision[];
+  };
   assessment?: OsintAssessment;
   cached?: boolean;
   updated_at?: string | null;
@@ -534,6 +545,9 @@ function OsintReportDialog({
       .map((photo) => photo.source_url),
   ));
 
+  const verificationRows = report?.verification?.[tab === "sources" ? "sources" : "photos"] ?? [];
+  const withheld = verificationRows.filter((row) => row.status !== "accepted");
+
   return (
     <dialog
       ref={dialog}
@@ -640,6 +654,23 @@ function OsintReportDialog({
                 <span>{photos.length}</span>
               </button>
             </div>
+            {withheld.length > 0 && (
+              <details className="osint-verification">
+                <summary>Не включены в отчёт: {withheld.length}</summary>
+                <p className="muted">Эти материалы не подтверждают сведения об объекте и не участвуют в оценке состояния и охраны.</p>
+                <ul className="osint-result-list">
+                  {withheld.map((row, index) => (
+                    <li key={`${row.candidate.url || row.candidate.image_url}-${index}`}>
+                      <span>{row.status === "rejected" ? "Отклонён" : "Не подтверждён"}: </span>
+                      <a href={row.candidate.url || row.candidate.source_url} target="_blank" rel="noopener noreferrer">
+                        {row.candidate.title || "Источник"}
+                      </a>
+                      <p>{row.reasons.join(". ")}</p>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
             {tab === "photos" && unavailableSources.length > 0 && (
               <div role="status" className="muted">
                 <p>Не удалось загрузить часть фотографий из внешних источников.</p>
@@ -656,7 +687,7 @@ function OsintReportDialog({
             )}
             {tab === "sources" ? (
               report.items.length === 0 ? (
-                <p className="muted">По открытым источникам ничего не найдено.</p>
+                <p className="muted">Подтверждённые источники об этом объекте не найдены.</p>
               ) : (
                 <ul className="osint-result-list">
                   {report.items.map((item) => {
@@ -683,6 +714,9 @@ function OsintReportDialog({
                           </a>
                         </div>
                         {item.snippet && <p>{item.snippet}</p>}
+                        {report.verification?.sources.find((row) => row.status === "accepted" && row.candidate.url === item.url)?.reasons.map((reason) => (
+                          <p key={reason} className="osint-verification-reason">{reason}</p>
+                        ))}
                       </li>
                     );
                   })}
@@ -691,7 +725,7 @@ function OsintReportDialog({
             ) : photos.length === 0 ? (
               <p className="muted">{failedPhotos.size > 0
                 ? "Нет доступных для показа фотографий. Попробуйте обновить отчёт позже."
-                : "Фото и видео в открытых источниках не найдены."}</p>
+                : "Фотографии с подтверждённой привязкой к объекту не найдены."}</p>
             ) : (
               <ul className="osint-photo-grid">
                 {photos.map((photo) => {

@@ -5,7 +5,7 @@ import { ReportDialog } from "./report-dialog";
 import { OsintReportTrigger } from "./osint-report";
 import { PlaceDescription } from "./description";
 import { PlaceRating } from "./rating";
-import { PhotoGallery, SourceImage, type SourcePhoto } from "./gallery";
+import { PhotoGallery, SourceImage, sourcePhotoLabel, type SourcePhoto } from "./gallery";
 import { PlacePhoto } from "./telegram-photo";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -281,7 +281,7 @@ export function PlaceDetail({
           )}
           {!photos.length && sourcePhotos.length > 0 && (
             <a className="telegram-photo-source" href={sourcePhotos[0].source_url}
-              target="_blank" rel="noreferrer">Фото из Geocaching</a>
+              target="_blank" rel="noreferrer">Фото · {sourcePhotoLabel(sourcePhotos[0])}</a>
           )}
         </>
       )}

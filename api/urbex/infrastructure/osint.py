@@ -9,6 +9,8 @@ from urllib.parse import unquote, urlparse
 import httpx
 from sqlalchemy import text
 from urbex.domain.rules import DomainError
+from urbex.infrastructure.osint_identity import verify_report, verify_source
+from urbex.infrastructure.osint_evidence import enrich_candidates
 from urbex.infrastructure.osint_assess import assess_osint_items
 from urbex.infrastructure.wikimapia import direct_photos, is_object_url
 from urbex.infrastructure.osint_description import (
@@ -847,6 +849,24 @@ def _matches_place(
     location_tokens = _location_tokens(place)
     fine_location = _fine_location_tokens(place)
 
+    # Manor cards often contain only a toponym in their name. Use the card's
+    # description/category to distinguish them from namesake housing estates.
+    manor = r'\bусад(?:ьб|еб)[а-яё]*\b'
+    context = _item_text_blob(place, ('name', 'description', 'category', 'category_name'))
+    if re.search(manor, context):
+        housing = (
+            r'\bтаунхаус[а-яё]*\b|\bкоттеджн[а-яё]*\s+пос[её]л[а-яё]*\b'
+            r'|\bжил[а-яё]*\s+(?:комплекс|квартал)[а-яё]*\b|\bжк\b'
+        )
+        title = str(item.get('title') or '').casefold()
+        evidence = _item_text_blob(item, ('title', 'snippet'))
+        # A housing title is off topic even if its snippet mentions a nearby
+        # manor. Conversely, a historical article may mention nearby housing.
+        if re.search(housing, title):
+            return False
+        if re.search(housing, evidence) and not re.search(manor, title):
+            return False
+
     if re.search(r'\b(?:бомбоубежищ|убежищ|бункер)[а-яё]*\b', name.casefold()):
         if not _matches_shelter_identity(item, place):
             return False
@@ -1277,7 +1297,7 @@ def _merge_round_robin(
     return merged
 
 
-def build_osint_report(
+def _build_osint_report(
     url: str,
     origin: str,
     place: dict,
@@ -1285,11 +1305,8 @@ def build_osint_report(
     vk_token: str = '',
 ) -> dict:
     description_links = links_from_description(str(place.get('description') or ''))
-    curated_photos = _filter_photos(
-        description_photos_for_links(
-            description_links, vk_token=vk_token, limit=_MAX_PHOTOS, place=place,
-        ),
-        place,
+    curated_photos = description_photos_for_links(
+        description_links, vk_token=vk_token, limit=_MAX_PHOTOS, place=place,
     )
     vk_sources = vk_sources_for_links(vk_token, description_links, limit=_MAX_RESULTS)
     description_links = [link for link in description_links
@@ -1333,8 +1350,16 @@ def build_osint_report(
         _search_soft(url, origin, query, 'images') for query in image_queries
     ]
 
-    searched = _filter_sources(_merge(general_batches, 'url', _MAX_RESULTS), place)
-    searched_photos = _filter_photos(_merge(image_batches, 'image_url', _MAX_PHOTOS), place)
+    references = [link['url'] for link in description_links]
+    source_candidates = enrich_candidates(
+        place, _merge(general_batches, 'url', _MAX_RESULTS), references,
+    )
+    photo_candidates = _merge(image_batches, 'image_url', _MAX_PHOTOS)
+    # Only verified pages can seed gallery extraction or secondary VK fetching.
+    searched = [item for item in source_candidates
+                if not _is_junk_source(item)
+                and verify_source(place, item, references).status == 'accepted']
+    searched_photos = []  # Search thumbnails are candidates, never gallery proof.
     # Description / VK wall are curated — prepend and skip geo filter.
     # Also enrich VK links found by SearXNG (same soft-fail helpers).
     vk_from_search = vk_sources_for_links(
@@ -1373,16 +1398,10 @@ def build_osint_report(
     # Pull Urban3P object galleries with their own reserve — site_photos
     # round-robin otherwise shares the budget with YouTube/Rutube thumbs.
     urban_budget = min(8, _MAX_PHOTOS)
-    urban_from_search = _filter_photos(
-        urban3p_photos_for_links(scrape_links, urban_budget),
-        place,
-    )
+    urban_from_search = urban3p_photos_for_links(scrape_links, urban_budget)
     other_budget = max(0, catalog_budget - min(len(urban_from_search), _SITE_GALLERY_RESERVE))
-    site_from_search = _filter_photos(
-        site_photos_for_links(
-            scrape_links, limit=other_budget, vk_token=vk_token,
-        ),
-        place,
+    site_from_search = site_photos_for_links(
+        scrape_links, limit=other_budget, vk_token=vk_token,
     ) if other_budget else []
     # Interleave Urban3P with Maps/web so one family cannot fill all slots.
     photos = _merge_round_robin(
@@ -1397,15 +1416,16 @@ def build_osint_report(
     )
     if not merged and photos:
         # Photos already filtered; still re-check promoted landing pages.
-        merged = _filter_sources(_sources_from_photos(photos), place)
+        merged = _sources_from_photos(photos)
     if not merged and not photos:
         # Distinguishes "SearXNG down" from "nothing relevant found".
         probe = _search_soft(url, origin, queries[0], 'general')
-        if not probe and not description_links:
+        if not probe and not description_links and not photo_candidates and not source_candidates:
             raise DomainError('Не удалось получить данные из открытых источников. Повторите попытку позже.', 502)
         if probe:
             general_batches = [probe]
-            merged = _filter_sources(_merge(general_batches, 'url', _MAX_RESULTS), place)
+            source_candidates = _merge([tuple(source_candidates), probe], 'url', _MAX_RESULTS)
+            merged = _merge(general_batches, 'url', _MAX_RESULTS)
             merged = _merge([tuple(description_links), tuple(merged)], 'url', _MAX_RESULTS)
         else:
             merged = description_links[:_MAX_RESULTS]
@@ -1440,12 +1460,26 @@ def build_osint_report(
         'queries': queries,
         'image_queries': image_queries,
         'source': 'searxng',
+        'source_candidates': source_candidates,
+        'photo_candidates': photo_candidates,
         'total': len(merged),
         'items': merged,
         'photos': photos,
         'photos_total': len(photos),
         'assessment': assess_osint_items(merged),
     }
+
+
+def _verify_report(payload: dict, place: dict) -> dict:
+    references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
+    report = verify_report(payload, place, references,
+                           junk_source=_is_junk_source, junk_photo=_is_junk_photo)
+    report['assessment'] = assess_osint_items(report['items'])
+    return report
+
+
+def build_osint_report(url: str, origin: str, place: dict, *, vk_token: str = '') -> dict:
+    return _verify_report(_build_osint_report(url, origin, place, vk_token=vk_token), place)
 
 
 def _report_for_response(payload: dict, *, cached: bool, updated_at) -> dict:
@@ -1466,7 +1500,7 @@ def _refilter_report(payload: dict, place: dict) -> dict:
     items = list(report.get('items') or [])
     photos = list(report.get('photos') or [])
     description_links = links_from_description(str(place.get('description') or ''))
-    filtered = _filter_sources(items, place)
+    filtered = items  # Identity verification below is authoritative for cached reports.
     description_links = [link for link in description_links
                          if not is_direct_image_url(link['url']) and not is_vk_group_url(link['url'])]
     # Description URLs are authoritative — keep them even if an older report
@@ -1478,13 +1512,11 @@ def _refilter_report(payload: dict, place: dict) -> dict:
     )
     report['photos'] = _merge(
         [tuple(direct_photos(links_from_description(str(place.get('description') or '')))),
-         tuple(_filter_photos(photos, place))], 'image_url', _MAX_PHOTOS,
+         tuple(photos)], 'image_url', _MAX_PHOTOS,
     )
     report['total'] = len(report['items'])
     report['photos_total'] = len(report['photos'])
-    if report.get('assessment') is not None:
-        report['assessment'] = assess_osint_items(report['items'])
-    return report
+    return _verify_report(report, place)
 
 
 def load_osint_report(engine, place_id: int) -> dict | None:
@@ -1559,15 +1591,13 @@ def get_or_build_osint_report(
                 and link['url'] not in gallery_urls
             ]
             if missing_wikimapia and time.time() - stored.get('wikimapia_checked_at', 0) >= 300:
-                recovered = _filter_photos(
-                    wikimapia_photos_for_links(missing_wikimapia, _MAX_PHOTOS), place,
-                )
+                recovered = wikimapia_photos_for_links(missing_wikimapia, _MAX_PHOTOS)
                 filtered['wikimapia_checked_at'] = time.time()
                 filtered['photos'] = _merge(
                     [tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS,
                 )
                 filtered['photos_total'] = len(filtered['photos'])
-                return save_osint_report(engine, place_id, filtered)
+                return save_osint_report(engine, place_id, _verify_report(filtered, place))
             # A transient source failure must not freeze an empty gallery forever.
             # Retry missing description galleries, at most once per five minutes.
             gallery_sources = {
@@ -1589,14 +1619,16 @@ def get_or_build_osint_report(
                     'image_url', _MAX_PHOTOS,
                 )
                 filtered['photos_total'] = len(filtered['photos'])
-                return save_osint_report(engine, place_id, filtered)
+                return save_osint_report(engine, place_id, _verify_report(filtered, place))
             # Persist tightened filters so junk does not return next time.
             if (
-                filtered.get('total') != stored.get('total')
+                filtered.get('verification') != stored.get('verification')
+                or filtered.get('items') != stored.get('items')
+                or filtered.get('total') != stored.get('total')
                 or filtered.get('photos_total') != stored.get('photos_total')
                 or filtered.get('photos') != stored.get('photos')
             ):
-                return save_osint_report(engine, place_id, filtered)
+                return save_osint_report(engine, place_id, _verify_report(filtered, place))
             return filtered
     report = build_osint_report(url, origin, place, vk_token=vk_token)
     return save_osint_report(engine, place_id, report)
