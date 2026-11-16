@@ -19,8 +19,13 @@ def source_photos(place: dict, saved_report: dict | None = None) -> list[dict]:
                  'geocaching.su', 'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru',
                  'podmoskovnye.ru', 'www.podmoskovnye.ru',
              }][:2]
+    references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
+    maps = []
+    if saved_report:
+        checked = verify_report(saved_report, place, references)
+        maps = [photo for photo in checked['photos'] if photo.get('engine') == 'yandex_maps']
     if not links:
-        return []
+        return maps
     # Reports persist the provenance of each image. Reuse only the gallery
     # linked by this card, never general search results or another cache.
     source_urls = {link['url'].rstrip('/') for link in links}
@@ -30,7 +35,7 @@ def source_photos(place: dict, saved_report: dict | None = None) -> list[dict]:
         verified = verify_report(report, place, [link['url'] for link in links])
         return [photo for photo in verified['photos']
                 if source_key(photo.get('source_url')) in podmoskovnye]
-    saved = verified_podmoskovnye(saved_report or {}) if podmoskovnye else []
+    saved = maps + (verified_podmoskovnye(saved_report or {}) if podmoskovnye else [])
     seen = {photo['image_url'] for photo in saved}
     for photo in (saved_report or {}).get('photos', []):
         image = urlparse(str(photo.get('image_url') or ''))

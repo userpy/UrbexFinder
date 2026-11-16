@@ -6,7 +6,7 @@ import json
 import re
 from urllib.parse import parse_qsl, urlencode, unquote, urlparse, urljoin
 
-VERSION = 2
+VERSION = 3
 
 
 def normalized(text):
@@ -21,6 +21,10 @@ def source_key(url):
         if p.scheme not in {'http', 'https'} or not host or p.username or p.password:
             return ''
         path = unquote(p.path).rstrip('/')
+        if host in {'yandex.ru', 'yandex.com', 'yandex.by', 'yandex.kz', 'yandex.uz'}:
+            org = re.match(r'^/maps/org/[^/]+/(\d+)(?:/|$)', path)
+            if org:
+                return f'yandex_maps:{org[1]}'
         families = {
             'wikimapia.org': r'^/(\d+)(?:/|$)',
             'geocaching.su': r'^/cache/(\d+)(?:/|$)',
@@ -370,6 +374,8 @@ def verify_report(report, place, reference_urls, *, junk_source=lambda item: Fal
             decision = Decision('accepted', ('Прямая ссылка на фото из описания объекта',), ('reference_image',))
         elif decision.status == 'accepted':
             gallery = photo.get('engine') in gallery_engines and source_key(photo.get('query')) == parent
+            if photo.get('engine') == 'yandex_maps' and photo.get('gallery_scope') == 'organization':
+                gallery = photo.get('gallery_source_key') == parent and parent.startswith('yandex_maps:')
             # Older parser-produced gallery records predate the query field.
             image_parts = urlparse(str(image))
             legacy_gallery = (

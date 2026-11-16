@@ -126,7 +126,7 @@ def test_new_report_and_cached_report_share_the_gate(monkeypatch):
     monkeypatch.setattr(osint, 'description_photos_for_links', lambda *args, **kwargs: [])
     monkeypatch.setattr(osint, 'vk_sources_for_links', lambda *args, **kwargs: [])
     fresh = osint.build_osint_report('', '', PLACE)
-    assert fresh['verification']['version'] == 2
+    assert fresh['verification']['version'] == 3
     cached = osint._refilter_report(fresh, PLACE)
     assert cached['items'] == fresh['items']
     assert cached['verification'] == fresh['verification']

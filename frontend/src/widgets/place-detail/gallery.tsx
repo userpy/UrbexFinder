@@ -22,6 +22,7 @@ export function sourcePhotoLabel(photo: SourcePhoto): string {
   try {
     const host = new URL(photo.source_url).hostname.replace(/^www\./, "");
     if (host === "podmoskovnye.ru") return "Подмосковные";
+    if (["yandex.ru", "yandex.com", "yandex.by", "yandex.kz", "yandex.uz"].includes(host)) return "Яндекс Карты";
   } catch { /* Older records may have incomplete URLs. */ }
   return "Geocaching";
 }

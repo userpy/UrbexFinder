@@ -5,6 +5,8 @@ import re
 from urllib.parse import quote, unquote, urlencode, urljoin, urlparse
 import httpx
 from .vk_album import parse_vk_album
+from .yandex_gallery import org_gallery
+from .osint_identity import source_key
 from .osint_identity import primary_gallery, extract_page_identity
 from .wikimapia import direct_photos, gallery_urls, is_object_url
 
@@ -1102,8 +1104,20 @@ def _ymaps_photos_from_org(
         html = _fetch_ymaps_html(_ymaps_org_page_url(slug, oid, gallery=False))
     if not html:
         return []
-    label = (title or _ymaps_title_from_html(html) or 'Фото с Яндекс.Карт')[:300]
-    for image in _extract_ymaps_altay_urls(html):
+    gallery = org_gallery(html, oid, source_url)
+    if gallery == {}:
+        return []
+    if gallery is not None:
+        images = _extract_ymaps_altay_urls(' '.join(gallery['templates']))
+        label = gallery['identity']['title'] or title or 'Фото с Яндекс.Карт'
+    else:
+        # Older/static pages need a matching canonical organization URL.
+        canonical = _ymaps_org_from_html(html)
+        if not canonical or canonical[1] != oid:
+            return []
+        images = _extract_ymaps_altay_urls(html)
+        label = title or _ymaps_title_from_html(html) or 'Фото с Яндекс.Карт'
+    for image in images:
         if len(photos) >= limit:
             break
         key = image.rstrip('/').casefold()
@@ -1118,6 +1132,9 @@ def _ymaps_photos_from_org(
             'engine': 'yandex_maps',
             'score': 11.5,
             'query': source_url,
+            'gallery_scope': 'organization',
+            'gallery_source_key': source_key(source_url),
+            **({'page_identity': gallery['identity']} if gallery is not None else {}),
         })
     return photos
 
@@ -1197,30 +1214,8 @@ def yandex_maps_photos_for_place(
         if foreign_city in org_blob and foreign_city not in address_blob:
             return []
     source = _ymaps_org_page_url(slug, oid, gallery=False)
-    # Prefer photos already embedded in the search/org landing HTML.
+    # Fetch the organization gallery; search pages also contain unrelated images.
     seen: set[str] = set()
-    embedded = _extract_ymaps_altay_urls(html)
-    if embedded:
-        photos: list[dict] = []
-        label = (title or name or 'Фото с Яндекс.Карт')[:300]
-        for image in embedded:
-            if len(photos) >= limit:
-                break
-            key = image.rstrip('/').casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            photos.append({
-                'title': label,
-                'image_url': image,
-                'thumbnail_url': image,
-                'source_url': source[:2000],
-                'engine': 'yandex_maps',
-                'score': 11.5,
-                'query': search_url,
-            })
-        if photos:
-            return photos
     return _ymaps_photos_from_org(
         slug,
         oid,

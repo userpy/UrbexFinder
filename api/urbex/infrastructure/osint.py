@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlparse
 import httpx
 from sqlalchemy import text
 from urbex.domain.rules import DomainError
-from urbex.infrastructure.osint_identity import verify_report, verify_source
+from urbex.infrastructure.osint_identity import verify_report, verify_source, source_key
 from urbex.infrastructure.osint_evidence import enrich_candidates
 from urbex.infrastructure.osint_assess import assess_osint_items
 from urbex.infrastructure.wikimapia import direct_photos, is_object_url
@@ -21,6 +21,7 @@ from urbex.infrastructure.osint_description import (
     vk_sources_for_links,
     generic_page_photos_for_links,
     wikimapia_photos_for_links,
+    yandex_maps_photos_for_links,
     is_direct_image_url,
     is_vk_group_url,
 )
@@ -1619,6 +1620,18 @@ def get_or_build_osint_report(
                     'image_url', _MAX_PHOTOS,
                 )
                 filtered['photos_total'] = len(filtered['photos'])
+                return save_osint_report(engine, place_id, _verify_report(filtered, place))
+            # Re-read confirmed Yandex organizations whose legacy search thumbnails
+            # lack gallery provenance. Keep failures under a five-minute cooldown.
+            yandex_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
+                              if photo.get('engine') == 'yandex_maps'}
+            missing_yandex = [item for item in filtered['items']
+                              if source_key(item.get('url')).startswith('yandex_maps:')
+                              and source_key(item.get('url')) not in yandex_parents][:2]
+            if missing_yandex and time.time() - stored.get('yandex_photos_checked_at', 0) >= 300:
+                recovered = yandex_maps_photos_for_links(missing_yandex, _MAX_PHOTOS)
+                filtered['yandex_photos_checked_at'] = time.time()
+                filtered['photos'] = _merge([tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS)
                 return save_osint_report(engine, place_id, _verify_report(filtered, place))
             # Persist tightened filters so junk does not return next time.
             if (
