@@ -16,6 +16,9 @@ from urbex.infrastructure.osint_description import (
     site_photos_for_links,
     urban3p_photos_for_links,
     vk_sources_for_links,
+    generic_page_photos_for_links,
+    is_direct_image_url,
+    is_vk_group_url,
 )
 
 _log = logging.getLogger(__name__)
@@ -111,6 +114,7 @@ _GENERIC_PLACE_TOKENS = frozenset({
     'заброшенный', 'заброшенная', 'заброшенное', 'заброшенные', 'заброшенн',
     'заброшка', 'заброшки', 'коттедж', 'коттеджа', 'коттеджи',
     'дом', 'дома', 'здание', 'объект', 'место', 'фото',
+    'корпус', 'корпуса', 'корпусов', 'корпусах', 'корпусе', 'корпусом',
     'недостроенный', 'недостроенная', 'недострой',
     'лагерь', 'усадьба', 'территория', 'улица', 'город', 'район',
     'область', 'россия', 'федеральный', 'округ', 'центральный',
@@ -160,6 +164,7 @@ _COARSE_LOCATION_TOKENS = frozenset({
 _STRUCTURE_TYPE_TOKENS = frozenset({
     'ангар', 'ангара', 'ангары', 'склад', 'цех', 'завод', 'фабрика',
     'коттедж', 'коттеджа', 'дом', 'дома', 'здание',
+    'корпус', 'корпуса', 'корпусов', 'корпусах', 'корпусе', 'корпусом',
     'база', 'базы', 'отдых', 'отдыха',
     'войсковая', 'войсковой', 'воинская', 'воинской',
     'часть', 'части', 'гарнизон', 'полигон',
@@ -656,7 +661,18 @@ def _unique_name_tokens(name: str) -> set[str]:
     tokens = {
         token for token in _distinctive_tokens(name)
         if token not in _COMMON_PLACE_NAMES
+        and token not in _STRUCTURE_TYPE_TOKENS
+        and token not in _NAME_FILLER_TOKENS
     }
+    acronyms = {
+        match.group(0).casefold() for match in _TOKEN_RE.finditer(name)
+        if match.group(0).isupper() and 3 <= len(match.group(0)) <= 6
+        and match.group(0).casefold() not in (
+            _GENERIC_PLACE_TOKENS | _STRUCTURE_TYPE_TOKENS | _NAME_FILLER_TOKENS | _TOKEN_STOP
+        )
+    }
+    if acronyms:
+        return acronyms
     if len(tokens) <= 1:
         return tokens
     # Prefer the longest token(s): toponym «жохово» over leftover noise.
@@ -819,6 +835,22 @@ def _matches_place(
     location_tokens = _location_tokens(place)
     fine_location = _fine_location_tokens(place)
 
+    # Preserve compound object types: "летний" alone also matches ages
+    # such as "21-летний" in biographies, which are not kindergarten hits.
+    kindergarten = r'\bдетск[а-яё]*\s+сад[а-яё]*\b'
+    if re.search(kindergarten, name.casefold()) and not re.search(kindergarten, blob):
+        return False
+
+    # Geocache names are often poetic: one shared adjective ("Забытая" /
+    # "Забытое") cannot identify the object, even within the same oblast.
+    description_links = links_from_description(str(place.get('description') or ''))
+    if any(link.get('category') == 'geocache' for link in description_links):
+        name_cues = name_tokens - _NAME_FILLER_TOKENS - _STRUCTURE_TYPE_TOKENS
+        if len(name_cues) >= 2 and sum(
+            _blob_has_any(blob, {token}) for token in name_cues
+        ) < 2:
+            return False
+
     if _structure_type_clash(name, blob):
         return False
 
@@ -891,16 +923,25 @@ def _matches_place(
             return _blob_has_any(blob, location_tokens)
         return True
 
-    if name_tokens:
-        return _blob_has_any(blob, name_tokens)
+    if unique_tokens or name_tokens:
+        return _blob_has_any(blob, unique_tokens or name_tokens)
     return False
 
 
 def _filter_photos(photos: list[dict], place: dict) -> list[dict]:
+    description_urls = {
+        item['url'].rstrip('/')
+        for item in links_from_description(str(place.get('description') or ''))
+    }
     return [
         photo for photo in photos
         if not _is_junk_photo(photo)
-        and _matches_place(photo, place, ('title', 'source_url', 'image_url'))
+        and (
+            ((photo.get('engine') == 'geocache' or
+              (photo.get('engine') == 'vk' and photo.get('scope') == 'album'))
+             and str(photo.get('source_url') or '').rstrip('/') in description_urls)
+            or _matches_place(photo, place, ('title', 'source_url', 'image_url'))
+        )
     ]
 
 
@@ -924,7 +965,15 @@ def _is_junk_source(item: dict) -> bool:
 
 def _filter_sources(items: list[dict], place: dict) -> list[dict]:
     kept: list[dict] = []
+    description_urls = {link['url'] for link in links_from_description(str(place.get('description') or ''))}
     for item in items:
+        if is_direct_image_url(str(item.get('url') or '')):
+            continue
+        if is_vk_group_url(str(item.get('url') or '')):
+            continue
+        if item.get('engine') == 'vk' and item.get('url') in description_urls:
+            kept.append(item)
+            continue
         # Links taken from the place description are trusted as-is.
         if str(item.get('engine') or '') == 'description':
             kept.append(item)
@@ -944,10 +993,10 @@ def _http_url(value: object) -> str | None:
 
 
 def _engines_for(category: str) -> str:
-    # Pin engines that work from this Docker network; DDG/Google CSE often hang.
+    # Keep aligned with searxng/settings.yml; use regular Google, not CSE.
     if category == 'images':
-        return 'bing images'
-    return 'bing,wikipedia'
+        return 'bing images,google images,yandex images'
+    return 'bing,wikipedia,google,yandex'
 
 
 def _cache_get(key: tuple[str, str, str, str]) -> tuple[dict, ...] | None:
@@ -1141,6 +1190,8 @@ def build_osint_report(
         place,
     )
     vk_sources = vk_sources_for_links(vk_token, description_links, limit=_MAX_RESULTS)
+    description_links = [link for link in description_links
+                         if not is_direct_image_url(link['url']) and not is_vk_group_url(link['url'])]
 
     if not url:
         if description_links or curated_photos or vk_sources:
@@ -1314,10 +1365,12 @@ def _refilter_report(payload: dict, place: dict) -> dict:
     photos = list(report.get('photos') or [])
     description_links = links_from_description(str(place.get('description') or ''))
     filtered = _filter_sources(items, place)
+    description_links = [link for link in description_links
+                         if not is_direct_image_url(link['url']) and not is_vk_group_url(link['url'])]
     # Description URLs are authoritative — keep them even if an older report
     # omitted them or a prior filter drop removed the row.
     report['items'] = _merge(
-        [tuple(description_links), tuple(filtered)],
+        [tuple(filtered), tuple(description_links)],
         'url',
         _MAX_RESULTS,
     )
@@ -1393,6 +1446,28 @@ def get_or_build_osint_report(
         stored = load_osint_report(engine, place_id)
         if stored is not None:
             filtered = _refilter_report(stored, place)
+            # A transient source failure must not freeze an empty gallery forever.
+            # Retry missing description galleries, at most once per five minutes.
+            gallery_sources = {
+                str(photo.get('source_url') or '').rstrip('/')
+                for photo in filtered.get('photos', [])
+                if photo.get('engine') == 'geocache'
+            }
+            missing = [
+                link for link in links_from_description(str(place.get('description') or ''))
+                if (urlparse(link['url']).hostname or '').lower() in {
+                    'geocaching.su', 'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru',
+                } and link['url'].rstrip('/') not in gallery_sources
+            ]
+            if missing and time.time() - stored.get('geocache_photos_checked_at', 0) >= 300:
+                recovered = generic_page_photos_for_links(missing, limit=_MAX_PHOTOS)
+                filtered['geocache_photos_checked_at'] = time.time()
+                filtered['photos'] = _merge(
+                    [tuple(recovered), tuple(filtered.get('photos', []))],
+                    'image_url', _MAX_PHOTOS,
+                )
+                filtered['photos_total'] = len(filtered['photos'])
+                return save_osint_report(engine, place_id, filtered)
             # Persist tightened filters so junk does not return next time.
             if (
                 filtered.get('total') != stored.get('total')

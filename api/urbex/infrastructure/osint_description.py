@@ -4,6 +4,7 @@ import logging
 import re
 from urllib.parse import quote, unquote, urlencode, urljoin, urlparse
 import httpx
+from .vk_album import parse_vk_album
 
 _log = logging.getLogger(__name__)
 _LINK_RE = re.compile(
@@ -222,6 +223,23 @@ def links_from_description(description: str) -> list[dict]:
             'query': 'description',
         })
     return items
+
+
+def is_direct_image_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return bool(re.search(r'\.(?:jpe?g|png|webp)$', parsed.path, re.IGNORECASE)) or (
+        (parsed.hostname or '').endswith('.googleusercontent.com')
+        and parsed.path.startswith('/umsh/')
+    )
+
+
+def is_vk_group_url(url: str) -> bool:
+    if not _is_vk_url(url):
+        return False
+    path = _vk_path(url)
+    return bool(path) and '/' not in path and not re.match(
+        r'(?:album|photo|wall|video|topic)-?\d+_', path,
+    )
 
 
 def _is_vk_url(url: str) -> bool:
@@ -550,6 +568,22 @@ def _vk_html_photos_for_url(url: str, *, title: str, limit: int, seen: set[str])
     html = _fetch_vk_html(url)
     if not html:
         return []
+    if _parse_owner_album(_vk_path(url)):
+        album = parse_vk_album(html, url)
+        photos = []
+        for image in album['photos']:
+            if len(photos) >= limit:
+                break
+            if image in seen:
+                continue
+            seen.add(image)
+            photos.append({
+                'title': album['title'] or title or 'Фото альбома VK',
+                'image_url': image, 'thumbnail_url': image,
+                'source_url': url, 'engine': 'vk', 'scope': 'album',
+                'score': 12.0, 'query': url,
+            })
+        return photos
     name, _, _ = _extract_vk_texts(html)
     label = (title or name or 'Фото из VK')[:300]
     photos: list[dict] = []
@@ -625,6 +659,14 @@ def vk_photos_for_links(token: str, links: list[dict], limit: int = _MAX_VK_PHOT
             continue
         path = _vk_path(url)
         rows: list[dict] = []
+        if _parse_owner_album(path):
+            album_photos = _vk_html_photos_for_url(
+                url, title=str(link.get('title') or ''),
+                limit=limit - len(photos), seen=seen,
+            )
+            if album_photos:
+                photos.extend(album_photos)
+                continue
         if token:
             single = _parse_owner_photo(path)
             if single:
@@ -748,6 +790,28 @@ def vk_sources_for_links(
             break
         url = str(link.get('url') or '')
         if not _is_vk_url(url):
+            continue
+        album = _parse_owner_album(_vk_path(url))
+        if album:
+            # An object album is not evidence about the owner's whole group.
+            # Never replace it with group metadata or unrelated recent posts.
+            parsed = parse_vk_album(_fetch_vk_html(url), url)
+            if parsed['title']:
+                add(_vk_source_item(
+                    title=parsed['title'], url=url,
+                    snippet=parsed['description'], query=url,
+                ))
+            elif token:
+                owner_id, album_id = album
+                data = _vk_call(token, 'photos.getAlbums', owner_id=owner_id, album_ids=album_id)
+                rows = data.get('items', []) if isinstance(data, dict) else []
+                for row in rows:
+                    if not isinstance(row, dict) or str(row.get('id')) != str(album_id):
+                        continue
+                    add(_vk_source_item(
+                        title=str(row.get('title') or 'Альбом VK'), url=url,
+                        snippet=str(row.get('description') or ''), query=url,
+                    ))
             continue
         got_api = False
         owner_id = _owner_id_from_vk_url(token, url) if token else None
@@ -1876,6 +1940,8 @@ def _is_specialized_photo_url(url: str) -> bool:
 
 def _generic_engine_for(url: str) -> str:
     host = (urlparse(url).hostname or '').casefold()
+    if host in {'geocaching.su', 'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru'}:
+        return 'geocache'
     if 'planetadorog' in host:
         return 'planetadorog'
     if host == 'caves.ru' or host.endswith('.caves.ru'):
@@ -1903,6 +1969,21 @@ def _generic_image_ok(url: str) -> bool:
 
 
 def _extract_generic_image_urls(html: str, page_url: str) -> list[str]:
+    if _generic_engine_for(page_url) == 'geocache':
+        # Cache galleries contain full-size links and thumbnail <img> tags.
+        # Ignore UI icons and notebook/user images outside the area gallery.
+        photos = []
+        for raw in re.findall(r'''(?:href|src)\s*=\s*["']([^"']+)["']''', html or '', re.IGNORECASE):
+            image = urljoin(page_url, raw)
+            parsed = urlparse(image)
+            if (parsed.scheme not in {'http', 'https'}
+                    or _generic_engine_for(image) != 'geocache'
+                    or not re.fullmatch(r'/photos/areas/(?:thumbnails/)?\d+\.(?:jpe?g|png|webp)', parsed.path, re.IGNORECASE)):
+                continue
+            image = image.replace('/areas/thumbnails/', '/areas/')
+            if image not in photos:
+                photos.append(image)
+        return photos
     found: list[str] = []
     seen: set[str] = set()
 
@@ -1954,7 +2035,8 @@ def _generic_title_from_html(html: str) -> str:
 def _fetch_generic_html(url: str) -> str:
     try:
         with httpx.Client(
-            timeout=15.0,
+            timeout=httpx.Timeout(15.0, connect=5.0),
+            transport=httpx.HTTPTransport(retries=1),
             follow_redirects=True,
             headers=_GENERIC_BROWSER_HEADERS,
         ) as client:
@@ -2001,7 +2083,8 @@ def generic_page_photos_for_links(
         if not html:
             continue
         title = (
-            str(link.get('title') or '').strip()
+            (_generic_title_from_html(html) if _generic_engine_for(url) == 'geocache' else '')
+            or str(link.get('title') or '').strip()
             or _generic_title_from_html(html)
             or 'Фото со страницы'
         )[:300]

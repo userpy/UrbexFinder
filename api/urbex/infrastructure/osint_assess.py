@@ -1,6 +1,7 @@
 """Heuristic OSINT assessment: security and physical condition from search snippets."""
 from __future__ import annotations
 import re
+from urbex.infrastructure.osint_description import is_vk_group_url, is_direct_image_url
 from collections import defaultdict
 
 # (level, weight, terms)
@@ -171,6 +172,9 @@ def _pick_level(
 
 
 def assess_osint_items(items: list[dict]) -> dict:
+    items = [item for item in items
+             if not is_vk_group_url(str(item.get('url') or ''))
+             and not is_direct_image_url(str(item.get('url') or ''))]
     security_scores, security_signals = _collect_signals(items, _SECURITY)
     condition_scores, condition_signals = _collect_signals(
         items, _CONDITION, suppress_active_in_inactive_context=True,
