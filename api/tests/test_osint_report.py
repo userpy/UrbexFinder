@@ -77,6 +77,8 @@ def test_osint_queries_cover_name_address_and_coordinates():
     assert 'site:caves.ru' in queries[0]
     assert 'site:planetadorog.ru' in queries[0]
     assert 'site:urbexstalker.com' in queries[0]
+    assert 'site:geocaching.com' in queries[0]
+    assert 'site:geocaching.ru' in queries[0]
     assert queries[1:] == [
         'Усадьба Липки Александров Владимирская область',
         'Усадьба Липки 56.40000, 38.72000',
@@ -88,7 +90,8 @@ def test_osint_queries_cover_name_address_and_coordinates():
         'region': 'Москва', 'latitude': 55.75, 'longitude': 37.62,
     }) == [
         'Москва (site:urban3p.ru OR site:swalker.ru OR site:caves.ru'
-        ' OR site:planetadorog.ru OR site:urbexstalker.com)',
+        ' OR site:planetadorog.ru OR site:urbexstalker.com'
+        ' OR site:geocaching.com OR site:geocaching.ru OR site:opencaching.pl)',
         '55.75000, 37.62000',
         'Москва',
     ]
@@ -282,6 +285,55 @@ def test_osint_photo_merge_keeps_urban3p_and_web_together():
     # Sequential merge would have dropped all web hits.
     sequential = osint._merge([urban, web], 'image_url', 12)
     assert {item['engine'] for item in sequential} == {'urban3p'}
+
+
+def test_osint_photo_merge_does_not_let_maps_crowd_out_urban3p():
+    """Maps org photos used to fill all 12 slots before Urban3P galleries ran."""
+    urban = tuple({
+        'title': f'Сосновый бор urban {i}',
+        'image_url': f'https://img04.urban3p.ru/up/o/21337/gallery/{i}.jpg',
+        'source_url': 'https://urban3p.ru/object21337',
+        'engine': 'urban3p',
+        'score': 12.5,
+        'query': 'u',
+    } for i in range(12))
+    maps = tuple({
+        'title': f'Сосновый бор maps {i}',
+        'image_url': f'https://avatars.mds.yandex.net/get-altay/{i}/XXL',
+        'source_url': 'https://yandex.ru/maps/org/1',
+        'engine': 'yandex_maps',
+        'score': 11.0,
+        'query': 'm',
+    } for i in range(12))
+    mixed = osint._merge_round_robin([urban, maps], 'image_url', 12)
+    assert sum(1 for item in mixed if item['engine'] == 'urban3p') == 6
+    assert sum(1 for item in mixed if item['engine'] == 'yandex_maps') == 6
+
+
+def test_osint_drops_mordovia_sosnovy_bor_for_mo_place():
+    place = {
+        'name': 'Пионерский лагерь "Сосновый Бор"',
+        'region': 'Московская область',
+        'full_address': 'Богородский городской округ, Московская область',
+    }
+    kept = osint._filter_photos([
+        {
+            'title': 'Лагерь «Сосновый бор» (Московская область) / Учреждения',
+            'image_url': 'https://img04.urban3p.ru/up/o/21337/gallery/1.jpg',
+            'source_url': 'https://urban3p.ru/object21337',
+        },
+        {
+            'title': 'Пионерский лагерь «Сосновый бор» (Республика Мордовия)',
+            'image_url': 'https://img04.urban3p.ru/up/o/17520/gallery/1.jpg',
+            'source_url': 'https://urban3p.ru/object17520',
+        },
+        {
+            'title': 'Видео Заброшенный пионерский лагерь (Московская область)',
+            'image_url': 'https://img04.urban3p.ru/up/o/11312/gallery/1.jpg',
+            'source_url': 'https://urban3p.ru/object11312',
+        },
+    ], place)
+    assert {item['source_url'] for item in kept} == {'https://urban3p.ru/object21337'}
 
 
 def test_settlement_from_gorodskoy_okrug():
@@ -490,6 +542,8 @@ def test_osint_ranks_urbex_sites_above_generic_web():
     assert osint._is_urbex_site_url('https://caves.ru/cave/1')
     assert osint._is_urbex_site_url('https://www.planetadorog.ru/t/x')
     assert osint._is_urbex_site_url('https://urbexstalker.com/ru/x')
+    assert osint._is_urbex_site_url('https://www.geocaching.com/geocache/GC1')
+    assert osint._is_urbex_site_url('https://geocaching.ru/cache/1')
     assert not osint._is_urbex_site_url('https://example.org/x')
 
 
@@ -1201,8 +1255,10 @@ def test_urban3p_photos_from_object_link(monkeypatch):
     from urbex.infrastructure import osint_description as od
 
     html = '''
-    <html><body>
-      <h1>Пионерский лагерь «Огонек»</h1>
+    <html><head>
+      <title>Лагерь «Сосновый бор» (Московская область) / Учреждения</title>
+    </head><body>
+      <h1>Лагерь «Сосновый бор»</h1>
       <img src="//img04.urban3p.ru/up/o/5161/photo.jpg" alt="cover"/>
       <a href="https://img04.urban3p.ru/up/o/5161/gallery/570228.jpg">Фото 40/40</a>
       <img src="https://img04.urban3p.ru/up/o/5161/gallery/570227_p.jpg" alt="thumb"/>
@@ -1222,6 +1278,7 @@ def test_urban3p_photos_from_object_link(monkeypatch):
     assert all('avatar' not in u and 'no_video' not in u and '_p.jpg' not in u for u in urls)
     assert photos[0]['engine'] == 'urban3p'
     assert photos[0]['source_url'] == 'https://urban3p.ru/object5161'
+    assert 'Московская область' in photos[0]['title']
 
 
 def test_urban3p_photos_cover_fallback_when_html_unavailable(monkeypatch):

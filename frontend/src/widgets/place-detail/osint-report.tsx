@@ -92,6 +92,7 @@ type SourceKind =
   | "youtube"
   | "rutube"
   | "urban3p"
+  | "geocache"
   | "livejournal"
   | "swalker"
   | "caves"
@@ -142,6 +143,13 @@ function sourceKindFor(item: {
   if (/youtube|youtu\.be/.test(blob)) return "youtube";
   if (/rutube/.test(blob)) return "rutube";
   if (/urban3p/.test(blob)) return "urban3p";
+  if (
+    /geocach|геокеш|геокэш|opencaching|geocaching\.(?:com|ru)|geocaching\.su/.test(
+      blob,
+    )
+  ) {
+    return "geocache";
+  }
   if (/livejournal|\blive.?journal\b|\.lj\.(?:com|ru)\b/.test(blob)) {
     return "livejournal";
   }
@@ -182,6 +190,25 @@ function Urban3pGlyph({ size = 12 }: { size?: number }) {
     >
       <path d="M4 20V9l8-5 8 5v11" />
       <path d="M9 20v-7h6v7" />
+    </svg>
+  );
+}
+
+function GeocacheGlyph({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="m16 8-2.5 5.5L8 16l2.5-5.5Z" />
     </svg>
   );
 }
@@ -307,6 +334,7 @@ function SourceGlyph({ kind }: { kind: SourceKind }) {
   if (kind === "youtube") return <Youtube size={12} aria-hidden="true" />;
   if (kind === "rutube") return <Video size={12} aria-hidden="true" />;
   if (kind === "urban3p") return <Urban3pGlyph size={12} />;
+  if (kind === "geocache") return <GeocacheGlyph size={12} />;
   if (kind === "livejournal") return <LiveJournalGlyph size={12} />;
   if (kind === "swalker") return <SwalkerGlyph size={12} />;
   if (kind === "caves") return <CavesGlyph size={12} />;
@@ -321,6 +349,7 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
   youtube: "YouTube",
   rutube: "Rutube",
   urban3p: "Urban3P",
+  geocache: "Geocaching",
   livejournal: "LJ",
   swalker: "Swalker",
   caves: "Caves",

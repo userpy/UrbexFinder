@@ -14,6 +14,7 @@ from urbex.infrastructure.osint_description import (
     description_photos_for_links,
     links_from_description,
     site_photos_for_links,
+    urban3p_photos_for_links,
     vk_sources_for_links,
 )
 
@@ -33,6 +34,9 @@ _URBEX_SITE_DOMAINS = (
     'caves.ru',
     'planetadorog.ru',
     'urbexstalker.com',
+    'geocaching.com',
+    'geocaching.ru',
+    'opencaching.pl',
 )
 _URBEX_SITE_QUERY = (
     '('
@@ -40,7 +44,8 @@ _URBEX_SITE_QUERY = (
     + ')'
 )
 _URBEX_SITE_TEXT = (
-    '(urban3p OR swalker OR caves.ru OR planetadorog OR "планета дорог" OR urbexstalker)'
+    '(urban3p OR swalker OR caves.ru OR planetadorog OR "планета дорог" '
+    'OR urbexstalker OR geocaching OR геокешинг OR opencaching)'
 )
 _CACHE_SIZE = 256
 # Only successful non-empty answers are cached. Empty answers must not stick forever
@@ -157,6 +162,7 @@ _FOREIGN_GEO = (
     'якут', 'хабаровск', 'примор', 'сахалин', 'камчат', 'мурманск', 'архангельск',
     'вологод', 'карел', 'коми', 'ставропол', 'дагестан', 'чечен', 'крым',
     'севастопол', 'башкир', 'татарстан', 'удмурт', 'чуваш', 'марий',
+    'мордов', 'удмурти', 'чуваши', 'марий эл',
     'шачино', 'зубова',
     # Cities often omitted when only the republic stem is listed.
     'ижевск', 'уфа', 'чебоксар', 'йошкар', 'сыктывкар', 'набережн',
@@ -184,10 +190,17 @@ _COMMON_PLACE_NAMES = frozenset({
     'волна', 'маяк', 'горизонт', 'рассвет', 'чайка', 'орёл', 'орел',
     'дзержинец', 'дзержинский', 'дзержинская',
     'огонек', 'огонёк',
+    'сосновый', 'сосновая', 'сосновое',
     'воскресенки', 'воскресенка', 'воскресенск',
     'пушкино', 'пушкинский', 'пушкинская', 'пушкинское',
     'пионерский', 'пионер', 'детский', 'оздоровительный',
     'база', 'базы', 'отдых', 'отдыха', 'турбаза',
+})
+# Category words from _COMMON_PLACE_NAMES — not enough to identify a camp.
+_NAME_FILLER_TOKENS = frozenset({
+    'пионерский', 'пионер', 'детский', 'оздоровительный',
+    'база', 'базы', 'отдых', 'отдыха', 'турбаза',
+    'лагерь', 'лагеря',
 })
 _TOKEN_RE = re.compile(r'[0-9a-zа-яё]{3,}', re.IGNORECASE)
 # «Ленинградская область» / «Краснодарский край» — explicit other-region labels.
@@ -697,11 +710,13 @@ def _matches_place(
             if fine_location:
                 return _blob_has_any(blob, fine_location)
             return False
-        # Prefer rare codes (АЗЛК); otherwise keep non-generic name cues (Пушкино).
+        # Prefer rare codes (АЗЛК); otherwise keep toponym cues («Сосновый»),
+        # not category fillers like «пионерский лагерь».
         place_cues = unique_tokens or {
             token for token in name_tokens
             if token not in _GENERIC_PLACE_TOKENS
             and token not in _STRUCTURE_TYPE_TOKENS
+            and token not in _NAME_FILLER_TOKENS
         }
         if not place_cues:
             return _blob_has_any(blob, location_tokens)
@@ -998,29 +1013,54 @@ def build_osint_report(
         'url',
         _MAX_RESULTS,
     )
-    # Pull galleries / posters from every useful landing page SearXNG found.
-    # Cap catalog scrapes so Bing/web image hits are not crowded out entirely.
-    site_from_search: list[dict] = []
-    remaining = _MAX_PHOTOS - len(curated_photos)
-    catalog_budget = min(remaining, max(6, (_MAX_PHOTOS * 2) // 3))
-    if catalog_budget > 0:
-        site_from_search = _filter_photos(
-            site_photos_for_links(
-                merged, limit=catalog_budget, vk_token=vk_token,
-            ),
-            place,
-        )
-    # Curated first, then interleave Urban3P/Swalker/… with web image search.
-    photos = list(curated_photos[:_MAX_PHOTOS])
-    mix_budget = _MAX_PHOTOS - len(photos)
-    if mix_budget > 0:
-        photos.extend(
-            _merge_round_robin(
-                [tuple(site_from_search), tuple(searched_photos)],
-                'image_url',
-                mix_budget,
-            )
-        )
+    # Always scrape Urban3P/Swalker/… galleries — Yandex/Maps curated hits
+    # must not consume the whole photo budget before catalog pages run.
+    _SITE_GALLERY_RESERVE = 6
+    catalog_budget = max(_SITE_GALLERY_RESERVE, min(_MAX_PHOTOS, (_MAX_PHOTOS * 2) // 3))
+    # Seed Urban3P object URLs from image CDN hits when general search omitted them.
+    scrape_links = list(merged)
+    seen_scrape = {
+        str(item.get('url') or '').rstrip('/').casefold()
+        for item in scrape_links
+    }
+    for photo in searched_photos:
+        for raw in (photo.get('source_url'), photo.get('image_url')):
+            text = str(raw or '')
+            if 'urban3p' not in text.casefold():
+                continue
+            key = text.rstrip('/').casefold()
+            if key in seen_scrape:
+                continue
+            seen_scrape.add(key)
+            scrape_links.append({
+                'url': text,
+                'title': str(photo.get('title') or ''),
+            })
+    # Pull Urban3P object galleries with their own reserve — site_photos
+    # round-robin otherwise shares the budget with YouTube/Rutube thumbs.
+    urban_budget = min(8, _MAX_PHOTOS)
+    urban_from_search = _filter_photos(
+        urban3p_photos_for_links(scrape_links, urban_budget),
+        place,
+    )
+    other_budget = max(0, catalog_budget - min(len(urban_from_search), _SITE_GALLERY_RESERVE))
+    site_from_search = _filter_photos(
+        site_photos_for_links(
+            scrape_links, limit=other_budget, vk_token=vk_token,
+        ),
+        place,
+    ) if other_budget else []
+    # Interleave Urban3P with Maps/web so one family cannot fill all slots.
+    photos = _merge_round_robin(
+        [
+            tuple(urban_from_search),
+            tuple(site_from_search),
+            tuple(curated_photos),
+            tuple(searched_photos),
+        ],
+        'image_url',
+        _MAX_PHOTOS,
+    )
     if not merged and photos:
         # Photos already filtered; still re-check promoted landing pages.
         merged = _filter_sources(_sources_from_photos(photos), place)

@@ -104,6 +104,14 @@ _URBAN3P_TITLE_RE = re.compile(
     r'<h1[^>]*>(.*?)</h1>',
     re.IGNORECASE | re.DOTALL,
 )
+_URBAN3P_DOC_TITLE_RE = re.compile(
+    r'<title[^>]*>(.*?)</title>',
+    re.IGNORECASE | re.DOTALL,
+)
+_URBAN3P_LOCATION_RE = re.compile(
+    r'Месторасположение:</?\w*>\s*<[^>]+>([^<]{3,120})',
+    re.IGNORECASE | re.DOTALL,
+)
 _URBAN3P_BLOG_BODY_RE = re.compile(
     r'class=["\'][^"\']*blogText[^"\']*["\'][^>]*>(.*?)'
     r'(?:class=["\'][^"\']*comment|id=["\']comments|id=["\']textComment)',
@@ -1263,13 +1271,27 @@ def _urban3p_object_ids_in_html(html: str) -> list[str]:
     return found
 
 
+def _urban3p_clean_text(value: str) -> str:
+    text = re.sub(r'<[^>]+>', '', value or '')
+    return re.sub(r'\s+', ' ', text).strip()
+
+
 def _urban3p_title_from_html(html: str) -> str:
+    """Prefer <title> — it usually includes «(Московская область)», unlike bare <h1>."""
+    doc = _URBAN3P_DOC_TITLE_RE.search(html or '')
+    if doc:
+        title = _urban3p_clean_text(doc.group(1))
+        if title:
+            return title[:300]
     match = _URBAN3P_TITLE_RE.search(html or '')
-    if not match:
-        return ''
-    title = re.sub(r'<[^>]+>', '', match.group(1))
-    title = re.sub(r'\s+', ' ', title).strip()
-    return title[:300]
+    heading = _urban3p_clean_text(match.group(1)) if match else ''
+    location = ''
+    loc = _URBAN3P_LOCATION_RE.search(html or '')
+    if loc:
+        location = _urban3p_clean_text(loc.group(1))
+    if heading and location and location.casefold() not in heading.casefold():
+        return f'{heading} ({location})'[:300]
+    return (heading or location)[:300]
 
 
 def _urban3p_html_ok(text: str, final_url: str = '') -> str:
@@ -1391,15 +1413,27 @@ def _urban3p_photos_from_object(
     seen_objects.add(oid)
     page_url = _urban3p_object_url(oid)
     html = _fetch_urban3p_html(page_url)
-    title = (
-        title_hint.strip()
-        or (_urban3p_title_from_html(html) if html else '')
-        or 'Фото с Urban3P'
-    )[:300]
+    page_title = _urban3p_title_from_html(html) if html else ''
+    hint = title_hint.strip()
+    # Page <title> carries oblast; search snippets often omit it.
+    if page_title and (
+        not hint
+        or (
+            any(token in page_title.casefold() for token in ('област', 'край', 'республик', 'москов', 'мордов'))
+            and not any(token in hint.casefold() for token in ('област', 'край', 'республик', 'москов', 'мордов'))
+        )
+    ):
+        title = page_title
+    else:
+        title = hint or page_title or 'Фото с Urban3P'
+    title = title[:300]
+    need = max(0, limit - len(photos))
     images = _extract_urban3p_image_urls(html, oid) if html else []
     if not images:
         # Page TLS often flaps; cover path is enough to avoid an empty gallery.
         images = _urban3p_cover_urls(oid)
+    elif need:
+        images = images[: max(need, _MAX_URBAN3P_PHOTOS)]
     _urban3p_append_photos(
         photos,
         images=images,
@@ -1457,6 +1491,25 @@ def _urban3p_photos_from_blog(
         )
 
 
+def _urban3p_link_sort_key(link: dict) -> tuple[int, int, str]:
+    """Prefer local object cards over same-name camps in other regions."""
+    url = str(link.get('url') or '')
+    title = str(link.get('title') or '').casefold()
+    rank = 0
+    if _urban3p_object_id(url):
+        rank += 2
+    if _urban3p_blog_id(url):
+        rank += 1
+    if any(token in title for token in ('москов', 'подмосков', 'тульск', 'тула')):
+        rank += 4
+    if any(
+        token in title
+        for token in ('мордов', 'свердлов', 'ленинград', 'новосибир', 'казахстан')
+    ):
+        rank -= 6
+    return (-rank, 0 if '/gallery' not in url.casefold() else 1, url)
+
+
 def urban3p_photos_for_links(
     links: list[dict],
     limit: int = _MAX_URBAN3P_PHOTOS,
@@ -1468,7 +1521,7 @@ def urban3p_photos_for_links(
     seen: set[str] = set()
     seen_objects: set[str] = set()
     seen_blogs: set[str] = set()
-    for link in links:
+    for link in sorted(links, key=_urban3p_link_sort_key):
         if len(photos) >= limit:
             break
         url = str(link.get('url') or '')
@@ -2003,8 +2056,11 @@ def description_photos_for_links(
     absorb(dzen_photos_for_links(links, limit))
     if len(photos) < limit:
         absorb(yandex_maps_photos_for_links(links, limit - len(photos)))
-    if place is not None and len(photos) < limit:
-        absorb(yandex_maps_photos_for_place(place, limit - len(photos)))
+    # Reserve room for Urban3P/Swalker galleries before Maps org photos fill the budget.
+    site_reserve = min(6, max(0, limit - len(photos)))
+    maps_budget = max(0, limit - len(photos) - site_reserve)
+    if place is not None and maps_budget > 0:
+        absorb(yandex_maps_photos_for_place(place, maps_budget))
     if len(photos) < limit:
         absorb(site_photos_for_links(
             links, limit - len(photos), vk_token=vk_token,
