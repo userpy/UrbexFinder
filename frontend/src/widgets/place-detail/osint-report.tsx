@@ -471,6 +471,7 @@ function OsintReportDialog({
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const [tab, setTab] = useState<TabId>("sources");
+  const [failedPhotos, setFailedPhotos] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const node = dialog.current;
@@ -486,6 +487,7 @@ function OsintReportDialog({
     setBusy(true);
     setError("");
     setReport(null);
+    setFailedPhotos(new Set());
     setTab("sources");
     const path =
       reload > 0
@@ -506,7 +508,14 @@ function OsintReportDialog({
     return () => abort.abort();
   }, [placeId, reload]);
 
-  const photos = report?.photos ?? [];
+  const photos = (report?.photos ?? []).filter(
+    (photo) => !failedPhotos.has(photo.image_url),
+  );
+  const unavailableSources = Array.from(new Set(
+    (report?.photos ?? [])
+      .filter((photo) => failedPhotos.has(photo.image_url))
+      .map((photo) => photo.source_url),
+  ));
 
   return (
     <dialog
@@ -611,9 +620,23 @@ function OsintReportDialog({
               >
                 <Images size={14} aria-hidden="true" />
                 Фото и Видео
-                <span>{report.photos_total ?? photos.length}</span>
+                <span>{photos.length}</span>
               </button>
             </div>
+            {tab === "photos" && unavailableSources.length > 0 && (
+              <div role="status" className="muted">
+                <p>Не удалось загрузить часть фотографий из внешних источников.</p>
+                <ul>
+                  {unavailableSources.map((url) => (
+                    <li key={url}>
+                      <a href={url} target="_blank" rel="noopener noreferrer">
+                        Открыть источник: {url}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {tab === "sources" ? (
               report.items.length === 0 ? (
                 <p className="muted">По открытым источникам ничего не найдено.</p>
@@ -649,7 +672,9 @@ function OsintReportDialog({
                 </ul>
               )
             ) : photos.length === 0 ? (
-              <p className="muted">Фото и видео в открытых источниках не найдены.</p>
+              <p className="muted">{failedPhotos.size > 0
+                ? "Нет доступных для показа фотографий. Попробуйте обновить отчёт позже."
+                : "Фото и видео в открытых источниках не найдены."}</p>
             ) : (
               <ul className="osint-photo-grid">
                 {photos.map((photo) => {
@@ -669,9 +694,13 @@ function OsintReportDialog({
                               const target = event.currentTarget;
                               if (
                                 photo.image_url &&
-                                target.src !== photo.image_url
+                                photo.thumbnail_url !== photo.image_url &&
+                                target.dataset.fallback !== "1"
                               ) {
+                                target.dataset.fallback = "1";
                                 target.src = photo.image_url;
+                              } else {
+                                setFailedPhotos((previous) => new Set(previous).add(photo.image_url));
                               }
                             }}
                           />

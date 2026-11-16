@@ -5,7 +5,7 @@ import { ReportDialog } from "./report-dialog";
 import { OsintReportTrigger } from "./osint-report";
 import { PlaceDescription } from "./description";
 import { PlaceRating } from "./rating";
-import { PhotoGallery } from "./gallery";
+import { PhotoGallery, SourceImage, type SourcePhoto } from "./gallery";
 import { PlacePhoto } from "./telegram-photo";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -102,6 +102,25 @@ export function PlaceDetail({
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
   const [routeNotice, setRouteNotice] = useState("");
+  const [sourceGallery, setSourceGallery] = useState<{
+    placeId: number; photos: SourcePhoto[]; status: string;
+  } | null>(null);
+  const sourcePhotos = sourceGallery?.placeId === place.id ? sourceGallery.photos : [];
+  const sourceStatus = sourceGallery?.placeId === place.id ? sourceGallery.status : "";
+  useEffect(() => {
+    const abort = new AbortController();
+    setSourceGallery({ placeId: place.id, photos: [], status: "Загружаем фото источника…" });
+    api<{ items: SourcePhoto[] }>(`/places/${place.id}/source-photos`, { signal: abort.signal })
+      .then((data) => {
+        if (!abort.signal.aborted)
+          setSourceGallery({ placeId: place.id, photos: data.items, status: "" });
+      })
+      .catch(() => {
+        if (!abort.signal.aborted)
+          setSourceGallery({ placeId: place.id, photos: [], status: "Фото источника временно недоступны" });
+      });
+    return () => abort.abort();
+  }, [place.id]);
   useEffect(() => {
     if (message !== "Сообщение отправлено") return;
     const timer = setTimeout(() => setMessage(""), 3000);
@@ -178,6 +197,8 @@ export function PlaceDetail({
         <PhotoGallery
           key={place.id}
           photos={photos}
+          sourcePhotos={sourcePhotos}
+          sourceStatus={sourceStatus}
           name={place.name}
           canDelete={(photo) =>
             staff ||
@@ -243,10 +264,12 @@ export function PlaceDetail({
                 id={photos[0].id}
                 alt={place.name}
               />
+            ) : sourcePhotos.length ? (
+              <SourceImage photo={sourcePhotos[0]} alt={place.name} />
             ) : (
               <>
                 <Camera size={36} />
-                <span>Фотографии пока не добавлены</span>
+                <span>{sourceStatus || "Фотографии пока не добавлены"}</span>
               </>
             )}
             {place.condition !== "unknown" && conditions[place.condition] && (
@@ -255,6 +278,10 @@ export function PlaceDetail({
           </div>
           {photos[0]?.id < 0 && (
             <small className="telegram-photo-source">Фото из Telegram</small>
+          )}
+          {!photos.length && sourcePhotos.length > 0 && (
+            <a className="telegram-photo-source" href={sourcePhotos[0].source_url}
+              target="_blank" rel="noreferrer">Фото из Geocaching</a>
           )}
         </>
       )}

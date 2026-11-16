@@ -146,6 +146,13 @@ def osint_report(
     return request.app.state.osint_report(place, refresh=refresh)
 
 
+@router.get('/places/{id}/source-photos')
+def source_photos(id: int, request: Request, ctx: Ctx):
+    place = ctx[0].places.place(id, ctx[2])
+    photos = request.app.state.source_photos(place)
+    return {'items': photos, 'total': len(photos)}
+
+
 @router.get('/osint/urban3p/{host}/{oid}/{kind}/{filename}')
 def urban3p_image(host: str, oid: int, kind: str, filename: str, request: Request):
     data = request.app.state.urban3p_image(host, oid, kind, filename)

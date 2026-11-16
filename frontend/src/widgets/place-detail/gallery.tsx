@@ -12,19 +12,41 @@ import { Button } from "@/shared/ui/button";
 import { Photo } from "@/entities/place";
 import { PlacePhoto } from "./telegram-photo";
 
+export type SourcePhoto = {
+  image_url: string;
+  source_url: string;
+  title: string;
+};
+
+export function SourceImage({ photo, alt }: { photo: SourcePhoto; alt: string }) {
+  return (
+    // External cache images retain their source URL; they are not community uploads.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={photo.image_url} alt={alt} loading="lazy" referrerPolicy="no-referrer" />
+  );
+}
+
 export function PhotoGallery({
-  photos,
+  photos: communityPhotos,
+  sourcePhotos = [],
+  sourceStatus = "",
   name,
   canDelete = () => false,
   upload,
   onDeleted,
 }: {
   photos: Photo[];
+  sourcePhotos?: SourcePhoto[];
+  sourceStatus?: string;
   name: string;
   canDelete?: (photo: Photo) => boolean;
   upload?: React.ReactNode;
   onDeleted: (id: number) => void;
 }) {
+  const photos = [
+    ...communityPhotos,
+    ...sourcePhotos.map((photo) => ({ ...photo, id: photo.image_url })),
+  ];
   const [deleting, setDeleting] = useState<number | null>(null);
   const [selected, setSelected] = useState(0);
   const touch = useRef<number | null>(null);
@@ -51,7 +73,7 @@ export function PhotoGallery({
         </span>
         {upload}
         <span className="gallery-total">
-          {photos.length ? `${photos.length} фото` : "Пока нет фото"}
+          {photos.length ? `${photos.length} фото` : sourceStatus || "Пока нет фото"}
         </span>
       </div>
       <div
@@ -69,7 +91,9 @@ export function PhotoGallery({
           touch.current = null;
         }}
       >
-        {photo ? (
+        {photo && "image_url" in photo ? (
+          <SourceImage key={photo.id} photo={photo} alt={`${name} — фото ${index + 1}`} />
+        ) : photo ? (
           <PlacePhoto
             key={photo.id}
             id={photo.id}
@@ -78,7 +102,7 @@ export function PhotoGallery({
         ) : (
           <div className="gallery-empty">
             <Camera size={40} />
-            <p>Фотографии пока не добавлены</p>
+            <p role="status">{sourceStatus || "Фотографии пока не добавлены"}</p>
           </div>
         )}
         {photos.length > 1 && (
@@ -108,24 +132,29 @@ export function PhotoGallery({
       {photo && (
         <div className="gallery-caption">
           <span>
-            {photo.status === "pending"
+            {"image_url" in photo ? "Фото из Geocaching" : photo.status === "pending"
               ? "На проверке"
               : photo.id < 0
                 ? "Фото из Telegram"
                 : "Фото сообщества"}
           </span>
-          {canDelete(photo) && (
+          {!("image_url" in photo) && canDelete(photo) && (
             <Button variant="ghost" onClick={() => setDeleting(photo.id)}>
               <Trash2 size={14} /> Удалить фото
             </Button>
           )}
           <a
-            href={`/api/photos/${photo.id}/content`}
+            href={"image_url" in photo ? photo.image_url : `/api/photos/${photo.id}/content`}
             target="_blank"
             rel="noreferrer"
           >
             Открыть фото <ExternalLink size={13} />
           </a>
+          {"image_url" in photo && (
+            <a href={photo.source_url} target="_blank" rel="noreferrer">
+              Geocaching · источник <ExternalLink size={13} />
+            </a>
+          )}
         </div>
       )}
       {photos.length > 1 && (
@@ -138,7 +167,11 @@ export function PhotoGallery({
               aria-pressed={i === index}
               onClick={() => setSelected(i)}
             >
-              <PlacePhoto key={item.id} id={item.id} alt="" compact />
+              {"image_url" in item ? (
+                <SourceImage photo={item} alt="" />
+              ) : (
+                <PlacePhoto key={item.id} id={item.id} alt="" compact />
+              )}
               <span>{String(i + 1).padStart(2, "0")}</span>
             </button>
           ))}

@@ -5,7 +5,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 import httpx
 from sqlalchemy import text
 from urbex.domain.rules import DomainError
@@ -606,7 +606,8 @@ def _location_owns_geo_hint(hint: str, location_tokens: set[str]) -> bool:
 
 def _has_foreign_geo(blob: str, location_tokens: set[str]) -> bool:
     for hint in _FOREIGN_GEO:
-        if hint not in blob:
+        # City stems must start a word: Новокузьминская is not Минск.
+        if not re.search(r'(?<!\w)' + re.escape(hint), blob):
             continue
         # Hint is part of our own location (e.g. place in Sochi).
         if _location_owns_geo_hint(hint, location_tokens):
@@ -632,6 +633,13 @@ def _host_of(url: str) -> str:
 
 
 def _is_junk_photo(item: dict) -> bool:
+    if _is_generic_shelter_article(item):
+        return True
+    # MediaWiki interface graphics are not photographs of the object.
+    for key in ('image_url', 'thumbnail_url'):
+        path = unquote(urlparse(str(item.get(key) or '')).path).casefold()
+        if re.search(r'(?:^|/|\d+px-)(?:commons-logo|wikipedia-logo|disambig|ambox|question_book|question_book-new|dialog-warning|edit-clear)(?:[_.-]|$)', path):
+            return True
     blob = ' '.join(
         str(item.get(key) or '')
         for key in ('title', 'source_url', 'image_url', 'thumbnail_url')
@@ -839,6 +847,10 @@ def _matches_place(
     location_tokens = _location_tokens(place)
     fine_location = _fine_location_tokens(place)
 
+    if re.search(r'\b(?:бомбоубежищ|убежищ|бункер)[а-яё]*\b', name.casefold()):
+        if not _matches_shelter_identity(item, place):
+            return False
+
     # A company's headquarters is not its remote testing facility.
     if re.search(r'\bполигон[а-яё]*\b', name.casefold()):
         evidence = _item_text_blob(item, ('title', 'snippet', 'source_url', 'url'))
@@ -950,6 +962,40 @@ def _matches_place(
     return False
 
 
+def _matches_shelter_identity(item: dict, place: dict) -> bool:
+    """A shelter category and a shared city cannot identify an individual site."""
+    urls = {str(item.get(key) or '').rstrip('/') for key in ('url', 'source_url')}
+    for link in links_from_description(str(place.get('description') or '')):
+        if link['url'].rstrip('/') in urls:
+            return True
+        # Wikimapia URLs may differ in language and title but share the object ID.
+        reference = re.match(r'https?://(?:www\.)?wikimapia\.org/(\d+)(?:/|$)', link['url'])
+        if reference and any(re.match(
+            rf'https?://(?:www\.)?wikimapia\.org/{reference[1]}(?:/|$)', url,
+        ) for url in urls):
+            return True
+
+    evidence = _item_text_blob(item, ('title', 'snippet')).replace('ё', 'е')
+    address = str(place.get('full_address') or place.get('region') or '')
+    # Require the street name, not the city, district, CDN path or search query.
+    street = re.search(
+        r'(?:^|,)\s*(?:улица|ул\.)\s+([^,]+)|(?:^|,)\s*([^,]+?)\s+улица\b',
+        address, re.IGNORECASE,
+    )
+    if street:
+        tokens = _significant_tokens(street[1] or street[2])
+        if tokens:
+            return all(_blob_has_any(evidence, {token.replace('ё', 'е')}) for token in tokens)
+
+    name = re.sub(r'\((?:ru|en)\)', '', str(place.get('name') or ''), flags=re.IGNORECASE)
+    generic = {'убежище', 'убежища', 'бомбоубежище', 'бомбоубежища', 'бункер',
+               'гражданской', 'обороны', 'го', 'подземное', 'стандартное'}
+    name = re.sub(r'\b(?:' + '|'.join(map(re.escape, generic)) + r')\b', '', name,
+                  flags=re.IGNORECASE)
+    cues = _unique_name_tokens(name)
+    return bool(cues) and all(_blob_has_any(evidence, {cue}) for cue in cues)
+
+
 def _filter_photos(photos: list[dict], place: dict) -> list[dict]:
     description_urls = {
         item['url'].rstrip('/')
@@ -967,8 +1013,42 @@ def _filter_photos(photos: list[dict], place: dict) -> list[dict]:
     ]
 
 
+def _is_generic_shelter_article(item: dict) -> bool:
+    """Reject category definitions, including every image sourced from them."""
+    generic_titles = {
+        'убежище', 'убежище гражданской обороны', 'бомбоубежище',
+        'противорадиационное укрытие', 'бункер', 'гражданская оборона',
+        'bomb shelter', 'air raid shelter', 'fallout shelter',
+    }
+    title = str(item.get('title') or '').casefold().strip()
+    title = re.sub(r'\s*[—–|\-]\s*(?:википедия|wikipedia)\s*$', '', title).strip()
+    # Search titles often append the publisher's domain, e.g. "... - fire.info".
+    # Strip only a domain/publisher matching the URL, not an object address.
+    parts = re.split(r'\s+[—–|\-]\s+', title)
+    if len(parts) > 1:
+        publisher = parts[-1].strip().removeprefix('www.')
+        hosts = {
+            _host_of(str(item.get(key) or '')).removeprefix('www.')
+            for key in ('source_url', 'url')
+        } - {''}
+        if publisher in hosts or re.fullmatch(r'(?:[\w-]+\.)+[a-zа-я]{2,}', publisher):
+            title = ' - '.join(parts[:-1]).strip()
+    if title in generic_titles:
+        return True
+    for key in ('source_url', 'url'):
+        url = str(item.get(key) or '')
+        host = _host_of(url)
+        if host == 'wikipedia.org' or host.endswith('.wikipedia.org'):
+            page = unquote(urlparse(url).path).removeprefix('/wiki/').replace('_', ' ').casefold()
+            if page in generic_titles:
+                return True
+    return False
+
+
 def _is_junk_source(item: dict) -> bool:
     """Drop catalog listing pages that are not about one place."""
+    if _is_generic_shelter_article(item):
+        return True
     blob = ' '.join(
         str(item.get(key) or '')
         for key in ('title', 'snippet', 'url')

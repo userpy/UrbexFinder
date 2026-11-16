@@ -1,5 +1,81 @@
 import pytest
+from urllib.parse import quote
 from urbex.infrastructure import osint
+
+
+@pytest.mark.parametrize('title', [
+    'Убежище гражданской обороны — Википедия',
+    'Бомбоубежище — Википедия',
+    'Убежище гражданской обороны',
+    'Фото двери убежища',
+])
+def test_generic_shelter_article_and_its_images_are_removed_from_cached_report(title):
+    place = {'name': 'Убежище', 'region': 'Москва',
+             'full_address': '1-я Новокузьминская улица, Москва'}
+    url = 'https://ru.wikipedia.org/wiki/' + quote('Убежище_гражданской_обороны')
+    unrelated = {
+        'title': title, 'snippet': 'Москва, история гражданской обороны',
+        'url': url, 'source_url': url,
+        'image_url': 'https://upload.wikimedia.org/wikipedia/commons/door.jpg',
+    }
+    relevant = {
+        'title': 'Больше не работает: Убежище, Москва, 1-я Новокузьминская',
+        'url': 'https://example.org/shelter/123',
+        'source_url': 'https://example.org/shelter/123',
+        'image_url': 'https://example.org/entrance.jpg',
+    }
+    report = osint._refilter_report({
+        'items': [unrelated, relevant], 'photos': [unrelated, relevant],
+    }, place)
+    assert report['items'] == [relevant]
+    assert report['photos'] == [relevant]
+    assert report['total'] == report['photos_total'] == 1
+
+
+@pytest.mark.parametrize('filename', [
+    '40px-Ambox_important.svg.png', 'Question_book-new.svg',
+    '50px-Commons-logo.svg.png', 'Disambig.svg',
+])
+def test_service_icons_are_not_object_photos(filename):
+    photo = {'title': 'Убежище в Москве',
+             'image_url': 'https://upload.wikimedia.org/wikipedia/commons/' + filename}
+    assert osint._filter_photos([photo], {'name': 'Убежище', 'region': 'Москва'}) == []
+
+
+def test_specific_shelter_wikipedia_article_is_not_blocked():
+    item = {'title': 'Бункер Сталина — Википедия',
+            'url': 'https://ru.wikipedia.org/wiki/' + quote('Бункер_Сталина'),
+            'image_url': 'https://upload.wikimedia.org/wikipedia/commons/entrance.jpg'}
+    assert not osint._is_junk_source(item)
+    assert not osint._is_junk_photo(item)
+
+
+@pytest.mark.parametrize('publisher', ['fire.info', 'www.fire.info', 'reference.example'])
+def test_generic_shelter_publisher_suffix_does_not_identify_an_object(publisher):
+    place = {'name': 'Убежище', 'region': 'Москва',
+             'full_address': '1-я Дубровская улица, Москва'}
+    unrelated = {
+        'title': f'Убежище гражданской обороны - {publisher}',
+        'url': 'https://fire.info/shelter', 'source_url': 'https://fire.info/shelter',
+        'image_url': 'https://fire.info/forest.jpg',
+    }
+    relevant = {
+        'title': 'Убежище, гражданская оборона, Москва, 1-я Дубровская ул., 6 — Яндекс Карты',
+        'url': 'https://yandex.ru/maps/org/123',
+        'source_url': 'https://yandex.ru/maps/org/123',
+        'image_url': 'https://example.org/entrance.jpg',
+    }
+    report = osint._refilter_report({'items': [unrelated, relevant],
+                                    'photos': [unrelated, relevant]}, place)
+    assert report['items'] == [relevant]
+    assert report['photos'] == [relevant]
+
+
+def test_shelter_address_after_dash_is_preserved():
+    assert not osint._is_junk_source({
+        'title': 'Убежище — Москва, 1-я Дубровская ул., 6',
+        'url': 'https://example.org/shelter',
+    })
 
 
 @pytest.mark.parametrize('region', ['', 'Тверская область'])
@@ -53,3 +129,46 @@ def test_summer_kindergarten_does_not_match_age_in_biography():
     assert osint._filter_photos([photo], place) == []
     inflected = dict(kindergarten, title='Фото летнего детского сада №1985')
     assert osint._filter_sources([inflected], place) == [inflected]
+
+
+def test_shelter_report_requires_object_identity_not_shared_city():
+    source = 'http://wikimapia.org/38437817/ru/Убежище-гражданской-обороны'
+    place = {
+        'name': 'Убежище гражданской обороны (ru)',
+        'region': 'Москва',
+        'full_address': 'улица Юлиана Семёнова, район Солнцево, Москва',
+        'description': source,
+    }
+    wrong = [
+        {'title': title, 'url': 'https://example.org/object',
+         'source_url': 'https://example.org/object',
+         'image_url': 'https://example.org/entrance.jpg'}
+        for title in [
+            'Бомбоубежище - Москва | Объект гражданской обороны',
+            'Бомбоубежище в городе Москва',
+            'Стандартное убежище ГО (Москва) / Подземное',
+            'Убежище, гражданская оборона, Москва, 1-я Дубровская ул., 6 — Яндекс Карты',
+            'Убежище гражданской обороны - fire.info',
+        ]
+    ]
+    report = osint._refilter_report({'items': wrong, 'photos': wrong,
+                                   'assessment': {}}, place)
+    assert [item['url'] for item in report['items']] == [source]
+    assert report['photos'] == []
+    assert report['assessment'] == osint.assess_osint_items(report['items'])
+    assert osint._matches_shelter_identity({
+        'source_url': 'https://wikimapia.org/38437817/en/Shelter',
+    }, place)
+    assert osint._matches_shelter_identity({
+        'title': 'Убежище на улице Юлиана Семенова, Москва',
+    }, place)
+    assert not osint._matches_shelter_identity({
+        'source_url': 'https://wikimapia.org/384378170/en/Shelter',
+    }, place)
+
+
+def test_generic_shelter_without_address_does_not_match_city_alone():
+    assert osint._filter_sources([{
+        'title': 'Убежище, Москва, Дубровская улица',
+        'url': 'https://example.org/object',
+    }], {'name': 'Убежище гражданской обороны (ru)', 'region': 'Москва'}) == []
