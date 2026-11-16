@@ -98,6 +98,7 @@ type SourceKind =
   | "swalker"
   | "caves"
   | "planetadorog"
+  | "podmoskovnye"
   | "urbexstalker"
   | "dzen"
   | "web";
@@ -134,6 +135,8 @@ function sourceKindFor(item: {
   if (sourceUrl) {
     try {
       const host = new URL(sourceUrl).hostname.toLowerCase();
+      if (host === "podmoskovnye.ru" || host.endsWith(".podmoskovnye.ru"))
+        return "podmoskovnye";
       if (host === "wikimapia.org" || host.endsWith(".wikimapia.org"))
         return "wikimapia";
     } catch {
@@ -360,7 +363,20 @@ function WikimapiaGlyph({ size = 12 }: { size?: number }) {
   );
 }
 
+function PodmoskovnyeGlyph({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+      {/* Simplified lady in a hat from the estate site's wordmark. */}
+      <path d="M8 3.7c.7-1.2 2.3-1.8 4-1.3l1.5 1.2 3 .5-.4 1.1-8.8-.5-.8-.7ZM10 5.4h3l-.1 2-1.1 1.3-1.5-.8-.7-1.3Z" />
+      <path d="m10.4 8.5 2.3.2 1.1 3.8 2.1 1-.5 1.1-2.7-1.2-.1 3.4c.3 2.3 1.4 3.9 3.5 4.7H5.8c2.2-2.1 2.9-4.9 3.2-8.3l-.8-1.5.7-2.3Z" />
+      <path d="m15.3 13.9 1.6 7.5" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M3 22h18" fill="none" stroke="#84b879" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function SourceGlyph({ kind }: { kind: SourceKind }) {
+  if (kind === "podmoskovnye") return <PodmoskovnyeGlyph />;
   if (kind === "vk") return <VkGlyph size={12} />;
   if (kind === "youtube") return <Youtube size={12} aria-hidden="true" />;
   if (kind === "rutube") return <Video size={12} aria-hidden="true" />;
@@ -387,6 +403,7 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
   swalker: "Swalker",
   caves: "Caves",
   planetadorog: "Планета",
+  podmoskovnye: "Подмосковные",
   urbexstalker: "Stalker",
   dzen: "Дзен",
   web: "Web",

@@ -489,3 +489,5 @@ body {
   .shared-route-page { padding: 28px 18px; }
   .shared-route-stop { padding: 12px; }
 }
+
+.osint-source-badge.is-podmoskovnye{border-color:#607c73;color:#d5e9e7}
