@@ -1,8 +1,8 @@
-"""Trusted links from place.description, with optional VK / Dzen / Yandex Maps photos."""
+"""Trusted links from place.description, with optional VK / Dzen / Maps / page photos."""
 from __future__ import annotations
 import logging
 import re
-from urllib.parse import quote, unquote, urlencode, urlparse
+from urllib.parse import quote, unquote, urlencode, urljoin, urlparse
 import httpx
 
 _log = logging.getLogger(__name__)
@@ -44,7 +44,42 @@ _VK_IMG_SKIP = (
 _MAX_DZEN_PHOTOS = 12
 _MAX_YMAPS_PHOTOS = 12
 _MAX_URBAN3P_PHOTOS = 12
+_MAX_GENERIC_PHOTOS = 12
+_MAX_GENERIC_PER_PAGE = 6
 _URBAN3P_HOSTS = frozenset({'urban3p.ru', 'www.urban3p.ru'})
+_GENERIC_BROWSER_HEADERS = {
+    'User-Agent': (
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    ),
+    'Accept': 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+}
+_GENERIC_IMG_RE = re.compile(
+    r'<img\b[^>]*?\bsrc=["\']([^"\']+)["\']',
+    re.IGNORECASE | re.DOTALL,
+)
+_GENERIC_TITLE_RE = re.compile(
+    r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']'
+    r'|<title[^>]*>(.*?)</title>',
+    re.IGNORECASE | re.DOTALL,
+)
+_GENERIC_ARTICLE_RE = re.compile(
+    r'itemprop=["\']articleBody["\'][^>]*>(.*?)(?:</div>\s*<div\b|</article>|</section>)',
+    re.IGNORECASE | re.DOTALL,
+)
+_GENERIC_SKIP_FRAGMENTS = (
+    'logo', 'favicon', 'sprite', 'emoji', 'icon', 'arrow', 'loader',
+    'avatar', 'button', 'badge', 'pixel', 'tracker', 'spinner',
+    '/media/system/', '/components/', '/templates/', '/modules/',
+    'yandex.ru/watch', 'mc.yandex', 'counter', 'captcha',
+    '1x1', 'blank.', 'spacer', 'placeholder',
+)
+_GENERIC_CONTENT_HINTS = (
+    '/images/stories/', '/photos/', '/photo/', '/uploads/',
+    '/wp-content/uploads/', '/media/', '/gallery/', '/content/',
+    '/files/', '/img/', '/images/',
+)
 _URBAN3P_OBJECT_RE = re.compile(
     r'(?:https?:)?//(?:www\.)?urban3p\.ru/object(?P<oid>\d+)\b',
     re.IGNORECASE,
@@ -149,6 +184,9 @@ def links_from_description(description: str) -> list[dict]:
                 else 'dzen' if _is_dzen_url(url)
                 else 'yandex_maps' if _is_ymaps_url(url)
                 else 'urban3p' if _is_urban3p_url(url)
+                else 'swalker' if _is_swalker_url(url)
+                else 'youtube' if _is_youtube_url(url)
+                else 'rutube' if _is_rutube_url(url)
                 else 'link'
             ),
             'score': 10.0,
@@ -1141,32 +1179,46 @@ def _urban3p_html_ok(text: str, final_url: str = '') -> str:
     return body
 
 
+# Urban3P fingerprinting is flaky; prefer modern Chrome profiles that still handshake.
+_URBAN3P_IMPERSONATE = (
+    'chrome136',
+    'chrome131',
+    'chrome124',
+    'chrome110',
+    'chrome120',
+    'firefox135',
+    'edge101',
+)
+_URBAN3P_IMG_HOSTS = ('img04', 'img03', 'img02', 'img01', 'img')
+
+
 def _fetch_urban3p_html_impersonated(url: str) -> str:
     """Urban3P closes plain OpenSSL handshakes; browser TLS impersonation works."""
     try:
         from curl_cffi import requests as curl_requests
     except ImportError:
         return ''
-    # Prefer profiles that currently complete the handshake from this image.
-    for impersonate in ('edge101', 'chrome120', 'chrome110', 'safari17_0'):
-        try:
-            response = curl_requests.get(
-                url,
-                impersonate=impersonate,
-                timeout=20,
-                headers=_URBAN3P_BROWSER_HEADERS,
-                allow_redirects=True,
-            )
-            if int(getattr(response, 'status_code', 0) or 0) >= 400:
+    # First pass: all profiles; retry only the most reliable ones on SSL flaps.
+    for batch in (_URBAN3P_IMPERSONATE, _URBAN3P_IMPERSONATE[:2]):
+        for impersonate in batch:
+            try:
+                response = curl_requests.get(
+                    url,
+                    impersonate=impersonate,
+                    timeout=12,
+                    headers=_URBAN3P_BROWSER_HEADERS,
+                    allow_redirects=True,
+                )
+                if int(getattr(response, 'status_code', 0) or 0) >= 400:
+                    continue
+                html = _urban3p_html_ok(
+                    response.text or '',
+                    str(getattr(response, 'url', '') or url),
+                )
+                if html:
+                    return html
+            except Exception:
                 continue
-            html = _urban3p_html_ok(
-                response.text or '',
-                str(getattr(response, 'url', '') or url),
-            )
-            if html:
-                return html
-        except Exception:
-            continue
     _log.warning('Urban3P impersonated fetch failed for %s', url)
     return ''
 
@@ -1190,6 +1242,11 @@ def _fetch_urban3p_html(url: str) -> str:
         return ''
 
 
+def _urban3p_cover_urls(oid: str) -> list[str]:
+    """Stable cover URL(s) when the object HTML cannot be fetched."""
+    return [f'https://{host}.urban3p.ru/up/o/{oid}/photo.jpg' for host in _URBAN3P_IMG_HOSTS[:1]]
+
+
 def urban3p_photos_for_links(
     links: list[dict],
     limit: int = _MAX_URBAN3P_PHOTOS,
@@ -1210,14 +1267,16 @@ def urban3p_photos_for_links(
         seen_objects.add(oid)
         page_url = _urban3p_object_url(oid)
         html = _fetch_urban3p_html(page_url)
-        if not html:
-            continue
         title = (
             str(link.get('title') or '').strip()
-            or _urban3p_title_from_html(html)
+            or (_urban3p_title_from_html(html) if html else '')
             or 'Фото с Urban3P'
         )[:300]
-        for image in _extract_urban3p_image_urls(html, oid):
+        images = _extract_urban3p_image_urls(html, oid) if html else []
+        if not images:
+            # Page TLS often flaps; cover path is enough to avoid an empty gallery.
+            images = _urban3p_cover_urls(oid)
+        for image in images:
             if len(photos) >= limit:
                 break
             key = image.rstrip('/').casefold()
@@ -1236,6 +1295,485 @@ def urban3p_photos_for_links(
     return photos
 
 
+_MAX_SWALKER_PHOTOS = 12
+_SWALKER_HOSTS = frozenset({'swalker.ru', 'www.swalker.ru', 'swalker.org', 'www.swalker.org'})
+_SWALKER_UPLOAD_RE = re.compile(
+    r'(?:https?:)?(?://(?:www\.)?swalker\.(?:ru|org))?(/uploads/posts/\d{4}-\d{2}/(?:thumbs/)?'
+    r'[^\"\'\s<>]+\.(?:jpe?g|png|webp))',
+    re.IGNORECASE,
+)
+_SWALKER_FOLDER_RE = re.compile(r'/uploads/posts/(\d{4}-\d{2})/', re.IGNORECASE)
+
+
+def _is_swalker_url(url: str) -> bool:
+    host = (urlparse(url).hostname or '').casefold()
+    return host in _SWALKER_HOSTS or host.endswith('.swalker.ru') or host.endswith('.swalker.org')
+
+
+def _normalize_swalker_image(url: str, page_url: str = 'https://swalker.ru/') -> str | None:
+    text = str(url or '').strip().replace('\\/', '/')
+    if text.startswith('//'):
+        text = 'https:' + text
+    absolute = urljoin(page_url, text)
+    # Prefer full-size gallery files over CMS thumbs.
+    absolute = re.sub(
+        r'(/uploads/posts/\d{4}-\d{2}/)thumbs/',
+        r'\1',
+        absolute,
+        flags=re.IGNORECASE,
+    )
+    parsed = _http_url(absolute)
+    if not parsed:
+        return None
+    lower = parsed.casefold()
+    if '/uploads/posts/' not in lower:
+        return None
+    if not re.search(r'\.(jpe?g|png|webp)(\?|$)', lower):
+        return None
+    if not _is_swalker_url(parsed):
+        # Relative /uploads/… resolved against swalker host above.
+        host = (urlparse(parsed).hostname or '').casefold()
+        if 'swalker.' not in host:
+            return None
+    return parsed
+
+
+def _extract_swalker_image_urls(html: str, page_url: str) -> list[str]:
+    """Pull article gallery photos; ignore sidebar thumbs from other posts."""
+    found: list[str] = []
+    seen: set[str] = set()
+    folders: list[str] = []
+
+    def add(raw: object) -> None:
+        url = _normalize_swalker_image(str(raw or ''), page_url)
+        if not url:
+            return
+        key = url.rstrip('/').casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(url)
+        folder = _SWALKER_FOLDER_RE.search(url)
+        if folder:
+            folders.append(folder.group(1))
+
+    for match in _OG_IMAGE_RE.finditer(html or ''):
+        add(match.group(1) or match.group(2))
+    # Highslide / lightbox links point at full-size report photos
+    # (relative /uploads/… and absolute https://swalker.ru/uploads/…).
+    for match in re.finditer(
+        r'(?:href|src)=["\']([^"\']*uploads/posts/[^"\']+)["\']',
+        html or '',
+        re.IGNORECASE,
+    ):
+        add(match.group(1))
+    if len(found) <= 1:
+        for match in _SWALKER_UPLOAD_RE.finditer(html or ''):
+            add(match.group(1))
+
+    if not found:
+        return []
+    # Keep the article folder (from og:image / first gallery), drop other posts.
+    primary = folders[0] if folders else None
+    if primary:
+        primary_urls = [url for url in found if f'/uploads/posts/{primary}/' in url.casefold()]
+        if primary_urls:
+            return primary_urls
+    return found
+
+
+def _fetch_swalker_html(url: str) -> str:
+    try:
+        with httpx.Client(
+            timeout=15.0,
+            follow_redirects=True,
+            headers=_GENERIC_BROWSER_HEADERS,
+        ) as client:
+            response = client.get(url)
+            if response.status_code >= 400:
+                return ''
+            text = response.text or ''
+            if len(text) < 400:
+                return ''
+            return text
+    except httpx.HTTPError:
+        _log.warning('Swalker fetch failed for %s', url)
+        return ''
+
+
+def swalker_photos_for_links(
+    links: list[dict],
+    limit: int = _MAX_SWALKER_PHOTOS,
+) -> list[dict]:
+    """Soft-scrape report gallery photos from Swalker article links."""
+    if limit <= 0:
+        return []
+    photos: list[dict] = []
+    seen: set[str] = set()
+    seen_pages: set[str] = set()
+    for link in links:
+        if len(photos) >= limit:
+            break
+        url = str(link.get('url') or '')
+        if not url or not _is_swalker_url(url):
+            continue
+        page_key = url.rstrip('/').casefold()
+        if page_key in seen_pages:
+            continue
+        seen_pages.add(page_key)
+        html = _fetch_swalker_html(url)
+        if not html:
+            continue
+        title = (
+            str(link.get('title') or '').strip()
+            or _generic_title_from_html(html)
+            or 'Фото со Swalker'
+        )[:300]
+        for image in _extract_swalker_image_urls(html, url):
+            if len(photos) >= limit:
+                break
+            key = image.rstrip('/').casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            photos.append({
+                'title': title,
+                'image_url': image,
+                'thumbnail_url': image,
+                'source_url': url[:2000],
+                'engine': 'swalker',
+                'score': 12.0,
+                'query': url,
+            })
+    return photos
+
+
+_MAX_YOUTUBE_PHOTOS = 12
+_MAX_RUTUBE_PHOTOS = 12
+_YOUTUBE_ID_RE = re.compile(
+    r'(?:youtube\.com/(?:watch\?(?:[^#]*&)?v=|embed/|shorts/|live/)|youtu\.be/)'
+    r'(?P<id>[A-Za-z0-9_-]{6,})',
+    re.IGNORECASE,
+)
+_RUTUBE_ID_RE = re.compile(
+    r'rutube\.ru/(?:video|play/embed)/(?P<id>[0-9a-f]{32})',
+    re.IGNORECASE,
+)
+
+
+def _is_youtube_url(url: str) -> bool:
+    host = (urlparse(url).hostname or '').casefold()
+    return host in {'youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'www.youtu.be'} or host.endswith('.youtube.com')
+
+
+def _is_rutube_url(url: str) -> bool:
+    host = (urlparse(url).hostname or '').casefold()
+    return host in {'rutube.ru', 'www.rutube.ru', 'm.rutube.ru'} or host.endswith('.rutube.ru')
+
+
+def _youtube_video_id(url: str) -> str | None:
+    match = _YOUTUBE_ID_RE.search(url or '')
+    return match.group('id') if match else None
+
+
+def _rutube_video_id(url: str) -> str | None:
+    match = _RUTUBE_ID_RE.search(url or '')
+    return match.group('id') if match else None
+
+
+def youtube_photos_for_links(
+    links: list[dict],
+    limit: int = _MAX_YOUTUBE_PHOTOS,
+) -> list[dict]:
+    """Use public YouTube thumbnails for video links (no page scrape)."""
+    if limit <= 0:
+        return []
+    photos: list[dict] = []
+    seen: set[str] = set()
+    for link in links:
+        if len(photos) >= limit:
+            break
+        url = str(link.get('url') or '')
+        video_id = _youtube_video_id(url)
+        if not video_id or video_id in seen:
+            continue
+        seen.add(video_id)
+        image = f'https://i.ytimg.com/vi/{video_id}/hqdefault.jpg'
+        title = (str(link.get('title') or '').strip() or 'Видео на YouTube')[:300]
+        photos.append({
+            'title': title,
+            'image_url': image,
+            'thumbnail_url': image,
+            'source_url': f'https://www.youtube.com/watch?v={video_id}',
+            'engine': 'youtube',
+            'score': 11.5,
+            'query': url,
+        })
+    return photos
+
+
+def _rutube_thumbnail(video_id: str) -> tuple[str | None, str]:
+    """Return (thumbnail_url, title) via Rutube API."""
+    try:
+        with httpx.Client(
+            timeout=12.0,
+            follow_redirects=True,
+            headers=_GENERIC_BROWSER_HEADERS,
+        ) as client:
+            response = client.get(f'https://rutube.ru/api/video/{video_id}/')
+            if response.status_code >= 400:
+                return None, ''
+            data = response.json() if response.content else {}
+            if not isinstance(data, dict):
+                return None, ''
+            thumb = _http_url(data.get('thumbnail_url') or data.get('poster_url'))
+            title = str(data.get('title') or '').strip()
+            return thumb, title
+    except (httpx.HTTPError, ValueError, TypeError):
+        _log.warning('Rutube API fetch failed for %s', video_id)
+        return None, ''
+
+
+def rutube_photos_for_links(
+    links: list[dict],
+    limit: int = _MAX_RUTUBE_PHOTOS,
+) -> list[dict]:
+    """Fetch Rutube video posters for video links."""
+    if limit <= 0:
+        return []
+    photos: list[dict] = []
+    seen: set[str] = set()
+    for link in links:
+        if len(photos) >= limit:
+            break
+        url = str(link.get('url') or '')
+        video_id = _rutube_video_id(url)
+        if not video_id or video_id in seen:
+            continue
+        seen.add(video_id)
+        image, api_title = _rutube_thumbnail(video_id)
+        if not image:
+            continue
+        title = (
+            str(link.get('title') or '').strip()
+            or api_title
+            or 'Видео на Rutube'
+        )[:300]
+        source = f'https://rutube.ru/video/{video_id}/'
+        photos.append({
+            'title': title,
+            'image_url': image,
+            'thumbnail_url': image,
+            'source_url': source,
+            'engine': 'rutube',
+            'score': 11.5,
+            'query': url,
+        })
+    return photos
+
+
+def _is_specialized_photo_url(url: str) -> bool:
+    return (
+        _is_vk_url(url)
+        or _is_dzen_url(url)
+        or _is_urban3p_url(url)
+        or _is_ymaps_url(url)
+        or _is_swalker_url(url)
+        or _is_youtube_url(url)
+        or _is_rutube_url(url)
+    )
+
+
+def _generic_engine_for(url: str) -> str:
+    host = (urlparse(url).hostname or '').casefold()
+    if 'planetadorog' in host:
+        return 'planetadorog'
+    if host == 'caves.ru' or host.endswith('.caves.ru'):
+        return 'caves'
+    if 'urbexstalker' in host:
+        return 'urbexstalker'
+    if 'swalker' in host:
+        return 'swalker'
+    return 'web_page'
+
+
+def _generic_image_ok(url: str) -> bool:
+    lower = url.casefold()
+    if not lower.startswith(('http://', 'https://')):
+        return False
+    if any(skip in lower for skip in _GENERIC_SKIP_FRAGMENTS):
+        return False
+    path = (urlparse(url).path or '').casefold()
+    if path.endswith(('.svg', '.gif', '.ico', '.webp.svg')):
+        return False
+    if re.search(r'\.(jpe?g|png|webp)(\?|$)', lower):
+        return True
+    # Some CMSes omit extension but put photos under clear paths.
+    return any(hint in lower for hint in _GENERIC_CONTENT_HINTS)
+
+
+def _extract_generic_image_urls(html: str, page_url: str) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: object) -> None:
+        text = str(raw or '').strip()
+        if not text or text.startswith(('data:', 'javascript:')):
+            return
+        absolute = urljoin(page_url, text.replace('\\/', '/'))
+        url = _http_url(absolute)
+        if not url or not _generic_image_ok(url):
+            return
+        key = url.rstrip('/').casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(url)
+
+    for match in _OG_IMAGE_RE.finditer(html or ''):
+        add(match.group(1) or match.group(2))
+
+    article = ''
+    article_match = _GENERIC_ARTICLE_RE.search(html or '')
+    if article_match:
+        article = article_match.group(1) or ''
+    scan = article or (html or '')
+    for match in _GENERIC_IMG_RE.finditer(scan):
+        add(match.group(1))
+
+    # Prefer content-looking paths first (stories/photos over random CDN).
+    found.sort(
+        key=lambda u: (
+            0 if any(h in u.casefold() for h in _GENERIC_CONTENT_HINTS) else 1,
+            len(u),
+        ),
+    )
+    return found
+
+
+def _generic_title_from_html(html: str) -> str:
+    match = _GENERIC_TITLE_RE.search(html or '')
+    if not match:
+        return ''
+    title = match.group(1) or match.group(2) or ''
+    title = re.sub(r'<[^>]+>', '', title)
+    title = re.sub(r'\s+', ' ', title).strip()
+    return title[:300]
+
+
+def _fetch_generic_html(url: str) -> str:
+    try:
+        with httpx.Client(
+            timeout=15.0,
+            follow_redirects=True,
+            headers=_GENERIC_BROWSER_HEADERS,
+        ) as client:
+            response = client.get(url)
+            if response.status_code >= 400:
+                return ''
+            text = response.text or ''
+            if len(text) < 400:
+                return ''
+            return text
+    except httpx.HTTPError:
+        _log.warning('Generic page fetch failed for %s', url)
+        return ''
+
+
+_MAX_GENERIC_PAGES = 5
+
+
+def generic_page_photos_for_links(
+    links: list[dict],
+    limit: int = _MAX_GENERIC_PHOTOS,
+    *,
+    max_pages: int = _MAX_GENERIC_PAGES,
+) -> list[dict]:
+    """Soft-scrape article images from ordinary http(s) links (Планета дорог, caves, web)."""
+    if limit <= 0:
+        return []
+    photos: list[dict] = []
+    seen: set[str] = set()
+    seen_pages: set[str] = set()
+    pages_fetched = 0
+    for link in links:
+        if len(photos) >= limit or pages_fetched >= max_pages:
+            break
+        url = str(link.get('url') or '')
+        if not url or _is_specialized_photo_url(url):
+            continue
+        page_key = url.rstrip('/').casefold()
+        if page_key in seen_pages:
+            continue
+        seen_pages.add(page_key)
+        html = _fetch_generic_html(url)
+        pages_fetched += 1
+        if not html:
+            continue
+        title = (
+            str(link.get('title') or '').strip()
+            or _generic_title_from_html(html)
+            or 'Фото со страницы'
+        )[:300]
+        engine = _generic_engine_for(url)
+        page_count = 0
+        for image in _extract_generic_image_urls(html, url):
+            if len(photos) >= limit or page_count >= _MAX_GENERIC_PER_PAGE:
+                break
+            key = image.rstrip('/').casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            photos.append({
+                'title': title,
+                'image_url': image,
+                'thumbnail_url': image,
+                'source_url': url[:2000],
+                'engine': engine,
+                'score': 10.5 if engine == 'web_page' else 11.0,
+                'query': url,
+            })
+            page_count += 1
+    return photos
+
+
+def site_photos_for_links(
+    links: list[dict],
+    limit: int = _MAX_VK_PHOTOS,
+    *,
+    vk_token: str = '',
+) -> list[dict]:
+    """VK + Urban3P + Swalker + YouTube + Rutube + Планета/caves/web galleries."""
+    if limit <= 0:
+        return []
+    # Fetch each family with its own budget, then round-robin so one report
+    # cannot crowd out YouTube/Rutube/Планета/VK.
+    family_limit = max(limit, 4)
+    buckets = [
+        vk_photos_for_links(vk_token, links, family_limit),
+        urban3p_photos_for_links(links, family_limit),
+        swalker_photos_for_links(links, family_limit),
+        youtube_photos_for_links(links, family_limit),
+        rutube_photos_for_links(links, family_limit),
+        generic_page_photos_for_links(links, family_limit),
+    ]
+    photos: list[dict] = []
+    seen: set[str] = set()
+    index = 0
+    while len(photos) < limit and any(buckets):
+        bucket = buckets[index % len(buckets)]
+        index += 1
+        if not bucket:
+            continue
+        item = bucket.pop(0)
+        key = str(item.get('image_url') or '').rstrip('/').casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        photos.append(item)
+    return photos
+
+
 def description_photos_for_links(
     links: list[dict],
     *,
@@ -1243,7 +1781,7 @@ def description_photos_for_links(
     limit: int = _MAX_VK_PHOTOS,
     place: dict | None = None,
 ) -> list[dict]:
-    """VK + Dzen + Yandex Maps + Urban3P photos from description / place lookup."""
+    """VK + Dzen + Maps + site/web/video photos from description links."""
     photos: list[dict] = []
     seen: set[str] = set()
 
@@ -1257,13 +1795,13 @@ def description_photos_for_links(
             seen.add(key)
             photos.append(item)
 
-    absorb(vk_photos_for_links(vk_token, links, limit))
-    if len(photos) < limit:
-        absorb(urban3p_photos_for_links(links, limit - len(photos)))
-    if len(photos) < limit:
-        absorb(dzen_photos_for_links(links, limit - len(photos)))
+    absorb(dzen_photos_for_links(links, limit))
     if len(photos) < limit:
         absorb(yandex_maps_photos_for_links(links, limit - len(photos)))
     if place is not None and len(photos) < limit:
         absorb(yandex_maps_photos_for_place(place, limit - len(photos)))
+    if len(photos) < limit:
+        absorb(site_photos_for_links(
+            links, limit - len(photos), vk_token=vk_token,
+        ))
     return photos

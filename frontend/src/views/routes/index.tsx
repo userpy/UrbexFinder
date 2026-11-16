@@ -12,9 +12,11 @@ import {
   ListRestart,
   Share2,
   Send,
+  Download,
 } from "lucide-react";
 import Link from "next/link";
 import { StatusPicker } from "./status-picker";
+import { downloadRouteGpx, downloadRouteKml } from "./export";
 import { useSession } from "@/entities/session";
 import { Place } from "@/entities/place";
 import { api, body, Page } from "@/shared/api";
@@ -64,7 +66,7 @@ export function RoutesView() {
     [],
   );
   useEffect(() => {
-    if (message !== "Сохранено") return;
+    if (!["Сохранено", "KML скачан", "GPX скачан"].includes(message)) return;
     const timer = setTimeout(() => setMessage(""), 3000);
     return () => clearTimeout(timer);
   }, [message]);
@@ -175,6 +177,50 @@ export function RoutesView() {
         ),
       });
   }
+  function exportPoints() {
+    if (!route) return [];
+    return route.stops.flatMap((stop) => {
+      const place = route.items?.find((item) => item.place_id === stop.place_id)
+        ?.place;
+      if (!place) return [];
+      return [
+        {
+          name: place.name,
+          latitude: place.latitude,
+          longitude: place.longitude,
+          description: place.region || place.full_address || undefined,
+        },
+      ];
+    });
+  }
+  async function shareRoute() {
+    if (!route) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setShareCopied(false);
+    if (shareNoticeTimer.current) clearTimeout(shareNoticeTimer.current);
+    try {
+      const { token } = await api<{ token: string }>(
+        `/itineraries/${route.id}/share`,
+        { method: "POST" },
+      );
+      const shareUrl = new URL(
+        `/routes/share?token=${encodeURIComponent(token)}`,
+        window.location.origin,
+      );
+      await navigator.clipboard.writeText(shareUrl.toString());
+      setShareCopied(true);
+      shareNoticeTimer.current = setTimeout(() => setShareCopied(false), 2500);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Не удалось скопировать ссылку",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  const canExportRoute = !!route && exportPoints().length > 0;
   if (loading) return <main className="page routes-page">Загрузка…</main>;
   if (!user)
     return (
@@ -407,47 +453,6 @@ export function RoutesView() {
                 {editing ? "Скрыть редактирование" : "Редактировать"}
               </Button>
 
-              <Button
-                variant="outline"
-                type="button"
-                onClick={async () => {
-                  if (!route) return;
-                  setBusy(true);
-                  setError("");
-                  setMessage("");
-                  setShareCopied(false);
-                  if (shareNoticeTimer.current)
-                    clearTimeout(shareNoticeTimer.current);
-                  try {
-                    const { token } = await api<{ token: string }>(
-                      `/itineraries/${route.id}/share`,
-                      { method: "POST" },
-                    );
-                    const shareUrl = new URL(
-                      `/routes/share?token=${encodeURIComponent(token)}`,
-                      window.location.origin,
-                    );
-                    await navigator.clipboard.writeText(shareUrl.toString());
-                    setShareCopied(true);
-                    shareNoticeTimer.current = setTimeout(
-                      () => setShareCopied(false),
-                      2500,
-                    );
-                  } catch (e) {
-                    setError(
-                      e instanceof Error
-                        ? e.message
-                        : "Не удалось скопировать ссылку",
-                    );
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                <Share2 size={16} aria-hidden="true" />
-                Поделиться маршрутом
-              </Button>
-
               <Button onClick={() => void save()} disabled={!route.name.trim()}>
                 <Save size={16} aria-hidden="true" />
                 Сохранить маршрут
@@ -630,7 +635,11 @@ export function RoutesView() {
                 </table>
               </div>
             )}
-            <div className="route-send-actions">
+            <div
+              className="route-send-actions"
+              role="group"
+              aria-label="Поделиться и скачать маршрут"
+            >
               <Button
                 variant="outline"
                 onClick={async () => {
@@ -664,6 +673,51 @@ export function RoutesView() {
                 disabled={!route.name.trim()}
               >
                 <Send size={16} /> В Telegram
+              </Button>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => void shareRoute()}
+                disabled={!route.name.trim()}
+              >
+                <Share2 size={16} aria-hidden="true" />
+                Поделиться маршрутом
+              </Button>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => {
+                  const points = exportPoints();
+                  if (!points.length) {
+                    setError("В маршруте нет мест с координатами");
+                    return;
+                  }
+                  setError("");
+                  downloadRouteKml(route.name, points);
+                  setMessage("KML скачан");
+                }}
+                disabled={!canExportRoute}
+              >
+                <Download size={16} aria-hidden="true" />
+                Скачать KML
+              </Button>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => {
+                  const points = exportPoints();
+                  if (!points.length) {
+                    setError("В маршруте нет мест с координатами");
+                    return;
+                  }
+                  setError("");
+                  downloadRouteGpx(route.name, points);
+                  setMessage("GPX скачан");
+                }}
+                disabled={!canExportRoute}
+              >
+                <Download size={16} aria-hidden="true" />
+                Скачать GPX
               </Button>
             </div>
           </fieldset>

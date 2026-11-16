@@ -1,4 +1,5 @@
 """OSINT report built from SearXNG (XNG) search results for a place card."""
+import json
 import logging
 import re
 import threading
@@ -6,12 +7,13 @@ import time
 from collections import OrderedDict
 from urllib.parse import urlparse
 import httpx
+from sqlalchemy import text
 from urbex.domain.rules import DomainError
 from urbex.infrastructure.osint_assess import assess_osint_items
 from urbex.infrastructure.osint_description import (
     description_photos_for_links,
     links_from_description,
-    urban3p_photos_for_links,
+    site_photos_for_links,
     vk_sources_for_links,
 )
 
@@ -57,6 +59,11 @@ _IMAGE_JUNK_HOSTS = (
     'avito.ru', 'avito.st', 'cian.ru', 'cdn-cian.ru', 'youla.ru',
     'domclick.ru', 'mirkvartir.ru', 'realty.', 'n1.ru', 'move.ru',
     'sob.ru', 'jcat.ru', 'restate.ru',
+    # Wire / news agencies — drown place searches with geopolitics.
+    'tass.ru', 'tass.com', 'ria.ru', 'rbc.ru', 'lenta.ru', 'interfax.',
+    'gazeta.ru', 'kommersant.ru', 'iz.ru', 'vedomosti.ru', 'forbes.ru',
+    'bbc.', 'reuters.', 'cnn.', 'unian.', 'eurointegration.', 'pravda.com',
+    'meduza.io', 'currenttime.tv', 'svoboda.org', 'dw.com',
 )
 _IMAGE_JUNK_TERMS = (
     'backrooms', 'creepypasta', 'liminal space', 'liminalspace',
@@ -83,6 +90,11 @@ _IMAGE_JUNK_TERMS = (
     'зенитн', 'ракетн комплекс', 'ракетной комплекс', 'ракетный комплекс',
     'индия формирует', 'единую систему', 'пво на базе', 'триумф»',
     'фапси', 'день фапси', 'фсб день', 'день вкс',
+    # Agency / geopolitics noise (ТАСС logo thumbnails, etc.).
+    ' агентство тасс', 'агентства тасс', 'тасс виключ', 'тасс исключ',
+    'ріа новин', 'риа новости', 'european association',
+    'європейськ', 'европейск', 'асоціац', 'ассоциац',
+    'информационн агент', 'інформаційн агент',
 )
 _TOKEN_STOP = frozenset({
     'это', 'или', 'для', 'при', 'под', 'над', 'без', 'как', 'что',
@@ -141,6 +153,9 @@ _FOREIGN_GEO = (
     'вологод', 'карел', 'коми', 'ставропол', 'дагестан', 'чечен', 'крым',
     'севастопол', 'башкир', 'татарстан', 'удмурт', 'чуваш', 'марий',
     'шачино', 'зубова',
+    # Cities often omitted when only the republic stem is listed.
+    'ижевск', 'уфа', 'чебоксар', 'йошкар', 'сыктывкар', 'набережн',
+    'тольятти', 'барнаул', 'магнитогорск', 'нижнекамск',
     # NW / Spb — many camps share names like «Волна» with MO sites.
     'ленинградск', 'ленинград', 'ленобласт', 'петербург', 'петроград',
     'питер', 'спб', 'кронштадт', 'выборг',
@@ -162,7 +177,9 @@ _COMMON_PLACE_NAMES = frozenset({
     'березки', 'берёзки', 'березка', 'берёзка', 'сосенки', 'дубки', 'елочки',
     'ёлочки', 'рощин', 'лесной', 'лесная', 'речной', 'озерн',
     'волна', 'маяк', 'горизонт', 'рассвет', 'чайка', 'орёл', 'орел',
+    'дзержинец', 'дзержинский', 'дзержинская',
     'воскресенки', 'воскресенка', 'воскресенск',
+    'пушкино', 'пушкинский', 'пушкинская', 'пушкинское',
     'пионерский', 'пионер', 'детский', 'оздоровительный',
     'база', 'базы', 'отдых', 'отдыха', 'турбаза',
 })
@@ -175,7 +192,22 @@ _REGION_LABEL_RE = re.compile(
 _REGION_LABEL_NOISE = frozenset({
     'российская', 'российский', 'федеральная', 'федеральный', 'автономная',
     'автономный', 'центральный', 'южный', 'северный', 'западный', 'восточный',
+    # «городской округ Пушкинский» is a district form, not an oblast name.
+    'городской', 'городская', 'муниципальный', 'муниципальная',
+    'административный', 'административная',
 })
+# Museums / memorial expos often steal military image search.
+_MILITARY_OFFTOPIC_TERMS = (
+    'музей', 'museum', 'экспозиц', 'мемориальн', 'выставк',
+    'бжрк', 'боевой железнодорож',
+)
+# «Лагерь завода Слава» vs «завод Слава» share the brand but are different sites.
+_CAMP_STRUCTURE_MARKERS = (
+    'лагер', 'пионерлагер', 'детлагер', 'оздоровлагер',
+)
+_FACTORY_STRUCTURE_MARKERS = (
+    'завод', 'фабрика', 'комбинат', 'мануфактур',
+)
 
 
 def _coords(place: dict) -> tuple[float, float] | None:
@@ -196,10 +228,90 @@ def _is_urbex_site_url(url: str) -> bool:
     return any(host == domain or host.endswith('.' + domain) for domain in _URBEX_SITE_DOMAINS)
 
 
+_STREET_PART_RE = re.compile(
+    r'\b(?:улица|ул\.|проспект|пр-т|переулок|пер\.|шоссе|проезд|набережная|'
+    r'тупик|площадь|бульвар|аллея|дорога)\b',
+    re.IGNORECASE,
+)
+_ADMIN_PART_RE = re.compile(
+    r'\b(?:область|край|республик\w*|федеральн\w*|район|округ|россия)\b',
+    re.IGNORECASE,
+)
+_PLACE_TYPE_PART_RE = re.compile(
+    r'\b(?:лагер|усадьб|завод|фабрик|школ|храм|церк|дворец|памятник|здание|'
+    r'бассейн|территория)\w*\b',
+    re.IGNORECASE,
+)
+_COMPACT_REGION_RE = re.compile(
+    r'((?:[А-Яа-яЁёA-Za-z-]{3,}(?:\s+[А-Яа-яЁёA-Za-z-]{3,})?\s+'
+    r'(?:область|край))|республика\s+[А-Яа-яЁёA-Za-z-]+|'
+    r'г\.?\s*Москва|\bМосква\b)',
+    re.IGNORECASE,
+)
+_SITE_PREFIX_RE = re.compile(
+    r'^(?:СНТ|ДНТ|НСТ|ДОЛ|ТОС)\s*[«"\']?\s*',
+    re.IGNORECASE,
+)
+
+
+def _compact_region_label(place: dict) -> str:
+    """«Московская область» from a long Nominatim-style address dump."""
+    for field in ('region', 'full_address'):
+        match = _COMPACT_REGION_RE.search(str(place.get(field) or ''))
+        if match:
+            return match.group(1).strip()
+    region = (place.get('region') or '').strip()
+    return region if region and len(region) <= 80 else ''
+
+
+def _settlement_label(place: dict) -> str:
+    """Locality from address/content: «Анашкино», «Лесниково», …"""
+    for field in ('full_address', 'region', 'description'):
+        text = str(place.get(field) or '')
+        for raw in re.split(r'\s*,\s*', text):
+            part = raw.strip().strip(' «»"\'')
+            if len(part) < 3:
+                continue
+            okrug = re.match(r'городской\s+округ\s+(.+)$', part, re.IGNORECASE)
+            if okrug:
+                name = okrug.group(1).strip(' «»"\'')
+                if len(name) >= 3 and not _ADMIN_PART_RE.search(name):
+                    return name[:80]
+                continue
+            if _STREET_PART_RE.search(part) or _ADMIN_PART_RE.search(part):
+                continue
+            if _PLACE_TYPE_PART_RE.search(part):
+                continue
+            if re.search(r'\d{3,}', part):
+                continue
+            cleaned = _SITE_PREFIX_RE.sub('', part).strip(' «»"\'')
+            if len(cleaned) < 3 or cleaned.isdigit():
+                continue
+            return cleaned[:80]
+    return ''
+
+
+def _search_location(place: dict) -> str:
+    """Settlement + compact region for SearXNG (avoids bare oblast-only queries)."""
+    settlement = _settlement_label(place)
+    region = _compact_region_label(place)
+    parts: list[str] = []
+    if settlement:
+        parts.append(settlement)
+    if region:
+        region_key = region.casefold()
+        settlement_key = settlement.casefold()
+        if region_key != settlement_key and settlement_key not in region_key:
+            parts.append(region)
+    if parts:
+        return ' '.join(parts)[:120]
+    return _short_location(place)
+
+
 def _urbex_site_query(place: dict) -> str:
     """Restrict SearXNG to known RU urbex catalogs."""
     name = (place.get('name') or '').strip()
-    location = _short_location(place)
+    location = _search_location(place)
     subject = ' '.join(part for part in (name, location) if part).strip()
     if not subject:
         return ''
@@ -207,9 +319,10 @@ def _urbex_site_query(place: dict) -> str:
 
 
 def _queries_for(place: dict) -> list[str]:
-    """Build SearXNG queries: urbex sites, then name+region, then coordinates."""
+    """Build SearXNG queries: urbex sites, then name+settlement/region, then coords."""
     name = (place.get('name') or '').strip()
-    location = _short_location(place)
+    location = _search_location(place)
+    settlement = _settlement_label(place)
     coords = _coords(place)
 
     queries: list[str] = []
@@ -217,9 +330,11 @@ def _queries_for(place: dict) -> list[str]:
     site_query = _urbex_site_query(place)
     if site_query:
         queries.append(site_query)
-    # Region before bare name — «Атлант» alone pulls Sochi camps.
+    # Settlement/region before bare name — «Атлант» alone pulls Sochi camps.
     if name and location and location.casefold() != name.casefold():
         queries.append(f'{name} {location}'[:200])
+    elif name and settlement:
+        queries.append(f'{name} {settlement}'[:200])
     elif name:
         queries.append(name[:200])
     if coords:
@@ -243,10 +358,10 @@ def _queries_for(place: dict) -> list[str]:
 
 
 def _short_location(place: dict) -> str:
-    region = (place.get('region') or '').strip()
-    address = (place.get('full_address') or '').strip()
-    if region and len(region) <= 80:
+    region = _compact_region_label(place)
+    if region:
         return region
+    address = (place.get('full_address') or '').strip()
     if address and len(address) <= 80:
         return address
     return ''
@@ -261,20 +376,22 @@ def _unit_numbers(text: str) -> set[str]:
 
 
 def _image_queries_for(place: dict) -> list[str]:
-    """Image queries: prefer location+coords; avoid bare generic names."""
+    """Image queries: prefer settlement/region+coords; avoid bare generic names."""
     name = (place.get('name') or '').strip()
-    location = _short_location(place)
+    location = _search_location(place)
     coords = _coords(place)
     distinctive = _distinctive_tokens(name)
     # Steer engines away from memes, games and classifieds.
     negative = (
+        ' -tass -риа -новости -агентство -музей'
         ' -backrooms -roblox -minecraft -wallpaper -pinterest'
         ' -avito -cian -продам -недострой'
     )
     if _is_military_place_name(name):
-        negative += (
-            ' -зрк -с-300 -с-400 -с-500 -пво'
-            ' -воздушно-космической -алмаз-антей -триумф'
+        # Keep short military negatives first — query strings are capped at 200 chars.
+        negative = (
+            ' -с-400 -с-300 -с-500 -пво -алмаз-антей -триумф -бжрк -музей'
+            + negative
         )
     queries: list[str] = []
     # Push image engines toward RU urbex catalogs first.
@@ -496,6 +613,26 @@ def _is_structure_only_name(name: str) -> bool:
     return not named
 
 
+def _has_any_marker(text: str, markers: tuple[str, ...]) -> bool:
+    blob = (text or '').casefold()
+    return any(marker in blob for marker in markers)
+
+
+def _structure_type_clash(place_name: str, blob: str) -> bool:
+    """True when the hit is clearly another site type (camp ↔ factory)."""
+    place_camp = _has_any_marker(place_name, _CAMP_STRUCTURE_MARKERS)
+    place_factory = _has_any_marker(place_name, _FACTORY_STRUCTURE_MARKERS)
+    item_camp = _has_any_marker(blob, _CAMP_STRUCTURE_MARKERS)
+    item_factory = _has_any_marker(blob, _FACTORY_STRUCTURE_MARKERS)
+    # Place is a camp (name may still mention an owner factory).
+    if place_camp and item_factory and not item_camp:
+        return True
+    # Place is a factory / plant, not a camp.
+    if place_factory and not place_camp and item_camp and not item_factory:
+        return True
+    return False
+
+
 def _matches_military_place(
     item: dict,
     place: dict,
@@ -507,6 +644,8 @@ def _matches_military_place(
     name = str(place.get('name') or '')
     # Ignore image CDN paths — random digits there collide with unit numbers.
     text_blob = _item_text_blob(item, ('title', 'snippet', 'source_url', 'url'))
+    if any(term in text_blob for term in _MILITARY_OFFTOPIC_TERMS):
+        return False
     if location_tokens and _has_foreign_geo(text_blob, location_tokens):
         return False
     unit_nums = _unit_numbers(name)
@@ -536,6 +675,9 @@ def _matches_place(
     location_tokens = _location_tokens(place)
     fine_location = _fine_location_tokens(place)
 
+    if _structure_type_clash(name, blob):
+        return False
+
     if _is_military_place_name(name):
         return _matches_military_place(
             item, place, location_tokens=location_tokens, fine_location=fine_location,
@@ -549,12 +691,31 @@ def _matches_place(
             if fine_location:
                 return _blob_has_any(blob, fine_location)
             return False
-        if not unique_tokens:
+        # Prefer rare codes (АЗЛК); otherwise keep non-generic name cues (Пушкино).
+        place_cues = unique_tokens or {
+            token for token in name_tokens
+            if token not in _GENERIC_PLACE_TOKENS
+            and token not in _STRUCTURE_TYPE_TOKENS
+        }
+        if not place_cues:
             return _blob_has_any(blob, location_tokens)
-        if _blob_has_any(blob, location_tokens):
-            return True
-        # Rare exception: unique codes/names (АЗЛК) with no competing geo.
-        return _blob_has_any(blob, unique_tokens)
+        # Region alone is not enough — that lets ТАСС/news through.
+        if not _blob_has_any(blob, place_cues):
+            return False
+        # Shared toponyms also need a region/district cue when we know one.
+        if not unique_tokens or (place_cues & _COMMON_PLACE_NAMES):
+            settlement = _settlement_label(place)
+            settlement_tokens = {
+                token for token in _significant_tokens(settlement)
+                if len(token) >= 4
+            }
+            # Prefer the locality from the card («Анашкино») over bare oblast.
+            if settlement_tokens and _blob_has_any(blob, settlement_tokens):
+                return True
+            if settlement_tokens and not _blob_has_any(blob, location_tokens):
+                return False
+            return _blob_has_any(blob, location_tokens)
+        return True
 
     if name_tokens:
         return _blob_has_any(blob, name_tokens)
@@ -742,6 +903,30 @@ def _merge(results: list[tuple[dict, ...]], key_name: str, limit: int) -> list[d
     return merged
 
 
+def _merge_round_robin(
+    results: list[tuple[dict, ...] | list[dict]],
+    key_name: str,
+    limit: int,
+) -> list[dict]:
+    """Interleave batches so Urban3P galleries and web image hits both survive."""
+    queues = [list(batch) for batch in results if batch]
+    merged: list[dict] = []
+    seen: set[str] = set()
+    index = 0
+    while len(merged) < limit and any(queues):
+        queue = queues[index % len(queues)]
+        index += 1
+        if not queue:
+            continue
+        item = queue.pop(0)
+        key = str(item.get(key_name) or '').rstrip('/').casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(dict(item))
+    return merged
+
+
 def build_osint_report(
     url: str,
     origin: str,
@@ -807,16 +992,29 @@ def build_osint_report(
         'url',
         _MAX_RESULTS,
     )
-    # When SearXNG finds Urban3P object pages, pull their gallery photos too.
-    urban3p_from_search: list[dict] = []
+    # Pull galleries / posters from every useful landing page SearXNG found.
+    # Cap catalog scrapes so Bing/web image hits are not crowded out entirely.
+    site_from_search: list[dict] = []
     remaining = _MAX_PHOTOS - len(curated_photos)
-    if remaining > 0:
-        urban3p_from_search = urban3p_photos_for_links(merged, limit=remaining)
-    photos = _merge(
-        [tuple(curated_photos), tuple(urban3p_from_search), tuple(searched_photos)],
-        'image_url',
-        _MAX_PHOTOS,
-    )
+    catalog_budget = min(remaining, max(6, (_MAX_PHOTOS * 2) // 3))
+    if catalog_budget > 0:
+        site_from_search = _filter_photos(
+            site_photos_for_links(
+                merged, limit=catalog_budget, vk_token=vk_token,
+            ),
+            place,
+        )
+    # Curated first, then interleave Urban3P/Swalker/… with web image search.
+    photos = list(curated_photos[:_MAX_PHOTOS])
+    mix_budget = _MAX_PHOTOS - len(photos)
+    if mix_budget > 0:
+        photos.extend(
+            _merge_round_robin(
+                [tuple(site_from_search), tuple(searched_photos)],
+                'image_url',
+                mix_budget,
+            )
+        )
     if not merged and photos:
         # Photos already filtered; still re-check promoted landing pages.
         merged = _filter_sources(_sources_from_photos(photos), place)
@@ -835,7 +1033,11 @@ def build_osint_report(
     # Curated first, then known urbex catalogs, then the rest of the web.
     def _source_rank(item: dict, *, url_key: str) -> int:
         engine = str(item.get('engine') or '')
-        if engine in ('description', 'vk', 'dzen', 'yandex_maps', 'urban3p'):
+        if engine in (
+            'description', 'vk', 'dzen', 'yandex_maps', 'urban3p', 'swalker',
+            'youtube', 'rutube', 'planetadorog', 'caves', 'urbexstalker', 'web_page',
+            'description_page',
+        ):
             return 0
         url = str(item.get(url_key) or item.get('source_url') or item.get('url') or '')
         if _is_urbex_site_url(url) or engine in _URBEX_SITE_DOMAINS:
@@ -864,3 +1066,104 @@ def build_osint_report(
         'photos_total': len(photos),
         'assessment': assess_osint_items(merged),
     }
+
+
+def _report_for_response(payload: dict, *, cached: bool, updated_at) -> dict:
+    report = dict(payload)
+    report['cached'] = cached
+    if updated_at is not None:
+        report['updated_at'] = (
+            updated_at.isoformat() if hasattr(updated_at, 'isoformat') else str(updated_at)
+        )
+    else:
+        report.pop('updated_at', None)
+    return report
+
+
+def _refilter_report(payload: dict, place: dict) -> dict:
+    """Re-apply current geo/junk filters to a stored report."""
+    report = dict(payload)
+    items = list(report.get('items') or [])
+    photos = list(report.get('photos') or [])
+    report['items'] = _filter_sources(items, place)
+    report['photos'] = _filter_photos(photos, place)
+    report['total'] = len(report['items'])
+    report['photos_total'] = len(report['photos'])
+    if report.get('assessment') is not None:
+        report['assessment'] = assess_osint_items(report['items'])
+    return report
+
+
+def load_osint_report(engine, place_id: int) -> dict | None:
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                'SELECT payload, updated_at FROM web_osint_reports WHERE place_id = :place_id'
+            ),
+            {'place_id': place_id},
+        ).mappings().first()
+    if not row:
+        return None
+    payload = row['payload']
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not isinstance(payload, dict):
+        return None
+    return _report_for_response(payload, cached=True, updated_at=row['updated_at'])
+
+
+def save_osint_report(engine, place_id: int, report: dict) -> dict:
+    to_store = {
+        key: value
+        for key, value in report.items()
+        if key not in ('cached', 'updated_at')
+    }
+    with engine.begin() as connection:
+        row = connection.execute(
+            text(
+                '''
+                INSERT INTO web_osint_reports (place_id, payload, created_at, updated_at)
+                VALUES (
+                    :place_id,
+                    CAST(:payload AS jsonb),
+                    NOW(),
+                    NOW()
+                )
+                ON CONFLICT (place_id) DO UPDATE
+                SET payload = EXCLUDED.payload,
+                    updated_at = NOW()
+                RETURNING updated_at
+                '''
+            ),
+            {
+                'place_id': place_id,
+                'payload': json.dumps(to_store, ensure_ascii=False),
+            },
+        ).mappings().one()
+    return _report_for_response(to_store, cached=False, updated_at=row['updated_at'])
+
+
+def get_or_build_osint_report(
+    engine,
+    url: str,
+    origin: str,
+    place: dict,
+    *,
+    vk_token: str = '',
+    refresh: bool = False,
+) -> dict:
+    """Serve a persisted report when present; otherwise build and store it."""
+    place_id = int(place['id'])
+    if not refresh:
+        stored = load_osint_report(engine, place_id)
+        if stored is not None:
+            filtered = _refilter_report(stored, place)
+            # Persist tightened filters so junk does not return next time.
+            if (
+                filtered.get('total') != stored.get('total')
+                or filtered.get('photos_total') != stored.get('photos_total')
+            ):
+                return save_osint_report(engine, place_id, filtered)
+            return filtered
+    report = build_osint_report(url, origin, place, vk_token=vk_token)
+    return save_osint_report(engine, place_id, report)

@@ -72,13 +72,13 @@ def test_osint_queries_cover_name_address_and_coordinates():
         'latitude': 56.4,
         'longitude': 38.72,
     })
-    assert queries[0].startswith('Усадьба Липки Владимирская область (site:urban3p.ru')
+    assert queries[0].startswith('Усадьба Липки Александров Владимирская область (site:urban3p.ru')
     assert 'site:swalker.ru' in queries[0]
     assert 'site:caves.ru' in queries[0]
     assert 'site:planetadorog.ru' in queries[0]
     assert 'site:urbexstalker.com' in queries[0]
     assert queries[1:] == [
-        'Усадьба Липки Владимирская область',
+        'Усадьба Липки Александров Владимирская область',
         'Усадьба Липки 56.40000, 38.72000',
     ]
     name_only = osint._queries_for({'name': 'Только имя'})
@@ -92,7 +92,7 @@ def test_osint_queries_cover_name_address_and_coordinates():
         '55.75000, 37.62000',
         'Москва',
     ]
-    # Long region skipped; bare name + coords.
+    # Long Nominatim dump → locality + compact oblast, not bare name.
     long_region = osint._queries_for({
         'name': 'Лагерь',
         'region': 'СНТ "Краснофлотский", городской округ Щёлково, Московская область, Центральный федеральный округ, Россия',
@@ -100,8 +100,15 @@ def test_osint_queries_cover_name_address_and_coordinates():
         'latitude': 55.9,
         'longitude': 38.0,
     })
-    assert long_region[0].startswith('Лагерь (site:urban3p.ru')
-    assert long_region[1:] == ['Лагерь', 'Лагерь 55.90000, 38.00000']
+    assert osint._settlement_label({
+        'full_address': 'СНТ "Краснофлотский", городской округ Щёлково, Московская область, Центральный федеральный округ, Россия',
+        'region': 'СНТ "Краснофлотский", городской округ Щёлково, Московская область, Центральный федеральный округ, Россия',
+    }) == 'Краснофлотский'
+    assert long_region[0].startswith('Лагерь Краснофлотский Московская область (site:urban3p.ru')
+    assert long_region[1:] == [
+        'Лагерь Краснофлотский Московская область',
+        'Лагерь 55.90000, 38.00000',
+    ]
     region_queries = osint._queries_for({
         'name': 'Лагерь',
         'region': 'Московская область',
@@ -113,6 +120,48 @@ def test_osint_queries_cover_name_address_and_coordinates():
         'Лагерь Московская область',
         'Лагерь 55.90000, 38.00000',
     ]
+
+
+def test_osint_queries_include_settlement_from_address():
+    place = {
+        'name': 'Пионерский лагерь "Дзержинец"',
+        'region': (
+            'Сосновая улица, Анашкино, Одинцовский городской округ, '
+            'Московская область, Центральный федеральный округ, 143086, Россия'
+        ),
+        'full_address': (
+            'Сосновая улица, Анашкино, Одинцовский городской округ, '
+            'Московская область, Центральный федеральный округ, 143086, Россия'
+        ),
+        'latitude': 55.67,
+        'longitude': 36.98,
+    }
+    assert osint._settlement_label(place) == 'Анашкино'
+    assert osint._search_location(place) == 'Анашкино Московская область'
+    queries = osint._queries_for(place)
+    assert 'Анашкино' in queries[0]
+    assert 'Московская область' in queries[0]
+    assert queries[1] == (
+        'Пионерский лагерь "Дзержинец" Анашкино Московская область'
+    )
+    image_queries = osint._image_queries_for(place)
+    assert 'Анашкино' in image_queries[0]
+    # Matching prefers the card locality over a same-name camp elsewhere.
+    kept = osint._filter_photos([
+        {
+            'title': 'Пионерский лагерь Дзержинец, Анашкино, Московская область',
+            'image_url': 'https://cdn.example.org/mo.jpg',
+            'source_url': 'https://urban3p.ru/dzer-anashkino',
+        },
+        {
+            'title': 'Дзержинец, детский лагерь отдыха, Ижевск',
+            'image_url': 'https://cdn.example.org/izh.jpg',
+            'source_url': 'https://example.org/izh',
+        },
+    ], place)
+    assert {p['title'] for p in kept} == {
+        'Пионерский лагерь Дзержинец, Анашкино, Московская область',
+    }
 
     image_queries = osint._image_queries_for({
         'name': 'Карьер',
@@ -206,6 +255,109 @@ def test_osint_filters_unrelated_cottage_listings():
     ], place)
     titles = {item['title'] for item in kept}
     assert titles == {'Заброшенный коттедж, Истринский район — репортаж'}
+
+
+def test_osint_photo_merge_keeps_urban3p_and_web_together():
+    urban = tuple({
+        'title': f'Буревестник urban {i}',
+        'image_url': f'https://img04.urban3p.ru/up/o/2531/gallery/{i}.jpg',
+        'source_url': 'https://urban3p.ru/object2531',
+        'engine': 'urban3p',
+        'score': 12.0,
+        'query': 'u',
+    } for i in range(12))
+    web = tuple({
+        'title': f'Буревестник web {i}',
+        'image_url': f'https://cdn.example.org/web-{i}.jpg',
+        'source_url': 'https://example.org/page',
+        'engine': 'bing images',
+        'score': 2.0,
+        'query': 'w',
+    } for i in range(12))
+    mixed = osint._merge_round_robin([urban, web], 'image_url', 12)
+    engines = {item['engine'] for item in mixed}
+    assert engines == {'urban3p', 'bing images'}
+    assert sum(1 for item in mixed if item['engine'] == 'urban3p') == 6
+    assert sum(1 for item in mixed if item['engine'] == 'bing images') == 6
+    # Sequential merge would have dropped all web hits.
+    sequential = osint._merge([urban, web], 'image_url', 12)
+    assert {item['engine'] for item in sequential} == {'urban3p'}
+
+
+def test_settlement_from_gorodskoy_okrug():
+    place = {
+        'full_address': 'городской округ Серпухов, Московская область, Россия',
+        'region': 'городской округ Серпухов, Московская область, Россия',
+    }
+    assert osint._settlement_label(place) == 'Серпухов'
+    assert osint._search_location(place) == 'Серпухов Московская область'
+
+
+def test_osint_filters_izhevsk_dzerzhinets_from_moscow_oblast():
+    place = {
+        'name': 'Пионерский лагерь Дзержинец',
+        'region': 'Московская область',
+    }
+    kept = osint._filter_photos([
+        {
+            'title': 'Пионерский лагерь Дзержинец (Московская область)',
+            'image_url': 'https://cdn.example.org/mo.jpg',
+            'source_url': 'https://urban3p.ru/dzerzhinets-mo',
+        },
+        {
+            'title': 'Дзержинец, детский лагерь отдыха, Ижевск, территория Дачный Поселок, 22',
+            'image_url': 'https://cdn.example.org/izh.jpg',
+            'source_url': 'https://example.org/dzerzhinets-izhevsk',
+        },
+    ], place)
+    titles = {item['title'] for item in kept}
+    assert titles == {'Пионерский лагерь Дзержинец (Московская область)'}
+
+
+def test_osint_filters_factory_when_place_is_camp():
+    place = {
+        'name': 'Заброшенный лагерь часового завода Слава',
+        'region': 'Московская область',
+    }
+    kept = osint._filter_photos([
+        {
+            'title': 'Пионерский лагерь Слава, 2-го Московского часового завода',
+            'image_url': 'https://cdn.example.org/camp.jpg',
+            'source_url': 'https://example.org/lager-slava',
+        },
+        {
+            'title': 'Заброшенный часовой завод «Слава» (Москва) / Архив',
+            'image_url': 'https://img04.urban3p.ru/up/o/999/gallery/1.jpg',
+            'source_url': 'https://urban3p.ru/object999',
+        },
+        {
+            'title': 'Завод Слава, Москва — цеха',
+            'image_url': 'https://cdn.example.org/factory.jpg',
+            'source_url': 'https://example.org/zavod-slava',
+        },
+    ], place)
+    titles = {item['title'] for item in kept}
+    assert titles == {'Пионерский лагерь Слава, 2-го Московского часового завода'}
+    # Symmetric: factory place should not keep camp-only hits.
+    factory_place = {
+        'name': 'Заброшенный часовой завод Слава',
+        'region': 'Москва',
+    }
+    factory_kept = osint._filter_photos([
+        {
+            'title': 'Заброшенный часовой завод «Слава» (Москва) / Архив',
+            'image_url': 'https://img04.urban3p.ru/up/o/999/gallery/1.jpg',
+            'source_url': 'https://urban3p.ru/object999',
+        },
+        {
+            'title': 'Пионерский лагерь Слава, место событий',
+            'image_url': 'https://cdn.example.org/camp.jpg',
+            'source_url': 'https://example.org/lager-slava',
+        },
+    ], factory_place)
+    assert {item['title'] for item in factory_kept} == {
+        'Заброшенный часовой завод «Слава» (Москва) / Архив',
+    }
 
 
 def test_osint_filters_other_regions_for_same_name():
@@ -327,7 +479,7 @@ def test_osint_filters_military_weapons_news_photos():
     })
     assert queries
     assert any('с-400' in query for query in queries)
-    assert any('воздушно-космической' in query for query in queries)
+    assert any('бжрк' in query or 'музей' in query for query in queries)
     assert any('urban3p' in query for query in queries)
 
 
@@ -339,6 +491,61 @@ def test_osint_ranks_urbex_sites_above_generic_web():
     assert osint._is_urbex_site_url('https://www.planetadorog.ru/t/x')
     assert osint._is_urbex_site_url('https://urbexstalker.com/ru/x')
     assert not osint._is_urbex_site_url('https://example.org/x')
+
+
+def test_osint_filters_tass_news_from_pushkino_photos():
+    place = {
+        'name': 'Пансионат Пушкино',
+        'region': 'Московская область',
+    }
+    kept = osint._filter_photos([
+        {
+            'title': 'Пансионат Пушкино, санаторий, Московская область, городской округ Пушкинский',
+            'image_url': 'https://cdn.example.org/pushkino.jpg',
+            'source_url': 'https://example.org/pushkino-pension',
+        },
+        {
+            'title': 'Російське агентство ТАСС виключили з Європейської асоціації',
+            'image_url': 'https://cdn.tass.ru/logo.png',
+            'source_url': 'https://tass.ru/mezhdunarodnaya-panorama/123',
+        },
+        {
+            'title': 'Новости Московской области без названия объекта',
+            'image_url': 'https://cdn.example.org/mo-news.jpg',
+            'source_url': 'https://example.org/mo-news',
+        },
+    ], place)
+    assert {item['title'] for item in kept} == {
+        'Пансионат Пушкино, санаторий, Московская область, городской округ Пушкинский',
+    }
+
+
+def test_osint_filters_bjhrk_museum_from_nazarovo_unit():
+    place = {
+        'name': 'Командный пункт в/ч № 51890 на месте бывшего РТЦ ЗРК С-25 «Назарово»',
+        'region': 'Московская область',
+        'full_address': 'Московское малое кольцо, Дмитровский округ, Московская область',
+    }
+    kept = osint._filter_photos([
+        {
+            'title': 'в/ч 51890 Назарово, Московская область, командный пункт',
+            'image_url': 'https://cdn.example.org/nazarovo.jpg',
+            'source_url': 'https://example.org/nazarovo-51890',
+        },
+        {
+            'title': 'Бывший командный бункер БЖРК, музей, посёлок Звёздный, ул. Ленина, 13',
+            'image_url': 'https://cdn.example.org/museum.jpg',
+            'source_url': 'https://example.org/bjhrk-museum',
+        },
+        {
+            'title': 'Музей ракетных войск в/ч 51890',
+            'image_url': 'https://cdn.example.org/museum2.jpg',
+            'source_url': 'https://example.org/museum-51890',
+        },
+    ], place)
+    assert {item['title'] for item in kept} == {
+        'в/ч 51890 Назарово, Московская область, командный пункт',
+    }
 
 
 def test_osint_filters_voskresenki_kyiv_photo():
@@ -534,6 +741,9 @@ def test_osint_filters_berezki_from_sverdlovsk():
 def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
     place_id = insert(client.app, 'Усадьба Липки')
     url = f'/api/places/{place_id}/osint-report'
+    monkeypatch.setattr(osint, 'description_photos_for_links', lambda *args, **kwargs: [])
+    monkeypatch.setattr(osint, 'vk_sources_for_links', lambda *args, **kwargs: [])
+    monkeypatch.setattr(osint, 'site_photos_for_links', lambda *args, **kwargs: [])
 
     monkeypatch.setattr(client.app.state.config, 'searxng_url', '')
     assert client.get(url).status_code == 503
@@ -615,10 +825,16 @@ def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
     payload = result.json()
     assert payload['place_id'] == place_id
     assert payload['source'] == 'searxng'
+    assert payload['cached'] is False
+    assert payload['updated_at']
     assert payload['total'] == 1
     assert payload['items'][0]['title'] == 'Усадьба Липки — заброшенная история'
     assert payload['items'][0]['url'] == 'https://example.org/lipki'
-    assert payload['queries'][0] == 'Усадьба Липки'
+    assert any(
+        query == 'Усадьба Липки' or query.startswith('Усадьба Липки ')
+        for query in payload['queries']
+    )
+    assert any('site:urban3p.ru' in query for query in payload['queries'])
     assert any('Владимирская' in query or 'Александров' in query or 'Москва' in query for query in payload['queries']) or len(payload['queries']) >= 1
     assert payload['assessment']['security']['level'] == 'low'
     assert payload['assessment']['security']['label'] == 'Низкая'
@@ -631,6 +847,7 @@ def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
     assert any('categories=images' in call for call in calls)
     assert any('categories=general' in call for call in calls)
     assert calls
+    first_calls = len(calls)
 
     osint.clear_search_cache()
     monkeypatch.setattr(
@@ -638,7 +855,14 @@ def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
         'get',
         lambda *args, **kwargs: (_ for _ in ()).throw(httpx.ConnectError('down')),
     )
-    assert client.get(url).status_code == 502
+    # Persisted report is served without calling SearXNG again.
+    cached = client.get(url)
+    assert cached.status_code == 200, cached.text
+    assert cached.json()['cached'] is True
+    assert cached.json()['photos_total'] == 1
+    assert len(calls) == first_calls
+    # Forced refresh still needs a live search backend.
+    assert client.get(url + '?refresh=1').status_code == 502
 
 
 def test_osint_report_keeps_sources_when_images_fail(client, monkeypatch):
@@ -646,6 +870,9 @@ def test_osint_report_keeps_sources_when_images_fail(client, monkeypatch):
     url = f'/api/places/{place_id}/osint-report'
     osint.clear_search_cache()
     monkeypatch.setattr(client.app.state.config, 'searxng_url', 'https://xng.example')
+    monkeypatch.setattr(osint, 'description_photos_for_links', lambda *args, **kwargs: [])
+    monkeypatch.setattr(osint, 'vk_sources_for_links', lambda *args, **kwargs: [])
+    monkeypatch.setattr(osint, 'site_photos_for_links', lambda *args, **kwargs: [])
 
     def handler(request: httpx.Request):
         if request.url.params.get('categories') == 'images':
@@ -672,6 +899,7 @@ def test_osint_report_keeps_sources_when_images_fail(client, monkeypatch):
     assert payload['total'] >= 1
     assert payload['photos_total'] == 0
     assert payload['photos'] == []
+    assert payload['cached'] is False
 
 
 def test_osint_report_keeps_photos_when_general_fails(client, monkeypatch):
@@ -679,12 +907,15 @@ def test_osint_report_keeps_photos_when_general_fails(client, monkeypatch):
     url = f'/api/places/{place_id}/osint-report'
     osint.clear_search_cache()
     monkeypatch.setattr(client.app.state.config, 'searxng_url', 'https://xng.example')
+    monkeypatch.setattr(osint, 'description_photos_for_links', lambda *args, **kwargs: [])
+    monkeypatch.setattr(osint, 'vk_sources_for_links', lambda *args, **kwargs: [])
+    monkeypatch.setattr(osint, 'site_photos_for_links', lambda *args, **kwargs: [])
 
     def handler(request: httpx.Request):
         if request.url.params.get('categories') == 'images':
             return httpx.Response(200, json={
                 'results': [{
-                    'title': 'Фото усадьбы',
+                    'title': 'Усадьба Липки — фото объекта',
                     'url': 'https://example.org/photo-page',
                     'img_src': 'https://cdn.example.org/photo.jpg',
                     'thumbnail_src': 'https://cdn.example.org/thumb.jpg',
@@ -716,7 +947,13 @@ def test_osint_report_hides_pending_from_strangers(client, monkeypatch):
     monkeypatch.setattr(
         client.app.state,
         'osint_report',
-        lambda place: {'place_id': place['id'], 'items': [], 'total': 0, 'queries': [], 'source': 'searxng'},
+        lambda place, refresh=False: {
+            'place_id': place['id'],
+            'items': [],
+            'total': 0,
+            'queries': [],
+            'source': 'searxng',
+        },
     )
     assert client.get(f'/api/places/{pending}/osint-report').status_code == 200
 
@@ -925,6 +1162,215 @@ def test_urban3p_photos_from_object_link(monkeypatch):
     assert all('avatar' not in u and 'no_video' not in u and '_p.jpg' not in u for u in urls)
     assert photos[0]['engine'] == 'urban3p'
     assert photos[0]['source_url'] == 'https://urban3p.ru/object5161'
+
+
+def test_urban3p_photos_cover_fallback_when_html_unavailable(monkeypatch):
+    from urbex.infrastructure import osint_description as od
+
+    monkeypatch.setattr(od, '_fetch_urban3p_html', lambda url: '')
+    photos = od.urban3p_photos_for_links([
+        {
+            'url': 'https://urban3p.ru/object777',
+            'title': 'Государственный детский сад (Москва) / Учреждения',
+        },
+    ])
+    assert len(photos) == 1
+    assert photos[0]['image_url'] == 'https://img04.urban3p.ru/up/o/777/photo.jpg'
+    assert photos[0]['source_url'] == 'https://urban3p.ru/object777'
+    assert photos[0]['engine'] == 'urban3p'
+    assert 'детский сад' in photos[0]['title'].casefold()
+    assert od._URBAN3P_IMPERSONATE[0] in {'chrome136', 'chrome131', 'chrome124'}
+
+
+def test_swalker_photos_from_article_link(monkeypatch):
+    from urbex.infrastructure import osint_description as od
+
+    html = '''
+    <html><head>
+      <meta property="og:image" content="https://swalker.ru/uploads/posts/2018-06/1529574787_swalker.org_3wrzuzj2scu.jpg"/>
+      <title>Пионерский лагерь «Юбилейный», Московская область</title>
+    </head><body>
+      <a class="highslide" href="https://swalker.ru/uploads/posts/2018-06/1529574787_swalker.org_3wrzuzj2scu.jpg">
+        <img src="/uploads/posts/2018-06/thumbs/1529574787_swalker.org_3wrzuzj2scu.jpg"/>
+      </a>
+      <a class="highslide" href="/uploads/posts/2018-06/1529574854_swalker.org_ea5c3b_zzt8.jpg">foto</a>
+      <img src="/uploads/posts/2026-08/thumbs/prev.webp" alt="other post"/>
+      <a href="https://swalker.ru/uploads/posts/2026-05/thumbs/img_2324.webp">sidebar</a>
+    </body></html>
+    '''
+    page = 'https://swalker.ru/other/4033-pionerskiy-lager-yubileynyy-mo.html'
+    monkeypatch.setattr(od, '_fetch_swalker_html', lambda url: html)
+    links = od.links_from_description(f'Репортаж {page}')
+    assert links[0]['category'] == 'swalker'
+    photos = od.swalker_photos_for_links([{'url': page, 'title': 'Юбилейный'}])
+    urls = {item['image_url'] for item in photos}
+    assert 'https://swalker.ru/uploads/posts/2018-06/1529574787_swalker.org_3wrzuzj2scu.jpg' in urls
+    assert 'https://swalker.ru/uploads/posts/2018-06/1529574854_swalker.org_ea5c3b_zzt8.jpg' in urls
+    assert all('/2018-06/' in u for u in urls)
+    assert all('/thumbs/' not in u for u in urls)
+    assert all('2026' not in u for u in urls)
+    assert photos[0]['engine'] == 'swalker'
+    assert photos[0]['source_url'] == page
+
+
+def test_youtube_and_rutube_photos_from_links(monkeypatch):
+    from urbex.infrastructure import osint_description as od
+
+    yt = od.youtube_photos_for_links([
+        {'url': 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'title': 'Лагерь обзор'},
+        {'url': 'https://youtu.be/dQw4w9WgXcQ', 'title': 'dup'},
+    ])
+    assert len(yt) == 1
+    assert yt[0]['engine'] == 'youtube'
+    assert yt[0]['image_url'] == 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'
+
+    monkeypatch.setattr(
+        od,
+        '_rutube_thumbnail',
+        lambda video_id: (
+            'https://pic.rtbcdn.ru/video/demo.jpg',
+            'Рутube ролик',
+        ),
+    )
+    rt = od.rutube_photos_for_links([
+        {
+            'url': 'https://rutube.ru/video/0159941b24c63763c4a9aed839fad682/',
+            'title': '',
+        },
+    ])
+    assert len(rt) == 1
+    assert rt[0]['engine'] == 'rutube'
+    assert rt[0]['image_url'] == 'https://pic.rtbcdn.ru/video/demo.jpg'
+    assert 'Рутube' in rt[0]['title']
+
+
+def test_site_photos_for_links_combines_sources(monkeypatch):
+    from urbex.infrastructure import osint_description as od
+
+    monkeypatch.setattr(
+        od,
+        'vk_photos_for_links',
+        lambda token, links, limit=12: [{
+            'title': 'vk',
+            'image_url': 'https://cdn.vk/album.jpg',
+            'thumbnail_url': 'https://cdn.vk/album.jpg',
+            'source_url': 'https://vk.com/album-1_1',
+            'engine': 'vk',
+            'score': 12.0,
+            'query': 'https://vk.com/club1',
+        }][:limit],
+    )
+    monkeypatch.setattr(
+        od,
+        'urban3p_photos_for_links',
+        lambda links, limit=12: [{
+            'title': 'u3',
+            'image_url': 'https://img04.urban3p.ru/up/o/1/photo.jpg',
+            'thumbnail_url': 'https://img04.urban3p.ru/up/o/1/photo.jpg',
+            'source_url': 'https://urban3p.ru/object1',
+            'engine': 'urban3p',
+            'score': 12.5,
+            'query': 'https://urban3p.ru/object1',
+        }][:limit],
+    )
+    monkeypatch.setattr(od, 'swalker_photos_for_links', lambda *a, **k: [])
+    monkeypatch.setattr(
+        od,
+        'youtube_photos_for_links',
+        lambda links, limit=12: [{
+            'title': 'yt',
+            'image_url': 'https://i.ytimg.com/vi/abc123/hqdefault.jpg',
+            'thumbnail_url': 'https://i.ytimg.com/vi/abc123/hqdefault.jpg',
+            'source_url': 'https://www.youtube.com/watch?v=abc123',
+            'engine': 'youtube',
+            'score': 11.5,
+            'query': 'https://www.youtube.com/watch?v=abc123',
+        }][:limit],
+    )
+    monkeypatch.setattr(od, 'rutube_photos_for_links', lambda *a, **k: [])
+    monkeypatch.setattr(
+        od,
+        'generic_page_photos_for_links',
+        lambda links, limit=12, max_pages=5: [{
+            'title': 'Планета',
+            'image_url': 'https://www.planetadorog.ru/img/1.jpg',
+            'thumbnail_url': 'https://www.planetadorog.ru/img/1.jpg',
+            'source_url': 'https://www.planetadorog.ru/t/x',
+            'engine': 'planetadorog',
+            'score': 11.0,
+            'query': 'https://www.planetadorog.ru/t/x',
+        }][:limit],
+    )
+    photos = od.site_photos_for_links([
+        {'url': 'https://vk.com/club1'},
+        {'url': 'https://urban3p.ru/object1'},
+        {'url': 'https://www.youtube.com/watch?v=abc123'},
+        {'url': 'https://www.planetadorog.ru/t/x'},
+    ], limit=10, vk_token='token')
+    engines = {p['engine'] for p in photos}
+    assert engines == {'vk', 'urban3p', 'youtube', 'planetadorog'}
+
+
+def test_generic_page_photos_from_description_link(monkeypatch):
+    from urbex.infrastructure import osint_description as od
+
+    html = '''
+    <html><head>
+      <title>Берсеневка</title>
+      <meta property="og:image" content="https://podmoskovnye.ru/media/system/images/arrow.png"/>
+    </head><body>
+      <img src="/images/logo/logo-old.png" alt=""/>
+      <div itemprop="articleBody">
+        <p><img src="/images/stories/photos/2_podmoskov/bersenevka/01.jpg" alt="01.Флигель."/></p>
+        <p><img src="/images/stories/photos/2_podmoskov/bersenevka/post/sytin.jpg" alt=""/></p>
+        <p><img src="/images/stories/photos/2_podmoskov/bersenevka/retro/Хозяйство.jpg" alt=""/></p>
+      </div>
+      <img src="https://podmoskovnye.ru/components/com_rscomments/assets/images/loader.gif" alt=""/>
+    </body></html>
+    '''
+    page = 'http://podmoskovnye.ru/usadba/podmoskovnaya/82-solnechnogorskii/101-bersenevka'
+    monkeypatch.setattr(od, '_fetch_generic_html', lambda url: html)
+    photos = od.generic_page_photos_for_links([{'url': page, 'title': page}])
+    urls = {item['image_url'] for item in photos}
+    assert 'http://podmoskovnye.ru/images/stories/photos/2_podmoskov/bersenevka/01.jpg' in urls
+    assert 'http://podmoskovnye.ru/images/stories/photos/2_podmoskov/bersenevka/post/sytin.jpg' in urls
+    assert all(
+        'logo' not in u and 'arrow' not in u and 'loader' not in u
+        for u in urls
+    )
+    assert photos[0]['engine'] == 'web_page'
+    assert photos[0]['source_url'] == page
+    # Specialized hosts stay on dedicated scrapers.
+    assert od.generic_page_photos_for_links([{'url': 'https://vk.com/club1'}]) == []
+    assert od.generic_page_photos_for_links([{'url': 'https://urban3p.ru/object1'}]) == []
+    assert od.generic_page_photos_for_links([{'url': 'https://www.youtube.com/watch?v=abc'}]) == []
+
+
+def test_description_photos_absorb_generic_pages(monkeypatch):
+    from urbex.infrastructure import osint_description as od
+
+    monkeypatch.setattr(od, 'dzen_photos_for_links', lambda *a, **k: [])
+    monkeypatch.setattr(od, 'yandex_maps_photos_for_links', lambda *a, **k: [])
+    monkeypatch.setattr(od, 'yandex_maps_photos_for_place', lambda *a, **k: [])
+    monkeypatch.setattr(
+        od,
+        'site_photos_for_links',
+        lambda links, limit=12, vk_token='': [{
+            'title': 'Берсеневка',
+            'image_url': 'http://podmoskovnye.ru/images/stories/photos/2_podmoskov/bersenevka/01.jpg',
+            'thumbnail_url': 'http://podmoskovnye.ru/images/stories/photos/2_podmoskov/bersenevka/01.jpg',
+            'source_url': links[0]['url'],
+            'engine': 'web_page',
+            'score': 10.5,
+            'query': links[0]['url'],
+        }][:limit],
+    )
+    photos = od.description_photos_for_links(
+        [{'url': 'http://podmoskovnye.ru/usadba/x', 'title': 'x'}],
+        limit=4,
+    )
+    assert len(photos) == 1
+    assert photos[0]['engine'] == 'web_page'
 
 
 def test_yandex_maps_photos_from_org_link(monkeypatch):

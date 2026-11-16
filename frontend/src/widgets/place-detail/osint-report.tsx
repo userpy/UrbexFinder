@@ -69,6 +69,8 @@ export type OsintReport = {
   photos?: OsintPhoto[];
   photos_total?: number;
   assessment?: OsintAssessment;
+  cached?: boolean;
+  updated_at?: string | null;
 };
 
 const SECURITY_LEVELS = [
@@ -88,6 +90,7 @@ type MediaKind = "photo" | "video";
 type SourceKind =
   | "vk"
   | "youtube"
+  | "rutube"
   | "urban3p"
   | "livejournal"
   | "swalker"
@@ -137,6 +140,7 @@ function sourceKindFor(item: {
     .toLowerCase();
   if (/\bvk\b|vk\.com|vk\.ru|userapi\.com/.test(blob)) return "vk";
   if (/youtube|youtu\.be/.test(blob)) return "youtube";
+  if (/rutube/.test(blob)) return "rutube";
   if (/urban3p/.test(blob)) return "urban3p";
   if (/livejournal|\blive.?journal\b|\.lj\.(?:com|ru)\b/.test(blob)) {
     return "livejournal";
@@ -301,6 +305,7 @@ function DzenGlyph({ size = 12 }: { size?: number }) {
 function SourceGlyph({ kind }: { kind: SourceKind }) {
   if (kind === "vk") return <VkGlyph size={12} />;
   if (kind === "youtube") return <Youtube size={12} aria-hidden="true" />;
+  if (kind === "rutube") return <Video size={12} aria-hidden="true" />;
   if (kind === "urban3p") return <Urban3pGlyph size={12} />;
   if (kind === "livejournal") return <LiveJournalGlyph size={12} />;
   if (kind === "swalker") return <SwalkerGlyph size={12} />;
@@ -314,6 +319,7 @@ function SourceGlyph({ kind }: { kind: SourceKind }) {
 const SOURCE_LABELS: Record<SourceKind, string> = {
   vk: "VK",
   youtube: "YouTube",
+  rutube: "Rutube",
   urban3p: "Urban3P",
   livejournal: "LJ",
   swalker: "Swalker",
@@ -419,7 +425,11 @@ function OsintReportDialog({
     setError("");
     setReport(null);
     setTab("sources");
-    api<OsintReport>(`/places/${placeId}/osint-report`, {
+    const path =
+      reload > 0
+        ? `/places/${placeId}/osint-report?refresh=1`
+        : `/places/${placeId}/osint-report`;
+    api<OsintReport>(path, {
       signal: abort.signal,
     })
       .then((data) => {
@@ -455,10 +465,31 @@ function OsintReportDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="osint-dialog-heading">
-          <h2 id="osint-title">Подробный отчёт</h2>
-          <button type="button" aria-label="Закрыть отчёт" onClick={onClose}>
-            <X size={18} />
-          </button>
+          <div>
+            <h2 id="osint-title">Подробный отчёт</h2>
+            {report?.updated_at && !busy && !error && (
+              <p className="muted">
+                {report.cached ? "Сохранён" : "Обновлён"}{" "}
+                {new Date(report.updated_at).toLocaleString("ru-RU")}
+              </p>
+            )}
+          </div>
+          <div className="osint-dialog-actions">
+            {!busy && (
+              <button
+                type="button"
+                className="osint-retry"
+                aria-label="Обновить отчёт"
+                title="Обновить отчёт"
+                onClick={() => setReload((n) => n + 1)}
+              >
+                <RefreshCw size={14} aria-hidden="true" />
+              </button>
+            )}
+            <button type="button" aria-label="Закрыть отчёт" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
         </div>
         {busy ? (
           <div className="osint-dialog-loading" role="status" aria-live="polite">

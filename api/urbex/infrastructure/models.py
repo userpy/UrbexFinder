@@ -119,6 +119,17 @@ class Itinerary(Base):
 MODELS['itineraries'] = Itinerary
 
 
+class OsintReport(Base):
+    __tablename__ = 'web_osint_reports'
+    place_id = Column(Integer, ForeignKey('places.id', ondelete='CASCADE'), primary_key=True)
+    payload = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+MODELS['osint_reports'] = OsintReport
+
+
 class TelegramLogin(Base):
     __tablename__ = 'web_telegram_logins'
     id = Column(Integer, primary_key=True)

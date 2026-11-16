@@ -134,11 +134,16 @@ def active_place_state(ctx: Ctx, id: int):
 
 
 @router.get('/places/{id}/osint-report')
-def osint_report(id: int, request: Request, ctx: Ctx):
+def osint_report(
+    id: int,
+    request: Request,
+    ctx: Ctx,
+    refresh: bool = Query(False),
+):
     # Web→API often shares one Docker network IP; keep a higher ceiling than login.
     ctx[1].throttle(f'osint:{request.client.host if request.client else "unknown"}', limit=60)
     place = ctx[0].places.place(id, ctx[2])
-    return request.app.state.osint_report(place)
+    return request.app.state.osint_report(place, refresh=refresh)
 
 
 @router.get('/places/{id}/{kind}')
