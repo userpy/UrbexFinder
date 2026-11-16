@@ -1,0 +1,90 @@
+from urbex.infrastructure import osint, osint_description as description
+from urbex.infrastructure.wikimapia import gallery_urls, photo_url
+
+
+def test_gallery_uses_only_photo_host_and_best_available_size():
+    html = '''<img src="/img/logo.jpg">
+      <a href="//photos.wikimapia.org/p/00/08/50/63/08_1280.jpg">
+      <img src="http://photos.wikimapia.org/p/00/08/50/63/08_60.jpg"></a>
+      <img src="https://photos.wikimapia.org.evil.test/p/00/08/50/63/09.jpg">
+      <img src="https://photos.wikimapia.org/p/00/08/50/63/09_1280.jpg">'''
+    assert gallery_urls(html, 'https://wikimapia.org/123/ru/test') == [
+        'https://photos.wikimapia.org/p/00/08/50/63/08_1280.jpg',
+        'https://photos.wikimapia.org/p/00/08/50/63/09_1280.jpg',
+    ]
+    assert photo_url('https://photos.wikimapia.org/p/logo.jpg') is None
+
+
+def test_object_gallery_has_wikimapia_source(monkeypatch):
+    page = 'https://wikimapia.org/123/ru/test'
+    monkeypatch.setattr(description, '_fetch_generic_html', lambda _: '''
+        <title>Полигон Астрофизика</title>
+        <img src="//photos.wikimapia.org/p/00/08/50/63/08_1280.jpg">''')
+    photos = description.generic_page_photos_for_links([{'url': page}])
+    assert len(photos) == 1
+    assert photos[0]['engine'] == 'wikimapia'
+    assert photos[0]['source_url'] == page
+    assert photos[0]['title'] == 'Полигон Астрофизика'
+
+
+def test_astrofizika_cached_report_recovers_direct_photos_and_rejects_headquarters():
+    url = 'http://photos.wikimapia.org/p/00/08/50/63/08_1280.jpg'
+    place = {'name': 'Бывший исследовательский комплекс-полигон НПО "Астрофизика"',
+             'region': 'Московская область', 'description': url}
+    wrong = {'title': 'Национальный центр лазерных систем и комплексов Астрофизика',
+             'source_url': 'https://example.org/headquarters',
+             'image_url': 'https://example.org/photo.jpg', 'engine': 'web'}
+    correct = dict(wrong, title='Бывший полигон НПО Астрофизика в Грибаново')
+    assert osint._filter_photos([wrong, correct], place) == [correct]
+    report = osint._refilter_report({'photos': [wrong]}, place)
+    assert report['photos_total'] == 1
+    assert report['photos'][0]['image_url'] == url.replace('http:', 'https:')
+    assert osint._refilter_report(report, place)['photos'] == report['photos']
+
+
+def test_direct_photo_is_not_fetched_as_html(monkeypatch):
+    monkeypatch.setattr(description, '_fetch_generic_html',
+                        lambda _: (_ for _ in ()).throw(AssertionError('Image fetched as HTML')))
+    assert description.generic_page_photos_for_links([
+        {'url': 'https://photos.wikimapia.org/p/00/08/50/63/08_1280.jpg'}]) == []
+
+
+def test_wikimapia_query_is_not_truncated():
+    query = osint._queries_for({'name': 'Очень длинное название ' * 20})[0]
+    assert 'site:wikimapia.org' in query
+    assert query.endswith(')')
+
+
+def test_wikimapia_gallery_has_independent_page_budget(monkeypatch):
+    page = 'https://wikimapia.org/123/ru/test'
+    fetched = []
+    def fetch(url):
+        fetched.append(url)
+        return '<img src="https://photos.wikimapia.org/p/00/08/50/63/08_1280.jpg">'
+    monkeypatch.setattr(description, '_fetch_generic_html', fetch)
+    links = [{'url': f'https://example.org/{i}'} for i in range(10)] + [{'url': page}]
+    photos = description.wikimapia_photos_for_links(links)
+    assert fetched == [page]
+    assert len(photos) == 1
+    assert description.links_from_description(page)[0]['category'] == 'wikimapia'
+
+
+def test_saved_wikimapia_gallery_retries_with_cooldown(monkeypatch):
+    page = 'https://wikimapia.org/123/ru/test'
+    place = {'id': 1, 'name': 'Полигон', 'description': page}
+    stored = {'items': [], 'photos': []}
+    monkeypatch.setattr(osint, 'load_osint_report', lambda *args: stored.copy())
+    def save(engine, place_id, report):
+        stored.update(report)
+        return report
+    monkeypatch.setattr(osint, 'save_osint_report', save)
+    calls = []
+    monkeypatch.setattr(osint, 'wikimapia_photos_for_links', lambda *args: calls.append(1) or [])
+    osint.get_or_build_osint_report(None, '', '', place)
+    osint.get_or_build_osint_report(None, '', '', place)
+    assert calls == [1]
+    stored['wikimapia_checked_at'] = 0
+    photo = {'engine': 'wikimapia', 'source_url': page, 'title': 'Фото объекта',
+             'image_url': 'https://photos.wikimapia.org/p/00/08/50/63/08_1280.jpg'}
+    monkeypatch.setattr(osint, 'wikimapia_photos_for_links', lambda *args: [photo])
+    assert osint.get_or_build_osint_report(None, '', '', place)['photos'] == [photo]

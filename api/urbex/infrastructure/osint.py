@@ -10,6 +10,7 @@ import httpx
 from sqlalchemy import text
 from urbex.domain.rules import DomainError
 from urbex.infrastructure.osint_assess import assess_osint_items
+from urbex.infrastructure.wikimapia import direct_photos, is_object_url
 from urbex.infrastructure.osint_description import (
     description_photos_for_links,
     links_from_description,
@@ -17,6 +18,7 @@ from urbex.infrastructure.osint_description import (
     urban3p_photos_for_links,
     vk_sources_for_links,
     generic_page_photos_for_links,
+    wikimapia_photos_for_links,
     is_direct_image_url,
     is_vk_group_url,
 )
@@ -41,6 +43,7 @@ _URBEX_SITE_DOMAINS = (
     'geocaching.ru',
     'geocaching.su',
     'opencaching.pl',
+    'wikimapia.org',
 )
 _URBEX_SITE_QUERY = (
     '('
@@ -365,7 +368,8 @@ def _urbex_site_query(place: dict) -> str:
     subject = ' '.join(part for part in (name, location) if part).strip()
     if not subject:
         return ''
-    return f'{subject} {_URBEX_SITE_QUERY}'[:200]
+    # Do not cut the domain expression in half (or lose its final sources).
+    return f'{subject[:160]} {_URBEX_SITE_QUERY}'
 
 
 def _queries_for(place: dict) -> list[str]:
@@ -835,6 +839,12 @@ def _matches_place(
     location_tokens = _location_tokens(place)
     fine_location = _fine_location_tokens(place)
 
+    # A company's headquarters is not its remote testing facility.
+    if re.search(r'\bполигон[а-яё]*\b', name.casefold()):
+        evidence = _item_text_blob(item, ('title', 'snippet', 'source_url', 'url'))
+        if not re.search(r'\bполигон[а-яё]*\b', evidence):
+            return False
+
     # The number is part of an institution's identity, not a disposable token.
     # Require the same acronym + full number in human-readable evidence;
     # unrelated dates, URL IDs and image filenames cannot establish a match.
@@ -949,7 +959,7 @@ def _filter_photos(photos: list[dict], place: dict) -> list[dict]:
         photo for photo in photos
         if not _is_junk_photo(photo)
         and (
-            ((photo.get('engine') == 'geocache' or
+            ((photo.get('engine') in {'geocache', 'wikimapia'} or
               (photo.get('engine') == 'vk' and photo.get('scope') == 'album'))
              and str(photo.get('source_url') or '').rstrip('/') in description_urls)
             or _matches_place(photo, place, ('title', 'source_url', 'image_url'))
@@ -1326,7 +1336,7 @@ def build_osint_report(
         if engine in (
             'description', 'vk', 'dzen', 'yandex_maps', 'urban3p', 'swalker',
             'youtube', 'rutube', 'planetadorog', 'caves', 'urbexstalker', 'web_page',
-            'description_page',
+            'description_page', 'wikimapia',
         ):
             return 0
         url = str(item.get(url_key) or item.get('source_url') or item.get('url') or '')
@@ -1386,7 +1396,10 @@ def _refilter_report(payload: dict, place: dict) -> dict:
         'url',
         _MAX_RESULTS,
     )
-    report['photos'] = _filter_photos(photos, place)
+    report['photos'] = _merge(
+        [tuple(direct_photos(links_from_description(str(place.get('description') or '')))),
+         tuple(_filter_photos(photos, place))], 'image_url', _MAX_PHOTOS,
+    )
     report['total'] = len(report['items'])
     report['photos_total'] = len(report['photos'])
     if report.get('assessment') is not None:
@@ -1458,6 +1471,23 @@ def get_or_build_osint_report(
         stored = load_osint_report(engine, place_id)
         if stored is not None:
             filtered = _refilter_report(stored, place)
+            gallery_urls = {photo.get('source_url') for photo in filtered['photos']
+                            if photo.get('engine') == 'wikimapia'}
+            missing_wikimapia = [
+                link for link in filtered['items']
+                if is_object_url(str(link.get('url') or ''))
+                and link['url'] not in gallery_urls
+            ]
+            if missing_wikimapia and time.time() - stored.get('wikimapia_checked_at', 0) >= 300:
+                recovered = _filter_photos(
+                    wikimapia_photos_for_links(missing_wikimapia, _MAX_PHOTOS), place,
+                )
+                filtered['wikimapia_checked_at'] = time.time()
+                filtered['photos'] = _merge(
+                    [tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS,
+                )
+                filtered['photos_total'] = len(filtered['photos'])
+                return save_osint_report(engine, place_id, filtered)
             # A transient source failure must not freeze an empty gallery forever.
             # Retry missing description galleries, at most once per five minutes.
             gallery_sources = {
@@ -1484,6 +1514,7 @@ def get_or_build_osint_report(
             if (
                 filtered.get('total') != stored.get('total')
                 or filtered.get('photos_total') != stored.get('photos_total')
+                or filtered.get('photos') != stored.get('photos')
             ):
                 return save_osint_report(engine, place_id, filtered)
             return filtered

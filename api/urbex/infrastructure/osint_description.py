@@ -5,6 +5,7 @@ import re
 from urllib.parse import quote, unquote, urlencode, urljoin, urlparse
 import httpx
 from .vk_album import parse_vk_album
+from .wikimapia import direct_photos, gallery_urls, is_object_url
 
 _log = logging.getLogger(__name__)
 _LINK_RE = re.compile(
@@ -217,6 +218,7 @@ def links_from_description(description: str) -> list[dict]:
                 else 'youtube' if _is_youtube_url(url)
                 else 'rutube' if _is_rutube_url(url)
                 else 'geocache' if _is_geocache_url(url)
+                else 'wikimapia' if is_object_url(url)
                 else 'link'
             ),
             'score': 10.0,
@@ -1940,6 +1942,8 @@ def _is_specialized_photo_url(url: str) -> bool:
 
 def _generic_engine_for(url: str) -> str:
     host = (urlparse(url).hostname or '').casefold()
+    if is_object_url(url):
+        return 'wikimapia'
     if host in {'geocaching.su', 'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru'}:
         return 'geocache'
     if 'planetadorog' in host:
@@ -1969,6 +1973,8 @@ def _generic_image_ok(url: str) -> bool:
 
 
 def _extract_generic_image_urls(html: str, page_url: str) -> list[str]:
+    if is_object_url(page_url):
+        return gallery_urls(html, page_url)
     if _generic_engine_for(page_url) == 'geocache':
         # Cache galleries contain full-size links and thumbnail <img> tags.
         # Ignore UI icons and notebook/user images outside the area gallery.
@@ -2072,7 +2078,7 @@ def generic_page_photos_for_links(
         if len(photos) >= limit or pages_fetched >= max_pages:
             break
         url = str(link.get('url') or '')
-        if not url or _is_specialized_photo_url(url):
+        if not url or _is_specialized_photo_url(url) or is_direct_image_url(url):
             continue
         page_key = url.rstrip('/').casefold()
         if page_key in seen_pages:
@@ -2083,7 +2089,7 @@ def generic_page_photos_for_links(
         if not html:
             continue
         title = (
-            (_generic_title_from_html(html) if _generic_engine_for(url) == 'geocache' else '')
+            (_generic_title_from_html(html) if _generic_engine_for(url) in {'geocache', 'wikimapia'} else '')
             or str(link.get('title') or '').strip()
             or _generic_title_from_html(html)
             or 'Фото со страницы'
@@ -2110,6 +2116,14 @@ def generic_page_photos_for_links(
     return photos
 
 
+def wikimapia_photos_for_links(links: list[dict], limit: int = 12) -> list[dict]:
+    """Give object galleries their own page budget, independent of other sites."""
+    return generic_page_photos_for_links(
+        [link for link in links if is_object_url(str(link.get('url') or ''))],
+        limit,
+    )
+
+
 def site_photos_for_links(
     links: list[dict],
     limit: int = _MAX_VK_PHOTOS,
@@ -2123,12 +2137,16 @@ def site_photos_for_links(
     # cannot crowd out YouTube/Rutube/Планета/VK.
     family_limit = max(limit, 4)
     buckets = [
+        wikimapia_photos_for_links(links, family_limit),
         vk_photos_for_links(vk_token, links, family_limit),
         urban3p_photos_for_links(links, family_limit),
         swalker_photos_for_links(links, family_limit),
         youtube_photos_for_links(links, family_limit),
         rutube_photos_for_links(links, family_limit),
-        generic_page_photos_for_links(links, family_limit),
+        generic_page_photos_for_links(
+            [link for link in links if not is_object_url(str(link.get('url') or ''))],
+            family_limit,
+        ),
     ]
     photos: list[dict] = []
     seen: set[str] = set()
@@ -2168,6 +2186,7 @@ def description_photos_for_links(
             seen.add(key)
             photos.append(item)
 
+    absorb(direct_photos(links))
     absorb(dzen_photos_for_links(links, limit))
     if len(photos) < limit:
         absorb(yandex_maps_photos_for_links(links, limit - len(photos)))

@@ -91,7 +91,8 @@ def test_osint_queries_cover_name_address_and_coordinates():
     }) == [
         'Москва (site:urban3p.ru OR site:swalker.ru OR site:caves.ru'
         ' OR site:planetadorog.ru OR site:urbexstalker.com'
-        ' OR site:geocaching.com OR site:geocaching.ru OR site:opencaching.pl)',
+        ' OR site:geocaching.com OR site:geocaching.ru OR site:geocaching.su'
+        ' OR site:opencaching.pl OR site:wikimapia.org)',
         '55.75000, 37.62000',
         'Москва',
     ]

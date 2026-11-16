@@ -93,6 +93,7 @@ type SourceKind =
   | "rutube"
   | "urban3p"
   | "geocache"
+  | "wikimapia"
   | "livejournal"
   | "swalker"
   | "caves"
@@ -129,6 +130,16 @@ function sourceKindFor(item: {
   image_url?: string | null;
   url?: string | null;
 }): SourceKind {
+  const sourceUrl = item.source_url || item.url || item.image_url;
+  if (sourceUrl) {
+    try {
+      const host = new URL(sourceUrl).hostname.toLowerCase();
+      if (host === "wikimapia.org" || host.endsWith(".wikimapia.org"))
+        return "wikimapia";
+    } catch {
+      // Older reports can contain incomplete URLs; fall back to source metadata.
+    }
+  }
   const blob = [
     item.engine,
     item.source_url,
@@ -143,6 +154,7 @@ function sourceKindFor(item: {
   if (/youtube|youtu\.be/.test(blob)) return "youtube";
   if (/rutube/.test(blob)) return "rutube";
   if (/urban3p/.test(blob)) return "urban3p";
+  if (/wikimapia/.test(blob)) return "wikimapia";
   if (
     /geocach|геокеш|геокэш|opencaching|geocaching\.(?:com|ru)|geocaching\.su/.test(
       blob,
@@ -329,12 +341,32 @@ function DzenGlyph({ size = 12 }: { size?: number }) {
   );
 }
 
+function WikimapiaGlyph({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" />
+      <path d="m6 8 3 9 3-6 3 6 3-9" stroke="#ef4444" />
+    </svg>
+  );
+}
+
 function SourceGlyph({ kind }: { kind: SourceKind }) {
   if (kind === "vk") return <VkGlyph size={12} />;
   if (kind === "youtube") return <Youtube size={12} aria-hidden="true" />;
   if (kind === "rutube") return <Video size={12} aria-hidden="true" />;
   if (kind === "urban3p") return <Urban3pGlyph size={12} />;
   if (kind === "geocache") return <GeocacheGlyph size={12} />;
+  if (kind === "wikimapia") return <WikimapiaGlyph size={12} />;
   if (kind === "livejournal") return <LiveJournalGlyph size={12} />;
   if (kind === "swalker") return <SwalkerGlyph size={12} />;
   if (kind === "caves") return <CavesGlyph size={12} />;
@@ -350,6 +382,7 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
   rutube: "Rutube",
   urban3p: "Urban3P",
   geocache: "Geocaching",
+  wikimapia: "Wikimapia",
   livejournal: "LJ",
   swalker: "Swalker",
   caves: "Caves",
@@ -596,7 +629,9 @@ function OsintReportDialog({
                             title={SOURCE_LABELS[source]}
                           >
                             <SourceGlyph kind={source} />
-                            {SOURCE_LABELS[source]}
+                            <span className={source === "wikimapia" ? "sr-only" : undefined}>
+                              {SOURCE_LABELS[source]}
+                            </span>
                           </span>
                           <a
                             href={item.url}
@@ -660,7 +695,9 @@ function OsintReportDialog({
                               title={SOURCE_LABELS[source]}
                             >
                               <SourceGlyph kind={source} />
-                              {SOURCE_LABELS[source]}
+                              <span className={source === "wikimapia" ? "sr-only" : undefined}>
+                                {SOURCE_LABELS[source]}
+                              </span>
                             </span>
                           </div>
                         </div>
