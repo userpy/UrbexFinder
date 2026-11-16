@@ -9,9 +9,13 @@ async def sync_catalog_index(settings):
     db = AsyncDatabase(pg_user=settings.postgres_user, pg_password=settings.postgres_password,
                        pg_database=settings.postgres_db, pg_host=settings.postgres_host,
                        pg_port=settings.postgres_port)
-    indexer = ElasticPlacesIndexer(db=db, es_url=settings.elasticsearch_host,
-                                  es_user=settings.elasticsearch_user,
-                                  es_password=settings.elasticsearch_password)
+    indexer = ElasticPlacesIndexer(
+        db=db,
+        es_url=settings.elasticsearch_host,
+        es_user=settings.elasticsearch_user,
+        es_password=settings.elasticsearch_password,
+        index_name=settings.elasticsearch_index,
+    )
     try:
         await db.connect()
         while True:

@@ -43,6 +43,7 @@ async def main() -> None:
             es_url=settings.elasticsearch_host,
             es_user=settings.elasticsearch_user,
             es_password=settings.elasticsearch_password,
+            index_name=settings.elasticsearch_index,
         )
         stack.push_async_callback(elastic.close)
 

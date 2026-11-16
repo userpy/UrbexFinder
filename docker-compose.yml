@@ -55,6 +55,7 @@ services:
       URBEX_TELEGRAM_BOT_TOKEN: ${URBEX_TELEGRAM_BOT_TOKEN:-${TOKEN:-}}
       URBEX_GEOCODER_URL: ${URBEX_GEOCODER_URL:-}
       URBEX_SEARXNG_URL: ${URBEX_SEARXNG_URL:-http://searxng:8080}
+      URBEX_VK_ACCESS_TOKEN: ${URBEX_VK_ACCESS_TOKEN:-${VK_APP_TOKEN:-}}
       URBEX_TELEGRAM_BOT_USERNAME: ${URBEX_TELEGRAM_BOT_USERNAME:-}
     command:
     - python
@@ -90,6 +91,14 @@ services:
     environment: *id002
     ports:
     - 127.0.0.1:58000:8000
+    # Docker DNS often fails for urban3p.ru; pin hosts so OSINT can scrape galleries.
+    extra_hosts:
+    - urban3p.ru:94.181.178.99
+    - www.urban3p.ru:94.181.178.99
+    - img01.urban3p.ru:94.181.178.99
+    - img02.urban3p.ru:94.181.178.99
+    - img03.urban3p.ru:94.181.178.99
+    - img04.urban3p.ru:94.181.178.99
     depends_on:
       storage-init:
         condition: service_completed_successfully
@@ -163,6 +172,7 @@ services:
       ELASTIC_URL: ${URBEX_ELASTICSEARCH_URL:-http://elasticsearch:9200}
       ELASTICSEARCH_USER: ${URBEX_ELASTICSEARCH_USER:-elastic}
       ELASTICSEARCH_PASSWORD: ${URBEX_ELASTICSEARCH_PASSWORD:-}
+      URBEX_ELASTICSEARCH_INDEX: ${URBEX_ELASTICSEARCH_INDEX:-urbex_places_v1}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
@@ -203,6 +213,7 @@ services:
       ELASTIC_URL: ${URBEX_ELASTICSEARCH_URL:-http://elasticsearch:9200}
       ELASTICSEARCH_USER: ${URBEX_ELASTICSEARCH_USER:-elastic}
       ELASTICSEARCH_PASSWORD: ${URBEX_ELASTICSEARCH_PASSWORD:-}
+      URBEX_ELASTICSEARCH_INDEX: ${URBEX_ELASTICSEARCH_INDEX:-urbex_places_v1}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}

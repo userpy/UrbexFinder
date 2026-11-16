@@ -47,7 +47,9 @@ def create_app(config=None, storage=None):
     app.state.config = config
     app.state.send_route = lambda chat_id, route: send_route(config.telegram_bot_token, chat_id, route)
     app.state.reverse_address = lambda latitude, longitude: reverse_address(config.geocoder_url, config.origin, latitude, longitude)
-    app.state.osint_report = lambda place: build_osint_report(config.searxng_url, config.origin, place)
+    app.state.osint_report = lambda place: build_osint_report(
+        config.searxng_url, config.origin, place, vk_token=config.vk_access_token,
+    )
     app.state.engine = create_engine(config.database_url, pool_pre_ping=True)
     app.state.search = ElasticSearch(config, app.state.engine)
     app.state.storage = storage or S3Storage(config)

@@ -190,7 +190,7 @@ Compose формирует имена контейнеров из имени п�
 | `migrations` | Одноразовый контейнер: после готовности PostgreSQL выполняет `python -m urbex.bootstrap.migrate` и завершается. `bot` и `places-worker` запускаются только после его успешного завершения. |
 | `rabbitmq-topology` | Одноразовый контейнер: после готовности RabbitMQ создаёт durable exchange, основную очередь, retry-очередь, dead-letter-очередь и bindings, затем завершается. `bot` и `places-worker` ждут его успешного завершения. |
 | `db` | PostgreSQL 15 — основное хранилище данных бота: пользователей, ролей, мест и ресурсов. Healthcheck не даёт зависимым сервисам стартовать до готовности БД. В локальном Compose порт `5432` опубликован на хост. |
-| `elasticsearch` | Общий Elasticsearch 7.17.11 для бота и сайта. Индексы `places` и `urbex_places_v1`, данные в `urbex_search`. Доступ только внутри Docker. |
+| `elasticsearch` | Общий Elasticsearch 7.17.11 для бота и сайта. Единый индекс `urbex_places_v1`, данные в `urbex_search`. Доступ только внутри Docker. |
 | `searxng` | Метапоисковик SearXNG (XNG) для OSINT-отчёта в карточке места. JSON API включён в `searxng/settings.yml`; доступ только из внутренней сети Docker. |
 | `rabbitmq` (`rabbitmq`) | Брокер сообщений между `bot` и `places-worker`. AMQP доступен на порту `5672`, web-панель управления — на `15672`. Очереди и сообщения хранятся в volume `rabbitmq_data`. |
 | `loki` (`loki`) | Собирает и хранит логи приложения. Внутренний HTTP API `3100` доступен на хосте как `3110`; данные хранятся в локальной папке `./loki_data`. |
@@ -448,8 +448,10 @@ Telegram ID, поэтому повторный вход возвращает с�
 При сохранении новых точек маршрута они также добавляются в избранное в той же
 транзакции. Удаление точки или маршрута не удаляет ранее сохранённое избранное.
 
-Бот, worker и API используют один Elasticsearch. Compose задаёт всем URL из
+Бот, worker и API используют один Elasticsearch и один индекс `urbex_places_v1`
+(`URBEX_ELASTICSEARCH_INDEX`). Compose задаёт всем URL из
 `URBEX_ELASTICSEARCH_URL` и авторизацию из `URBEX_ELASTICSEARCH_USER/PASSWORD`.
+После полной переиндексации worker удаляет устаревший индекс `places`.
 Старый том `telegram_bot2_es_data` после объединения сохранён для отката,
 но действующие сервисы его не используют.
 

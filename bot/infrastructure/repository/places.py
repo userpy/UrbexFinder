@@ -27,6 +27,7 @@ class Place(TypedDict):
     longitude: float
     category: str
     full_address: str
+    region: str
     distance_km: float | None
     rating_avg: float
     rating_count: int
@@ -273,6 +274,7 @@ class PlacesRepository:
             longitude=place.longitude,
             category=place.category,
             full_address=place.full_address,
+            region=place.region or "Не указан",
             rating_avg=float(place.rating_avg or 0),
             rating_count=int(place.rating_count or 0),
             rating_score=float(place.rating_score or 0),
@@ -728,6 +730,7 @@ class PlacesRepository:
                 longitude=p.longitude,
                 category=p.category,
                 full_address=p.full_address,
+                region=p.region or "Не указан",
                 rating_avg=float(p.rating_avg or 0),
                 rating_count=int(p.rating_count or 0),
                 rating_score=float(p.rating_score or 0),

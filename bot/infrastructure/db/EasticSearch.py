@@ -5,8 +5,30 @@ from loguru import logger
 from infrastructure.db.PgDb import AsyncDatabase
 
 
-INDEX_NAME = "places"
+DEFAULT_INDEX_NAME = "urbex_places_v1"
+LEGACY_INDEX_NAME = "places"
 BATCH_SIZE = 500
+
+# Keep in sync with api/urbex/infrastructure/search.py INDEX_BODY.
+INDEX_BODY = {
+    "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+    "mappings": {
+        "dynamic": "strict",
+        "properties": {
+            "id": {"type": "integer"},
+            **{
+                field: {"type": "text", "analyzer": "russian"}
+                for field in (
+                    "name",
+                    "description",
+                    "full_address",
+                    "region",
+                    "category",
+                )
+            },
+        },
+    },
+}
 
 
 def _create_client(
@@ -20,26 +42,16 @@ def _create_client(
 
 
 class ElasticPlacesIndexer:
-    INDEX_BODY = {
-        "mappings": {
-            "properties": {
-                "id": {"type": "integer"},
-                "name": {"type": "text"},
-                "description": {"type": "text"},
-                "category": {"type": "keyword"},
-                "full_address": {"type": "text"},
-            }
-        }
-    }
-
     def __init__(
         self,
         db: AsyncDatabase = None,
         es_url: str = None,
         es_user: str = None,
         es_password: str = None,
+        index_name: str | None = None,
     ):
         self.db = db
+        self.index = (index_name or DEFAULT_INDEX_NAME).strip() or DEFAULT_INDEX_NAME
         self.es = _create_client(es_url=es_url, es_user=es_user, es_password=es_password)
 
     def to_bulk_actions(self, rows):
@@ -47,14 +59,15 @@ class ElasticPlacesIndexer:
         for row in rows:
             yield {
                 "_op_type": "index",
-                "_index": INDEX_NAME,
+                "_index": self.index,
                 "_id": row["id"],
                 "_source": {
                     "id": row["id"],
                     "name": row["name"],
-                    "description": row["description"],
-                    "category": row["category"],
-                    "full_address": row["full_address"],
+                    "description": row.get("description"),
+                    "category": row.get("category"),
+                    "full_address": row.get("full_address"),
+                    "region": row.get("region") or "Не указан",
                 },
             }
 
@@ -62,15 +75,13 @@ class ElasticPlacesIndexer:
         """Полная индексация всех мест из PostgreSQL в Elasticsearch.
         При необходимости создаёт индекс автоматически.
         """
-        # создаём индекс, если его ещё нет
-        exists = await self.es.indices.exists(index=INDEX_NAME)
+        exists = await self.es.indices.exists(index=self.index)
         if not exists:
-            await self.es.indices.create(index=INDEX_NAME, body=self.INDEX_BODY)
-            logger.info(f"Created index '{INDEX_NAME}'")
+            await self.es.indices.create(index=self.index, body=INDEX_BODY)
+            logger.info(f"Created index '{self.index}'")
         else:
-            logger.info(f"Index '{INDEX_NAME}' already exists")
+            logger.info(f"Index '{self.index}' already exists")
 
-        # bulk индексация
         indexed_count = 0
         offset = 0
         pg_ids: set[int] = set()
@@ -87,12 +98,34 @@ class ElasticPlacesIndexer:
 
         deleted_count = await self._delete_stale_documents(pg_ids)
         logger.info(f"Deleted {deleted_count} stale places from index")
+        await self._delete_legacy_index()
+
+    async def _delete_legacy_index(self) -> None:
+        """Drop the old bot-only index after switching to the shared API index."""
+        if self.index == LEGACY_INDEX_NAME:
+            return
+        try:
+            exists = await self.es.indices.exists(index=LEGACY_INDEX_NAME)
+            if not exists:
+                return
+            await self.es.indices.delete(index=LEGACY_INDEX_NAME)
+            logger.info("Deleted legacy Elasticsearch index {!r}", LEGACY_INDEX_NAME)
+        except Exception as exc:
+            # 404 = already gone (race with another worker); anything else is non-fatal.
+            status = getattr(exc, "status_code", None) or getattr(exc, "meta", None) and getattr(exc.meta, "status", None)
+            if status == 404:
+                return
+            logger.warning(
+                "Could not delete legacy Elasticsearch index {!r}: {}",
+                LEGACY_INDEX_NAME,
+                exc,
+            )
 
     async def _iter_es_ids(self):
         """Итерирует по id документов из Elasticsearch."""
         async for hit in async_scan(
             self.es,
-            index=INDEX_NAME,
+            index=self.index,
             query={"_source": False, "query": {"match_all": {}}},
         ):
             doc_id = hit.get("_id")
@@ -117,21 +150,19 @@ class ElasticPlacesIndexer:
             for stale_id in stale_ids:
                 yield {
                     "_op_type": "delete",
-                    "_index": INDEX_NAME,
+                    "_index": self.index,
                     "_id": stale_id,
                 }
 
         await async_bulk(self.es, stale_actions())
         return len(stale_ids)
 
-
     async def search_place_ids(self, query: str) -> list[int]:
         """
         Ищет в Elasticsearch места по ключевому слову и возвращает только id
         """
-        # Elasticsearch search
         resp = await self.es.search(
-            index=INDEX_NAME,
+            index=self.index,
             body={
               "_source": ["id"],
               "size": 1000,
@@ -142,7 +173,7 @@ class ElasticPlacesIndexer:
                       "multi_match": {
                         "query": query,
                         "type": "phrase",
-                        "fields": ["name^6", "full_address^3"],
+                        "fields": ["name^6", "full_address^3", "region^2"],
                         "slop": 3
                       }
                     },
@@ -150,7 +181,7 @@ class ElasticPlacesIndexer:
                       "multi_match": {
                         "query": query,
                         "type": "cross_fields",
-                        "fields": ["name^4", "full_address^2", "description", "category"],
+                        "fields": ["name^4", "full_address^2", "region^2", "description", "category"],
                         "operator": "and"
                       }
                     },
@@ -158,7 +189,7 @@ class ElasticPlacesIndexer:
                       "multi_match": {
                         "query": query,
                         "type": "best_fields",
-                        "fields": ["name^3", "full_address^2", "description", "category"],
+                        "fields": ["name^3", "full_address^2", "region^2", "description", "category"],
                         "operator": "and",
                         "fuzziness": "AUTO",
                         "prefix_length": 2
@@ -171,7 +202,6 @@ class ElasticPlacesIndexer:
             }
         )
 
-        # Составляем список id
         ids = [hit["_source"]["id"] for hit in resp["hits"]["hits"]]
         return ids
 

@@ -18,6 +18,7 @@ def _settings():
         elasticsearch_host="http://elasticsearch:9200",
         elasticsearch_user="elastic",
         elasticsearch_password="test",
+        elasticsearch_index="urbex_places_v1",
         kmz_path="geo_data/places.kmz",
         csv_path="geo_data/places.csv",
     )

@@ -478,7 +478,7 @@ export function Explorer() {
                   </h2>
                   <p>
                     <MapPin size={12} />
-                    {p.region}
+                    <span>{p.region}</span>
                   </p>
                   {query.trim() && !locality && p.description && (
                     <p className="match-description">

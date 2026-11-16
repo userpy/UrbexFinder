@@ -49,23 +49,33 @@ _CONDITION = (
     ),
     (
         'abandoned',
-        2,
+        3,
         (
             'заброшен', 'заброшк', 'заброшенн', 'не используется', 'пустован',
             'законсервирован', 'выведен из эксплуатации', 'недействующ',
             'руин', 'развалин', 'обрушил', 'аварийн', 'разрушает', 'разрушен',
             'рухнул', 'обвалил', 'полуразрушен', 'частично разрушен',
+            'бывший лагер', 'бывший пионер', 'бывший детск', 'бывш. лагер',
+            'здания пуст', 'корпуса пуст', 'пустые корпус', 'пустые здания',
+            'продан на аукцион', 'проданы на аукцион', 'продали на аукцион',
+            'не функционир', 'закрыт с ', 'закрылся', 'прекратил работ',
         ),
     ),
     (
         'active',
         2,
         (
-            'действует', 'работае', 'функционир', 'музей', 'жилой',
-            'отремонтирован', 'восстановлен', 'в хорошем состоянии', 'сохранил',
-            'открыт для посещ', 'действующ',
+            'сейчас действует', 'лагерь работает', 'принимает детей',
+            'идёт набор', 'идет набор', 'открыт набор', 'работает в сезон',
+            'функционирует', 'музей работает', 'открыт для посещ',
+            'отремонтирован', 'восстановлен и открыт',
         ),
     ),
+)
+# Past / ruin cues cancel "active" hits in the same snippet.
+_CONDITION_INACTIVE_CONTEXT = (
+    'заброшен', 'заброшк', 'бывший', 'бывш', 'руин', 'развалин',
+    'пустые', 'пусты', 'аукцион', 'не используется', 'законсервир',
 )
 
 _SECURITY_LABELS = {
@@ -88,7 +98,10 @@ def _normalize(text: str) -> str:
 
 
 def _collect_signals(
-    items: list[dict], families: tuple[tuple[str, int, tuple[str, ...]], ...]
+    items: list[dict],
+    families: tuple[tuple[str, int, tuple[str, ...]], ...],
+    *,
+    suppress_active_in_inactive_context: bool = False,
 ) -> tuple[dict[str, float], dict[str, list[dict]]]:
     scores: dict[str, float] = defaultdict(float)
     signals: dict[str, list[dict]] = defaultdict(list)
@@ -99,7 +112,12 @@ def _collect_signals(
         if not blob:
             continue
         url = str(item.get('url') or '')
+        inactive_context = suppress_active_in_inactive_context and any(
+            cue in blob for cue in _CONDITION_INACTIVE_CONTEXT
+        )
         for level, weight, terms in families:
+            if inactive_context and level == 'active':
+                continue
             for term in terms:
                 needle = term.casefold().strip()
                 if not needle or needle not in blob:
@@ -122,9 +140,18 @@ def _pick_level(
     scores: dict[str, float],
     signals: dict[str, list[dict]],
     order: tuple[str, ...],
+    *,
+    prefer_abandoned: bool = False,
 ) -> tuple[str, str, list[dict]]:
     if not scores:
         return 'unknown', 'low', []
+    # Urbex prior: when both «работает» noise and abandonment cues fire, trust ruin.
+    if prefer_abandoned:
+        abandoned = scores.get('abandoned', 0)
+        active = scores.get('active', 0)
+        if abandoned > 0 and active > 0 and abandoned >= active * 0.5:
+            scores = dict(scores)
+            scores['active'] = 0
     best = max(order, key=lambda level: (scores.get(level, 0), -order.index(level)))
     best_score = scores.get(best, 0)
     if best_score <= 0:
@@ -145,7 +172,9 @@ def _pick_level(
 
 def assess_osint_items(items: list[dict]) -> dict:
     security_scores, security_signals = _collect_signals(items, _SECURITY)
-    condition_scores, condition_signals = _collect_signals(items, _CONDITION)
+    condition_scores, condition_signals = _collect_signals(
+        items, _CONDITION, suppress_active_in_inactive_context=True,
+    )
 
     security_level, security_confidence, security_examples = _pick_level(
         security_scores, security_signals, ('high', 'medium', 'low'),
@@ -154,6 +183,7 @@ def assess_osint_items(items: list[dict]) -> dict:
         condition_scores,
         condition_signals,
         ('demolished', 'abandoned', 'active'),
+        prefer_abandoned=True,
     )
 
     security_label = _SECURITY_LABELS[security_level]

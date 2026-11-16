@@ -56,6 +56,7 @@ async def handle_places_bootstrap(
                 es_url=settings.elasticsearch_host,
                 es_user=settings.elasticsearch_user,
                 es_password=settings.elasticsearch_password,
+                index_name=getattr(settings, "elasticsearch_index", None),
             )
             
         source = getattr(settings, 'seed_places_source', 'kmz')

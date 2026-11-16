@@ -2,7 +2,7 @@ from functools import lru_cache
 from typing import Literal
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
@@ -33,6 +33,15 @@ class AppSettings(DatabaseSettings):
     elasticsearch_host: str
     elasticsearch_user: str
     elasticsearch_password: str
+    # Shared with API. Prefer URBEX_ELASTICSEARCH_INDEX, then ELASTICSEARCH_INDEX.
+    elasticsearch_index: str = Field(
+        default="urbex_places_v1",
+        validation_alias=AliasChoices(
+            "URBEX_ELASTICSEARCH_INDEX",
+            "ELASTICSEARCH_INDEX",
+            "elasticsearch_index",
+        ),
+    )
     seed_places_source: Literal["kmz", "csv", "both"] = "kmz"
     places_csv_path: str = "geo_data/places.csv"
     seed_places: bool
