@@ -3,6 +3,8 @@ bot/.env
 .env
 .idea
 .codex
+.claude
+.cursor
 loki_data/*
 es_data/*
 pg_data/*
