@@ -515,3 +515,6 @@ body {
 .stored-image-status { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 12px; }
 
 .gallery-thumbnails > button { position: relative; }
+@media (max-width: 760px) {
+  .osint-dialog .osint-dialog-panel { padding-top: 42px; }
+}
