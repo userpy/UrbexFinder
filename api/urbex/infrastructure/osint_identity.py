@@ -4,7 +4,7 @@ from math import asin, cos, radians, sin, sqrt, isfinite
 import re
 from urllib.parse import parse_qsl, urlencode, unquote, urlparse
 
-VERSION = 4
+VERSION = 5
 
 
 def normalized(text):
@@ -94,11 +94,12 @@ def address_parts(text):
 def locality_cues(text):
     value = normalized(text)
     result = set()
-    for pattern in [r'\b(?:деревня|село|поселок|город|г\.|д\.)\s+([а-я-]+)',
+    for pattern in [r'\b(?:городской|муниципальный)\s+округ\s+([а-я-]+)',
+                    r'\b(?:деревня|село|поселок|город|г\.|д\.)\s+([а-я-]+)',
                     r'\b([а-я-]+)\s+(?:район|муниципальный округ|городской округ|область)\b']:
         result.update(re.findall(pattern, value))
     # A region on its own is too coarse for namesakes.
-    result -= {'московская', 'москва', 'россия', 'центральный'}
+    result -= {'московская', 'москва', 'россия', 'центральный', 'городской', 'муниципальный'}
     return result
 
 
@@ -203,7 +204,7 @@ def verify_source(place, source, reference_urls=()):
     # A lone common name needs more than a region. Multiple distinctive words
     # (or a numbered institution) plus location can establish a match.
     strong_name = same_name and (len(cues) >= 2 or bool(codes))
-    if strong_name and compatible and any(words_present({cue}, text) for cue in local):
+    if strong_name and compatible and any(words_present({cue}, text + ' ' + str(primary.get('address') or '')) for cue in local):
         return Decision('accepted', ('Совпали отличительные признаки названия, местоположение и тип',), ('name', 'location', 'type'))
     return Decision('unconfirmed', ('Недостаточно данных для привязки к конкретному объекту',),
                     tuple(x for x, ok in [('name', same_name), ('type', compatible)] if ok))

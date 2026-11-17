@@ -126,7 +126,7 @@ def test_new_report_and_cached_report_share_the_gate(monkeypatch):
     monkeypatch.setattr(osint, 'description_photos_for_links', lambda *args, **kwargs: [])
     monkeypatch.setattr(osint, 'vk_sources_for_links', lambda *args, **kwargs: [])
     fresh = osint.build_osint_report('', '', PLACE)
-    assert fresh['verification']['version'] == 4
+    assert fresh['verification']['version'] == 5
     cached = osint._refilter_report(fresh, PLACE)
     assert cached['items'] == fresh['items']
     assert cached['verification'] == fresh['verification']
@@ -202,3 +202,20 @@ def test_compound_camp_name_accepts_matching_map_gallery(name):
     row['page_identity']['latitude'] = place['latitude']
     row['title'] = 'Пионерский лагерь Красный факел'
     assert verify_source(place, row).status == 'unconfirmed'
+
+
+def test_camp_real_map_offset_and_structured_district_address():
+    from urbex.infrastructure.osint_identity import locality_cues
+    place = dict(name='Пионерлагерь «Голубой Факел»', latitude=55.323611,
+                 longitude=37.778627, full_address='Красное, городской округ Домодедово, Московская область')
+    url = 'https://yandex.com/maps/org/pionerskiy_lager_goluboy_fakel/170329852852/'
+    row = primary(item('Пионерский лагерь Голубой факел', url=url),
+                  latitude=55.32419, longitude=37.779987,
+                  address='Московская область, Домодедово, микрорайон Белые Столбы, территория Радуга')
+    assert locality_cues(place['full_address']) == {'домодедово'}
+    assert verify_source(place, row).status == 'accepted'
+    row['page_identity']['address'] = 'Московская область, городской округ Клин'
+    assert verify_source(place, row).status == 'unconfirmed'
+    row['page_identity']['address'] = 'Московская область, Домодедово'
+    row['page_identity']['latitude'] = 56.0
+    assert verify_source(place, row).status == 'rejected'
