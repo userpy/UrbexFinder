@@ -1382,7 +1382,8 @@ def test_vk_photos_for_links_fetches_wall_album(monkeypatch):
     assert len(photos) == 1
     assert photos[0]['engine'] == 'vk'
     assert photos[0]['image_url'] == 'https://cdn.vk/big.jpg'
-    assert photos[0]['source_url'] == 'https://vk.com/photo-42_9'
+    assert photos[0]['source_url'] == 'https://vk.com/club42'
+    assert photos[0]['photo_page_url'] == 'https://vk.com/photo-42_9'
     assert od.vk_photos_for_links('', [{'url': 'https://vk.com/club42'}]) == []
 
 

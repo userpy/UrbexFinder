@@ -7,17 +7,18 @@ import re
 
 from urbex.domain.rules import DomainError
 from .osint_identity import verify_report, source_key
-from .osint_description import links_from_description, generic_page_photos_for_links, urban3p_photos_for_links
+from .osint_description import links_from_description, generic_page_photos_for_links, urban3p_photos_for_links, vk_photos_for_links
 
 _cache = OrderedDict()
 _lock = Lock()
 
 
-def source_photos(place: dict, saved_report: dict | None = None) -> list[dict]:
+def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: str = '') -> list[dict]:
     links = [link for link in links_from_description(str(place.get('description') or ''))
              if (urlparse(link['url']).hostname or '').lower() in {
                  'geocaching.su', 'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru',
                  'podmoskovnye.ru', 'www.podmoskovnye.ru',
+                 'vk.com', 'www.vk.com', 'm.vk.com', 'vk.ru', 'www.vk.ru', 'm.vk.ru',
                  'urban3p.ru', 'www.urban3p.ru', 'urban3p.com', 'www.urban3p.com',
              }][:2]
     references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
@@ -40,7 +41,11 @@ def source_photos(place: dict, saved_report: dict | None = None) -> list[dict]:
     urban_keys = {source_key(link['url']) for link in urban}
     urban_saved = [photo for photo in verify_report(saved_report or {}, place, references)['photos']
                    if source_key(photo.get('source_url')) in urban_keys]
-    saved = urban_saved + maps + (verified_podmoskovnye(saved_report or {}) if podmoskovnye else [])
+    vk = [link for link in links if link.get('category') == 'vk']
+    vk_keys = {source_key(link['url']) for link in vk}
+    vk_saved = [photo for photo in verify_report(saved_report or {}, place, references)['photos']
+                if source_key(photo.get('source_url')) in vk_keys]
+    saved = vk_saved + urban_saved + maps + (verified_podmoskovnye(saved_report or {}) if podmoskovnye else [])
     seen = {photo['image_url'] for photo in saved}
     for photo in (saved_report or {}).get('photos', []):
         image = urlparse(str(photo.get('image_url') or ''))
@@ -52,9 +57,9 @@ def source_photos(place: dict, saved_report: dict | None = None) -> list[dict]:
                 and image.geturl() not in seen):
             seen.add(image.geturl())
             saved.append(photo)
-    if saved and (not urban or urban_saved):
+    if saved and (not urban or urban_saved) and (not vk or vk_saved):
         return saved[:12]
-    key = tuple(link['url'] for link in links)
+    key = (tuple(link['url'] for link in links), bool(vk_token))
     with _lock:
         cached = _cache.get(key)
         if cached and cached[0] > monotonic():
@@ -63,7 +68,10 @@ def source_photos(place: dict, saved_report: dict | None = None) -> list[dict]:
                 raise DomainError('Не удалось загрузить фото источника. Повторите позже.', 502)
             return cached[1]
     photos = urban3p_photos_for_links(urban, 12) if urban else []
-    other_links = [link for link in links if link not in urban]
+    if vk:
+        fetched_vk = vk_photos_for_links(vk_token, vk, 12)
+        photos += verify_report({'photos': fetched_vk}, place, references)['photos']
+    other_links = [link for link in links if link not in urban and link not in vk]
     if other_links:
         photos += generic_page_photos_for_links(other_links, limit=12, max_pages=2)
     photos = (photos + saved)[:12]

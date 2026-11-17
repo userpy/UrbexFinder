@@ -19,6 +19,7 @@ from urbex.infrastructure.osint_description import (
     site_photos_for_links,
     urban3p_photos_for_links,
     vk_sources_for_links,
+    vk_photos_for_links,
     generic_page_photos_for_links,
     wikimapia_photos_for_links,
     yandex_maps_photos_for_links,
@@ -1600,6 +1601,15 @@ def get_or_build_osint_report(
                     [tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS,
                 )
                 filtered['photos_total'] = len(filtered['photos'])
+                return save_osint_report(engine, place_id, _verify_report(filtered, place))
+            vk_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
+                          if photo.get('engine') == 'vk'}
+            missing_vk = [link for link in links_from_description(str(place.get('description') or ''))
+                          if is_vk_group_url(link['url']) and source_key(link['url']) not in vk_parents]
+            if missing_vk and time.time() - stored.get('vk_photos_checked_at', 0) >= 300:
+                recovered = vk_photos_for_links(vk_token, missing_vk, _MAX_PHOTOS)
+                filtered['vk_photos_checked_at'] = time.time()
+                filtered['photos'] = _merge([tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS)
                 return save_osint_report(engine, place_id, _verify_report(filtered, place))
             urban_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
                              if photo.get('engine') == 'urban3p'}

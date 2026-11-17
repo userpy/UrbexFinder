@@ -37,7 +37,7 @@ _VK_BROWSER_HEADERS = {
     'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
 }
 _VK_JSON_URL_RE = re.compile(
-    r'"url"\s*:\s*"(https:(?:\\/|/){2}(?:sun\d+-[\w.-]+|[\w.-]+)\.userapi\.com(?:\\/|/)[^"]+)"',
+    r'"url"\s*:\s*"(https:(?:\\/|/){2}(?:sun\d+-[\w.-]+|[\w.-]+)\.(?:userapi\.com|vkuserphoto\.ru)(?:\\/|/)[^"]+)"',
     re.IGNORECASE,
 )
 _VK_DESC_RE = re.compile(r'"description"\s*:\s*"((?:\\.|[^"\\]){8,800})"')
@@ -503,7 +503,9 @@ def _vk_image_ok(url: str) -> bool:
     lower = url.casefold()
     if not lower.startswith('https://'):
         return False
-    if 'userapi.com' not in lower:
+    host = (urlparse(url).hostname or '').lower()
+    if not any(host == domain or host.endswith('.' + domain)
+               for domain in ('userapi.com', 'vkuserphoto.ru')):
         return False
     if any(skip in lower for skip in _VK_IMG_SKIP):
         return False
@@ -530,8 +532,12 @@ def _vk_image_rank(url: str) -> tuple[int, int]:
 
 def _extract_vk_image_urls(html: str) -> list[str]:
     best: dict[str, str] = {}
-    for match in _VK_JSON_URL_RE.finditer(html or ''):
-        url = _http_url(_vk_unescape(match.group(1)))
+    from selectolax.parser import HTMLParser
+    raw_urls = [match.group(1) for match in _VK_JSON_URL_RE.finditer(html or '')]
+    for node in HTMLParser(html or '').css('img'):
+        raw_urls.extend(node.attributes.get(attr, '') for attr in ('src', 'data-src', 'data-original'))
+    for raw in raw_urls:
+        url = _http_url(_vk_unescape(raw))
         if not url or not _vk_image_ok(url):
             continue
         path = urlparse(url).path.casefold()
@@ -667,6 +673,7 @@ def vk_photos_for_links(token: str, links: list[dict], limit: int = _MAX_VK_PHOT
             continue
         path = _vk_path(url)
         rows: list[dict] = []
+        group_owner = None
         if _parse_owner_album(path):
             album_photos = _vk_html_photos_for_url(
                 url, title=str(link.get('title') or ''),
@@ -683,13 +690,19 @@ def vk_photos_for_links(token: str, links: list[dict], limit: int = _MAX_VK_PHOT
                 target = _owner_from_vk_url(token, url)
                 if target:
                     owner_id, album_id = target
+                    if is_vk_group_url(url) and owner_id < 0:
+                        group_owner = owner_id
                     rows = _photos_get(token, owner_id, album_id, min(limit, _MAX_VK_PHOTOS))
         for row in rows:
             if len(photos) >= limit:
                 break
+            if group_owner is not None and row.get('owner_id') != group_owner:
+                continue
             item = _photo_item(row, url)
             if not item:
                 continue
+            if group_owner is not None:
+                item.update(photo_page_url=item['source_url'], source_url=url, scope='group')
             key = item['image_url'].rstrip('/').casefold()
             if key in seen:
                 continue

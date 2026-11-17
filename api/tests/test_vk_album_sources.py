@@ -93,3 +93,57 @@ def test_group_reference_does_not_automatically_confirm_wall_posts():
     from urbex.infrastructure.osint_identity import verify_source
     post = {'url': 'https://vk.com/wall-42_123', 'title': 'Школа'}
     assert verify_source({'name': 'Завод'}, post, ['https://vk.com/club42']).status == 'rejected'
+
+
+def test_group_api_photos_keep_verified_group_provenance(monkeypatch):
+    url = 'https://vk.com/old_factory'
+    monkeypatch.setattr(description, '_fetch_vk_html', lambda _: '')
+    monkeypatch.setattr(description, '_resolve_screen_name', lambda *a: -42)
+    monkeypatch.setattr(description, '_photos_get', lambda *a: [
+        {'owner_id': owner, 'id': 7, 'sizes': [{'url': f'https://sun9.userapi.com/{owner}.jpg',
+                                            'width': 1280, 'height': 720}]}
+        for owner in [-42, -99]
+    ])
+    photos = description.vk_photos_for_links('token', [{'url': url}])
+    assert len(photos) == 1
+    assert photos[0]['source_url'] == url
+    assert photos[0]['photo_page_url'] == 'https://vk.com/photo-42_7'
+    place = {'name': 'Завод', 'description': url}
+    assert osint._refilter_report({'photos': photos}, place)['photos'] == photos
+    assert osint._refilter_report({'photos': photos}, dict(place, description=''))['photos'] == []
+
+
+def test_group_html_photos_survive_verification_without_token(monkeypatch):
+    url = 'https://vk.com/club42'
+    monkeypatch.setattr(description, '_fetch_vk_html', lambda _: '<img src="https://sun9.userapi.com/impg/factory.jpg">')
+    photos = description.vk_photos_for_links('', [{'url': url}])
+    assert len(photos) == 1
+    assert osint._refilter_report({'photos': photos}, {'name': 'Завод', 'description': url})['photos'] == photos
+
+
+def test_cached_report_retries_missing_vk_group_photos(monkeypatch):
+    url = 'https://vk.com/club42'
+    photo = {'engine': 'vk', 'source_url': url, 'query': url,
+             'image_url': 'https://sun9.userapi.com/factory.jpg'}
+    stored = {'items': [], 'photos': []}
+    monkeypatch.setattr(osint, 'load_osint_report', lambda *a: stored)
+    monkeypatch.setattr(osint, 'save_osint_report', lambda engine, id, report: report)
+    calls = []
+    def fetch(token, links, limit):
+        calls.append((token, links[0]['url']))
+        return [photo]
+    monkeypatch.setattr(osint, 'vk_photos_for_links', fetch)
+    place = {'id': 42, 'name': 'Завод', 'description': url}
+    result = osint.get_or_build_osint_report(None, '', '', place, vk_token='token')
+    assert result['photos'] == [photo]
+    assert calls == [('token', url)]
+    stored.update(photos=[], vk_photos_checked_at=result['vk_photos_checked_at'])
+    osint.get_or_build_osint_report(None, '', '', place, vk_token='token')
+    assert len(calls) == 1
+
+
+def test_group_html_supports_vk_cdn_and_rejects_lookalike_hosts():
+    html = '''<img data-src="https://sun9.vkuserphoto.ru/factory.jpg?quality=95&amp;x=1">
+    <img src="https://userapi.com.evil.example/factory.jpg">
+    <img src="https://sun9.userapi.com/emoji/smile.png">'''
+    assert description._extract_vk_image_urls(html) == ['https://sun9.vkuserphoto.ru/factory.jpg?quality=95&x=1']

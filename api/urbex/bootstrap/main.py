@@ -53,7 +53,7 @@ def create_app(config=None, storage=None):
     app.state.reverse_address = lambda latitude, longitude: reverse_address(config.geocoder_url, config.origin, latitude, longitude)
     app.state.engine = create_engine(config.database_url, pool_pre_ping=True)
     app.state.source_photos = lambda place: app.state.external_images.photos(source_photos(
-        place, load_osint_report(app.state.engine, place['id']),
+        place, load_osint_report(app.state.engine, place['id']), vk_token=config.vk_access_token,
     ))
     app.state.urban3p_image = fetch_image
     def osint_report(place, refresh=False):

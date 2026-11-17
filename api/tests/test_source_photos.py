@@ -85,3 +85,23 @@ def test_urban_description_gallery_and_saved_report(monkeypatch):
     sources._cache.clear()
     assert sources.source_photos(place, {'photos': [photo]}) == [photo]
     assert len(calls) == 1
+
+
+def test_vk_group_gallery_fetches_with_token_and_reuses_verified_saved_photos(monkeypatch):
+    sources._cache.clear()
+    url = 'https://vk.com/club42'
+    photo = {'engine': 'vk', 'source_url': url, 'query': url,
+             'image_url': 'https://sun9.userapi.com/factory.jpg'}
+    calls = []
+    def fetch(token, links, limit):
+        calls.append((token, links[0]['url']))
+        return [photo]
+    monkeypatch.setattr(sources, 'vk_photos_for_links', fetch)
+    monkeypatch.setattr(sources, 'generic_page_photos_for_links',
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError('Use VK parser')))
+    place = {'name': 'Завод', 'description': url}
+    assert sources.source_photos(place, vk_token='token') == [photo]
+    assert sources.source_photos(place, vk_token='token') == [photo]
+    sources._cache.clear()
+    assert sources.source_photos(place, {'photos': [photo]}, vk_token='token') == [photo]
+    assert calls == [('token', url)]
