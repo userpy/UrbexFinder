@@ -36,6 +36,10 @@ def test_relay_retries_and_caches_images(monkeypatch):
     for _ in range(2):
         assert media.fetch_image('img04', 17147, 'gallery', '384551.jpg') == b'\xff\xd8\xfftest'
     assert len(calls) == 2
+    assert calls == [
+        'https://img04.urban3p.ru/up/o/17147/gallery/384551.jpg',
+        'https://img04.urban3p.com/up/o/17147/gallery/384551.jpg',
+    ]
     with pytest.raises(DomainError):
         media.fetch_image('localhost', 17147, 'gallery', '384551.jpg')
     with pytest.raises(DomainError):

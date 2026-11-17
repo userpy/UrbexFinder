@@ -188,3 +188,38 @@ def test_http_failure_never_redirects_to_source():
         assert response.headers['retry-after'] == '3'
         assert response.headers['cache-control'] == 'no-store'
         assert client.get('/api/source-images/invalid').status_code == 404
+
+
+@pytest.mark.parametrize('failure', ['timeout', '404', 'html', 'redirect', 'none'])
+def test_urban3p_download_uses_com_only_when_ru_fails(monkeypatch, failure):
+    image = BytesIO()
+    Image.new('RGB', (4, 4)).save(image, format='PNG')
+    calls = []
+    url = 'https://img04.urban3p.ru/up/o/17147/gallery/384551.jpg?size=large'
+    mirror = url.replace('.urban3p.ru/', '.urban3p.com/')
+
+    def handler(request):
+        calls.append(str(request.url))
+        if request.url.host.endswith('.ru'):
+            if failure == 'timeout':
+                raise httpx.ConnectTimeout('offline')
+            if failure == '404':
+                return httpx.Response(404)
+            if failure == 'html':
+                return httpx.Response(200, content=b'<html>unavailable</html>')
+            if failure == 'redirect':
+                return httpx.Response(302, headers={'location': 'http://127.0.0.1/private'})
+        return httpx.Response(200, content=image.getvalue())
+
+    original = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(
+        transport=httpx.MockTransport(handler), **kwargs))
+    assert download(url).startswith(b'\xff\xd8\xff')
+    assert calls == ([url] if failure == 'none' else [url, mirror])
+
+
+@pytest.mark.parametrize('url', ['https://img04.urban3p.com.evil.org/photo.jpg',
+                                'https://evilurban3p.ru/photo.jpg'])
+def test_urban3p_mirror_rejects_lookalike_hosts(url):
+    with pytest.raises(ValueError, match='Unsupported image origin'):
+        download(url)

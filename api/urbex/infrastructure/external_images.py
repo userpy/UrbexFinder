@@ -18,6 +18,9 @@ HOSTS = frozenset({
     'podmoskovnye.ru', 'www.podmoskovnye.ru', 'upload.wikimedia.org',
     'img.urban3p.ru', 'img01.urban3p.ru', 'img02.urban3p.ru',
     'img03.urban3p.ru', 'img04.urban3p.ru', 'swalker.ru',
+    'urban3p.ru', 'www.urban3p.ru', 'urban3p.com', 'www.urban3p.com',
+    'img.urban3p.com', 'img01.urban3p.com', 'img02.urban3p.com',
+    'img03.urban3p.com', 'img04.urban3p.com',
     'planetadorog.ru', 'www.planetadorog.ru', 's3.dzeninfra.ru',
 })
 VK_IMAGE_DOMAINS = ('userapi.com', 'vkuserphoto.ru')
@@ -39,6 +42,20 @@ def supported(url):
 def download(url):
     if not supported(url):
         raise ValueError('Unsupported image origin')
+    try:
+        return _download_image(url)
+    except (httpx.HTTPError, ValueError, DomainError):
+        parsed = urlparse(url)
+        host = parsed.hostname or ''
+        if host != 'urban3p.ru' and not host.endswith('.urban3p.ru'):
+            raise
+        mirror = parsed._replace(netloc=host.removesuffix('.ru') + '.com').geturl()
+        if not supported(mirror):
+            raise
+        return _download_image(mirror)
+
+
+def _download_image(url):
     with httpx.Client(timeout=httpx.Timeout(8, connect=3), follow_redirects=False) as client:
         with client.stream('GET', url) as response:
             response.raise_for_status()

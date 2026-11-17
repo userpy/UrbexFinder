@@ -4,7 +4,7 @@ import re
 import httpx
 from urbex.domain.rules import DomainError
 
-_IMAGE = re.compile(r'https?://(img(?:0[1-4])?)\.urban3p\.ru/up/o/(\d+)/(gallery/)?(photo|\d+)(_p)?\.jpg(?:\?.*)?$', re.I)
+_IMAGE = re.compile(r'https?://(img(?:0[1-4])?)\.urban3p\.(?:ru|com)/up/o/(\d+)/(gallery/)?(photo|\d+)(_p)?\.jpg(?:\?.*)?$', re.I)
 _MAX_BYTES = 2 * 1024 * 1024
 
 
@@ -30,8 +30,8 @@ def fetch_image(host: str, oid: int, kind: str, filename: str) -> bytes:
             or not re.fullmatch(r'(?:photo|\d+)(?:_p)?\.jpg', filename)):
         raise DomainError('Некорректная ссылка на фото', 422)
     path = 'gallery/' if kind == 'gallery' else ''
-    url = f'https://{host}.urban3p.ru/up/o/{oid}/{path}{filename}'
-    for _ in range(2):
+    urls = [f'https://{host}.urban3p.{domain}/up/o/{oid}/{path}{filename}' for domain in ('ru', 'com')]
+    for url in urls:
         try:
             with httpx.Client(timeout=httpx.Timeout(10, connect=4)) as client:
                 with client.stream('GET', url) as response:
@@ -44,16 +44,17 @@ def fetch_image(host: str, oid: int, kind: str, filename: str) -> bytes:
                     if not data.startswith(b'\xff\xd8\xff'):
                         raise DomainError('Источник вернул не фотографию', 502)
                     return bytes(data)
-        except httpx.HTTPError:
+        except (httpx.HTTPError, DomainError):
             continue
     # The same browser TLS profile is used by the existing Urban3P scraper.
     # Some CDN connections reject OpenSSL while accepting a browser handshake.
-    try:
-        from curl_cffi import requests
-        response = requests.get(url, impersonate='chrome136', timeout=6, allow_redirects=False)
-        data = response.content
-        if response.status_code == 200 and len(data) <= _MAX_BYTES and data.startswith(b'\xff\xd8\xff'):
-            return data
-    except Exception:
-        pass
+    for url in urls:
+        try:
+            from curl_cffi import requests
+            response = requests.get(url, impersonate='chrome136', timeout=6, allow_redirects=False)
+            data = response.content
+            if response.status_code == 200 and len(data) <= _MAX_BYTES and data.startswith(b'\xff\xd8\xff'):
+                return data
+        except Exception:
+            pass
     raise DomainError('Urban3P временно не отдаёт фотографию', 502)
