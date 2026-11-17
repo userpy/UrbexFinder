@@ -55,10 +55,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
   useEffect(() => {
     let active = true;
-    const telegram = telegramLaunch(window);
-    telegram.ready();
     async function initialize() {
+      let telegram = telegramLaunch(window);
       setIsMiniApp(telegram.isMiniApp);
+      // A desktop WebView may initialize its bridge after React has mounted.
+      for (let attempt = 0; !telegram.initData && attempt < 30 && active; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        telegram = telegramLaunch(window);
+      }
+      if (!active) return;
+      telegram.ready();
+      setIsMiniApp(telegram.isMiniApp);
+      if (telegram.isMiniApp && !telegram.initData) {
+        setAuthError("Telegram не передал данные для входа. Закройте мини-приложение и откройте его заново кнопкой в профиле бота.");
+      }
       if (telegram.initData) {
         try {
           const currentSession = await api<{

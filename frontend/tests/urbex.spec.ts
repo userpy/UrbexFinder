@@ -69,7 +69,7 @@ test("guest map covers all pages; search, empty state and selection", async ({
   await expect(page.locator(".place-row")).toHaveCount(30);
 });
 
-for (const launchMode of ["sdk", "desktop-url", "desktop-reload"]) {
+for (const launchMode of ["sdk", "desktop-url", "desktop-reload", "desktop-delayed", "desktop-navigation"]) {
 test(`Telegram Mini App signs in automatically: ${launchMode}`, async ({ page }) => {
   const telegramInitData = "signed-telegram-mini-app-data";
   const user = {
@@ -100,6 +100,17 @@ test(`Telegram Mini App signs in automatically: ${launchMode}`, async ({ page })
       json: { user, csrf: "mini-app-csrf" },
     });
   });
+  if (launchMode === "desktop-delayed") await page.addInitScript((initData) => {
+    setTimeout(() => {
+      Object.defineProperty(window, "Telegram", {
+        configurable: true,
+        value: { WebApp: { initData, platform: "tdesktop", ready: () => {} } },
+      });
+    }, 1200);
+  }, telegramInitData);
+  if (launchMode === "desktop-navigation") await page.addInitScript(() => {
+    history.replaceState(null, "", location.pathname);
+  });
   let sessionRequests = 0;
   await page.route("**/api/auth/me", (route) => {
     sessionRequests += 1;
@@ -111,7 +122,7 @@ test(`Telegram Mini App signs in automatically: ${launchMode}`, async ({ page })
     });
   });
 
-  await page.goto(launchMode === "desktop-url" ? `/#tgWebAppData=${encodeURIComponent(telegramInitData)}&tgWebAppPlatform=tdesktop` : "/");
+  await page.goto(["desktop-url", "desktop-navigation"].includes(launchMode) ? `/#tgWebAppData=${encodeURIComponent(telegramInitData)}&tgWebAppPlatform=tdesktop` : "/");
 
   await expect(
     page.getByRole("link", { name: "Telegram исследователь" }),
