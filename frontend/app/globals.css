@@ -320,6 +320,15 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 
 /* Keep the mobile catalog focused on places, with compact navigation. */
 @media (max-width: 760px) {
+  .detail-top {
+    padding-top: 40px;
+    padding-bottom: 4px;
+  }
+
+  .place-fullscreen .detail-top {
+    padding-top: calc(max(24px, var(--app-safe-area-top)) + 16px);
+  }
+
   .explorer {
     height: calc(100dvh - 64px - var(--app-safe-area-top));
   }
@@ -366,7 +375,7 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
       var(--tg-safe-area-inset-top, 0px),
       var(--tg-viewport-safe-area-inset-top, 0px),
       var(--tg-content-safe-area-inset-top, 0px)
-    ) + 16px
+    ) + 24px
   );
   --app-safe-area-bottom: max(
     env(safe-area-inset-bottom, 0px),
@@ -412,8 +421,15 @@ body {
 }
 
 @media (max-width: 760px) {
+  .header {
+    height: 56px;
+    padding-top: 8px;
+  }
+
+  .detail-overlay { top: 56px; }
+
   .explorer {
-    height: calc(100dvh - 64px - var(--app-safe-area-top));
+    height: calc(100dvh - 56px - var(--app-safe-area-top));
   }
 }
 

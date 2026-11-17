@@ -218,7 +218,7 @@ function PlacesSection({
 }
 
 export function AccountView() {
-  const { user, loading, logout } = useSession();
+  const { user, loading, logout, isMiniApp } = useSession();
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Place | null>(null);
   if (loading) return <main className="page"><AccountLoading label="Загрузка профиля…" /></main>;
@@ -247,14 +247,16 @@ export function AccountView() {
           </div>
           <p className="muted">{user.email}</p>
         </div>
-        <div className="actions">
-          <Button
-            variant="outline"
-            onClick={() => logout().catch((e) => setError(e.message))}
-          >
-            Выйти
-          </Button>
-        </div>
+        {!isMiniApp && (
+          <div className="actions">
+            <Button
+              variant="outline"
+              onClick={() => logout().catch((e) => setError(e.message))}
+            >
+              Выйти
+            </Button>
+          </div>
+        )}
       </div>
       {error && (
         <p role="alert" className="notice">

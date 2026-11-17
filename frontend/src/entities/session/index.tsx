@@ -18,6 +18,7 @@ type Session = {
   user: User | null;
   loading: boolean;
   authError: string | null;
+  isMiniApp: boolean;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -25,6 +26,7 @@ const Context = createContext<Session>({
   user: null,
   loading: true,
   authError: null,
+  isMiniApp: false,
   refresh: async () => {},
   logout: async () => {},
 });
@@ -32,6 +34,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null),
     [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [isMiniApp, setIsMiniApp] = useState(false);
   async function refresh() {
     try {
       const data = await api<{ user: User | null; csrf: string | null }>(
@@ -57,6 +60,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     ).Telegram?.WebApp;
     telegramWebApp?.ready?.();
     async function initialize() {
+      setIsMiniApp(Boolean(telegramWebApp?.initData));
       if (telegramWebApp?.initData) {
         try {
           const currentSession = await api<{
@@ -91,7 +95,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <Context.Provider value={{ user, loading, authError, refresh, logout }}>
+    <Context.Provider value={{ user, loading, authError, isMiniApp, refresh, logout }}>
       {children}
     </Context.Provider>
   );
