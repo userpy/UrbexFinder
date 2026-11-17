@@ -5,6 +5,7 @@ from urbex.infrastructure.search import ElasticSearch
 from urbex.infrastructure.geocoding import reverse_address
 from urbex.infrastructure.osint import get_or_build_osint_report, load_osint_report
 from urbex.infrastructure.source_photos import source_photos
+from urbex.infrastructure.external_images import ExternalImages
 from urbex.infrastructure.urban3p_media import fetch_image, relay_report_images
 from urbex.infrastructure.telegram import send_route
 from fastapi import FastAPI, Request
@@ -40,6 +41,7 @@ def create_app(config=None, storage=None):
         try:
             yield
         finally:
+            await asyncio.to_thread(app.state.external_images.close)
             if task:
                 task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -50,11 +52,11 @@ def create_app(config=None, storage=None):
     app.state.send_route = lambda chat_id, route: send_route(config.telegram_bot_token, chat_id, route)
     app.state.reverse_address = lambda latitude, longitude: reverse_address(config.geocoder_url, config.origin, latitude, longitude)
     app.state.engine = create_engine(config.database_url, pool_pre_ping=True)
-    app.state.source_photos = lambda place: source_photos(
+    app.state.source_photos = lambda place: app.state.external_images.photos(source_photos(
         place, load_osint_report(app.state.engine, place['id']),
-    )
+    ))
     app.state.urban3p_image = fetch_image
-    app.state.osint_report = lambda place, refresh=False: relay_report_images(get_or_build_osint_report(
+    app.state.osint_report = lambda place, refresh=False: cache_report(get_or_build_osint_report(
         app.state.engine,
         config.searxng_url,
         config.origin,
@@ -64,6 +66,10 @@ def create_app(config=None, storage=None):
     ))
     app.state.search = ElasticSearch(config, app.state.engine)
     app.state.storage = storage or S3Storage(config)
+    app.state.external_images = ExternalImages(app.state.storage)
+
+    def cache_report(report):
+        return relay_report_images(dict(report, photos=app.state.external_images.photos(report.get('photos', []))))
 
     app.state.request_context = request_context
     app.state.sanitize_photo = sanitize_photo

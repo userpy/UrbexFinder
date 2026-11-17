@@ -153,6 +153,17 @@ def source_photos(id: int, request: Request, ctx: Ctx):
     return {'items': photos, 'total': len(photos)}
 
 
+@router.get('/source-images/{digest}')
+def source_image(digest: str, request: Request):
+    from fastapi.responses import RedirectResponse
+    data, fallback = request.app.state.external_images.content(digest)
+    if fallback:
+        return RedirectResponse(fallback, status_code=307, headers={'Cache-Control': 'no-store'})
+    return Response(data, media_type='image/jpeg', headers={
+        'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff',
+    })
+
+
 @router.get('/osint/urban3p/{host}/{oid}/{kind}/{filename}')
 def urban3p_image(host: str, oid: int, kind: str, filename: str, request: Request):
     data = request.app.state.urban3p_image(host, oid, kind, filename)

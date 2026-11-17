@@ -1,6 +1,7 @@
 from io import BytesIO
 import warnings
 import boto3
+from botocore.config import Config
 from PIL import Image, UnidentifiedImageError
 from urbex.domain.rules import DomainError
 
@@ -33,10 +34,21 @@ class S3Storage:
         self.telegram = TelegramPhotos(config.telegram_bot_token)
         self.bucket = config.s3_bucket
         self.client = boto3.client('s3', endpoint_url=config.s3_endpoint, aws_access_key_id=config.s3_access_key,
-                                   aws_secret_access_key=config.s3_secret_key, region_name='us-east-1')
+                                   aws_secret_access_key=config.s3_secret_key, region_name='us-east-1',
+                                   config=Config(connect_timeout=3, read_timeout=10, retries={'max_attempts': 1}))
 
     def put(self, key, data):
         self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType='image/jpeg')
+
+    def exists(self, key):
+        from botocore.exceptions import ClientError
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except ClientError as exc:
+            if exc.response.get('Error', {}).get('Code') in {'404', 'NoSuchKey', 'NotFound'}:
+                return False
+            raise
 
     def get(self, key):
         return self.client.get_object(Bucket=self.bucket, Key=key)['Body'].read()
