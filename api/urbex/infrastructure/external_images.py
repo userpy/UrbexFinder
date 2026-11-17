@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 from .storage import sanitize_photo, MAX_PHOTO_BYTES
 from urbex.domain.rules import DomainError
 
-# Exact trusted image origins; unknown origins retain their original URLs.
+# Exact trusted image origins; unsupported images are withheld from the gallery.
 HOSTS = frozenset({
     'avatars.mds.yandex.net', 'photos.wikimapia.org', 'geocaching.su',
     'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru',
@@ -74,53 +74,62 @@ class ExternalImages:
         finally:
             self.slots.release()
 
+    def schedule(self, digest, url):
+        # Caller holds the lock. Keep queued URLs even when workers are busy.
+        job = self.jobs.get(digest)
+        retry = job and job[1] is not None and job[1].done() and not job[1].result() and monotonic() - job[2] > 60
+        if job is None or job[1] is None or retry:
+            future = None
+            if self.slots.acquire(blocking=False):
+                future = self.pool.submit(self.copy, digest, url)
+            job = (url, future, monotonic())
+            self.jobs[digest] = job
+        self.jobs.move_to_end(digest)
+        while len(self.jobs) > 512:
+            self.jobs.popitem(last=False)
+        return job
+
     def photos(self, photos):
         output = []
         for photo in photos:
             url = photo.get('image_url')
             if not supported(url):
-                output.append(dict(photo))
                 continue
             digest = sha256(url.encode()).hexdigest()
             with self.lock:
-                job = self.jobs.get(digest)
-                if job and job[1].done() and not job[1].result() and monotonic() - job[2] > 60:
-                    del self.jobs[digest]
-                    job = None
-                if job is None and self.slots.acquire(blocking=False):
-                    job = (url, self.pool.submit(self.copy, digest, url), monotonic())
-                    self.jobs[digest] = job
-                if job:
-                    self.jobs.move_to_end(digest)
-                while len(self.jobs) > 512:
-                    self.jobs.popitem(last=False)
-            if job:
-                output.append(dict(photo, original_image_url=url,
-                                   original_thumbnail_url=photo.get('thumbnail_url'),
-                                   image_url=f'/api/source-images/{digest}',
-                                   thumbnail_url=f'/api/source-images/{digest}'))
-            else:
-                output.append(dict(photo))
+                self.schedule(digest, url)
+            output.append(dict(photo, original_image_url=url,
+                               original_thumbnail_url=photo.get('thumbnail_url'),
+                               image_url=f'/api/source-images/{digest}',
+                               thumbnail_url=f'/api/source-images/{digest}'))
         return output
 
     def content(self, digest):
         key = self.key(digest)
         with self.lock:
             job = self.jobs.get(digest)
+            if job:
+                job = self.schedule(digest, job[0])
         if job:
+            if job[1] is None:
+                raise DomainError('Фотография ожидает загрузки в хранилище', 503)
             try:
-                job[1].result(timeout=15)
+                ready = job[1].result(timeout=1)
             except TimeoutError:
-                return None, job[0]
+                ready = False
+            if not ready:
+                raise DomainError('Фотография загружается в хранилище. Повторите позже.', 503)
         try:
-            return self.storage.get(key), None
+            return self.storage.get(key)
         except ClientError as exc:
             if not job and exc.response.get('Error', {}).get('Code') in {'NoSuchKey', '404'}:
                 raise DomainError('Фото не найдено', 404) from None
+            # An externally removed object can be re-created on the next request.
+            if job and exc.response.get('Error', {}).get('Code') in {'NoSuchKey', '404'}:
+                with self.lock:
+                    self.jobs[digest] = (job[0], None, 0)
         except Exception:
             pass
-        if job:
-            return None, job[0]
         raise DomainError('Хранилище фотографий временно недоступно', 503)
 
     def close(self):

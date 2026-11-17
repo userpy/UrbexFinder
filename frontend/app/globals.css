@@ -511,3 +511,7 @@ body {
 .osint-source-badge.is-podmoskovnye{border-color:#607c73;color:#d5e9e7}
 
 .osint-verification{border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px}.osint-verification summary{cursor:pointer;color:var(--muted)}.osint-verification[open] summary{margin-bottom:10px}.osint-result-list .osint-verification-reason{color:#a9c8b8}
+
+.stored-image-status { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 12px; }
+
+.gallery-thumbnails > button { position: relative; }

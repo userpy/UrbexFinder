@@ -15,6 +15,7 @@ import {
   Youtube,
   X,
 } from "lucide-react";
+import { StoredImage } from "./stored-image";
 import { api } from "@/shared/api";
 
 export type OsintItem = {
@@ -735,26 +736,7 @@ function OsintReportDialog({
                     <li key={`${photo.image_url}-${photo.source_url}`}>
                       <div className="osint-photo-card">
                         <div className="osint-photo-frame">
-                          {/* External OSINT URLs; next/image remote allowlist is not practical here. */}
-                          <img
-                            src={photo.thumbnail_url || photo.image_url}
-                            alt={photo.title}
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
-                            onError={(event) => {
-                              const target = event.currentTarget;
-                              if (
-                                photo.image_url &&
-                                photo.thumbnail_url !== photo.image_url &&
-                                target.dataset.fallback !== "1"
-                              ) {
-                                target.dataset.fallback = "1";
-                                target.src = photo.image_url;
-                              } else {
-                                setFailedPhotos((previous) => new Set(previous).add(photo.image_url));
-                              }
-                            }}
-                          />
+                          <StoredImage src={photo.image_url} alt={photo.title} />
                           <div className="osint-photo-badges" aria-hidden="true">
                             <span
                               className={

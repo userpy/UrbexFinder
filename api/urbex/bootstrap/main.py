@@ -6,7 +6,7 @@ from urbex.infrastructure.geocoding import reverse_address
 from urbex.infrastructure.osint import get_or_build_osint_report, load_osint_report
 from urbex.infrastructure.source_photos import source_photos
 from urbex.infrastructure.external_images import ExternalImages
-from urbex.infrastructure.urban3p_media import fetch_image, relay_report_images
+from urbex.infrastructure.urban3p_media import fetch_image
 from urbex.infrastructure.telegram import send_route
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -69,7 +69,8 @@ def create_app(config=None, storage=None):
     app.state.external_images = ExternalImages(app.state.storage)
 
     def cache_report(report):
-        return relay_report_images(dict(report, photos=app.state.external_images.photos(report.get('photos', []))))
+        photos = app.state.external_images.photos(report.get('photos', []))
+        return dict(report, photos=photos, photos_total=len(photos))
 
     app.state.request_context = request_context
     app.state.sanitize_photo = sanitize_photo

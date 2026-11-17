@@ -155,10 +155,13 @@ def source_photos(id: int, request: Request, ctx: Ctx):
 
 @router.get('/source-images/{digest}')
 def source_image(digest: str, request: Request):
-    from fastapi.responses import RedirectResponse
-    data, fallback = request.app.state.external_images.content(digest)
-    if fallback:
-        return RedirectResponse(fallback, status_code=307, headers={'Cache-Control': 'no-store'})
+    from fastapi.responses import JSONResponse
+    try:
+        data = request.app.state.external_images.content(digest)
+    except DomainError as exc:
+        return JSONResponse({'detail': exc.message}, status_code=exc.status, headers={
+            'Cache-Control': 'no-store', 'Retry-After': '3',
+        })
     return Response(data, media_type='image/jpeg', headers={
         'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff',
     })

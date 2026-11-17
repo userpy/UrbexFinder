@@ -10,6 +10,7 @@ import {
 import { DeletePhoto } from "./delete-photo";
 import { Button } from "@/shared/ui/button";
 import { Photo } from "@/entities/place";
+import { StoredImage } from "./stored-image";
 import { PlacePhoto } from "./telegram-photo";
 
 export type SourcePhoto = {
@@ -28,11 +29,7 @@ export function sourcePhotoLabel(photo: SourcePhoto): string {
 }
 
 export function SourceImage({ photo, alt }: { photo: SourcePhoto; alt: string }) {
-  return (
-    // External cache images retain their source URL; they are not community uploads.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={photo.image_url} alt={alt} loading="lazy" referrerPolicy="no-referrer" />
-  );
+  return <StoredImage src={photo.image_url} alt={alt} />;
 }
 
 export function PhotoGallery({

@@ -44,7 +44,7 @@ def test_async_copy_deduplicates_and_preserves_provenance():
         assert storage.writes == 0
         gate.set()
         digest = photos[0]['image_url'].rsplit('/', 1)[-1]
-        assert cache.content(digest) == (b'jpeg', None)
+        assert cache.content(digest) == b'jpeg'
         assert storage.writes == 1
     finally:
         gate.set()
@@ -59,9 +59,9 @@ def test_restart_reads_s3_without_redownloading():
         pytest.fail('Already stored image was downloaded again')
     cache = ExternalImages(storage, unexpected)
     try:
-        assert cache.content(digest) == (b'saved', None)
+        assert cache.content(digest) == b'saved'
         cache.photos([PHOTO])
-        assert cache.content(digest) == (b'saved', None)
+        assert cache.content(digest) == b'saved'
         assert storage.writes == 0
     finally:
         cache.close()
@@ -74,12 +74,14 @@ def test_failure_falls_back_and_retries_after_cooldown():
     cache = ExternalImages(storage, fail)
     try:
         digest = cache.photos([PHOTO])[0]['image_url'].rsplit('/', 1)[-1]
-        assert cache.content(digest) == (None, URL)
+        with pytest.raises(DomainError) as exc:
+            cache.content(digest)
+        assert exc.value.status == 503
         url, future, _ = cache.jobs[digest]
         cache.jobs[digest] = (url, future, -1000)
         cache.fetch = lambda url: b'recovered'
         cache.photos([PHOTO])
-        assert cache.content(digest) == (b'recovered', None)
+        assert cache.content(digest) == b'recovered'
     finally:
         cache.close()
 
@@ -91,7 +93,7 @@ def test_disallowed_origins_are_not_queued(url):
     assert not supported(url)
     cache = ExternalImages(Storage())
     try:
-        assert cache.photos([{'image_url': url}]) == [{'image_url': url}]
+        assert cache.photos([{'image_url': url}]) == []
         assert not cache.jobs
     finally:
         cache.close()
@@ -135,20 +137,21 @@ def test_head_failure_is_not_a_cache_miss():
         storage.exists('external-images/v1/test.jpg')
 
 
-def test_queue_is_bounded_and_overflow_retains_original():
+def test_queue_overflow_never_exposes_original():
     gate = Event()
     cache = ExternalImages(Storage(), lambda url: gate.wait(5) and b'jpeg')
     try:
         photos = [dict(PHOTO, image_url=URL + f'?photo={i}') for i in range(49)]
         result = cache.photos(photos)
-        assert len(cache.jobs) == 48
-        assert result[-1] == photos[-1]
+        assert len(cache.jobs) == 49
+        assert result[-1]['image_url'].startswith('/api/source-images/')
+        assert cache.jobs[result[-1]['image_url'].rsplit('/', 1)[-1]][1] is None
     finally:
         gate.set()
         cache.close()
 
 
-def test_http_fallback_is_not_cached_and_bad_keys_are_404():
+def test_http_failure_never_redirects_to_source():
     from fastapi.testclient import TestClient
     from urbex.bootstrap.main import create_app
     from urbex.bootstrap.config import Settings
@@ -159,7 +162,8 @@ def test_http_fallback_is_not_cached_and_bad_keys_are_404():
     with TestClient(app) as client:
         photo = app.state.external_images.photos([PHOTO])[0]
         response = client.get(photo['image_url'], follow_redirects=False)
-        assert response.status_code == 307
-        assert response.headers['location'] == URL
+        assert response.status_code == 503
+        assert 'location' not in response.headers
+        assert response.headers['retry-after'] == '3'
         assert response.headers['cache-control'] == 'no-store'
         assert client.get('/api/source-images/invalid').status_code == 404

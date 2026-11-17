@@ -13,6 +13,7 @@ const compiled = ts.transpileModule(
 ).outputText;
 const loaded = { exports: {} };
 new Function("module", "exports", "require", compiled)(loaded, loaded.exports, (name) => {
+  if (name === "./stored-image") return { StoredImage: ({ src, alt }) => React.createElement("img", { src, alt }) };
   if (name === "./delete-photo") return { DeletePhoto: () => null };
   if (name === "@/shared/ui/button") return { Button: (props) => React.createElement("button", props) };
   if (name === "./telegram-photo") return { PlacePhoto: ({ id }) => React.createElement("img", { src: `/api/photos/${id}/content` }) };
@@ -24,12 +25,12 @@ test("cache photos populate the main gallery, retain attribution and cannot be d
   const html = renderToStaticMarkup(React.createElement(PhotoGallery, {
     photos: [], name: "Не называя их…", canDelete: () => true, onDeleted: () => {},
     sourcePhotos: [1, 2, 3, 4].map((id) => ({
-      image_url: `https://geocaching.su/photos/areas/${id}.jpg`,
+      image_url: `/api/source-images/${String(id).repeat(64)}`,
       source_url: "https://geocaching.su/cache/18398", title: "Фото тайника",
     })),
   }));
   assert.match(html, /4 фото/);
-  assert.match(html, /src="https:\/\/geocaching.su\/photos\/areas\/1.jpg"/);
+  assert.match(html, /src="\/api\/source-images\/1{64}"/);
   assert.match(html, /href="https:\/\/geocaching.su\/cache\/18398"/);
   assert.match(html, /Фото · Geocaching/);
   assert.doesNotMatch(html, /Удалить фото|Фотографии пока не добавлены/);
