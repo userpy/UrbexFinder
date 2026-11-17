@@ -4,7 +4,7 @@ from math import asin, cos, radians, sin, sqrt, isfinite
 import re
 from urllib.parse import parse_qsl, urlencode, unquote, urlparse
 
-VERSION = 3
+VERSION = 4
 
 
 def normalized(text):
@@ -45,7 +45,7 @@ _TYPES = {
     'shelter': r'\b(?:убежищ|бомбоубежищ|бункер)[а-я]*\b',
     'manor': r'\bусад(?:ьб|еб)[а-я]*\b',
     'housing': r'\bтаунхаус[а-я]*\b|\bкоттеджн[а-я]*\s+посел[а-я]*\b|\bжил[а-я]*\s+(?:комплекс|квартал)[а-я]*\b|\bжк\b',
-    'camp': r'\b(?:пионерск[а-я]*\s+лагер[а-я]*|лагер[а-я]*|детск[а-я]*\s+лагер[а-я]*)\b',
+    'camp': r'\b(?:пионерлагер[а-я]*|пионерск[а-я]*\s+лагер[а-я]*|лагер[а-я]*|детск[а-я]*\s+лагер[а-я]*)\b',
     'factory': r'\b(?:завод|фабрик|комбинат)[а-я]*\b',
     'church': r'\b(?:церков|церкв|храм|собор|часовн)[а-я]*\b',
     'school': r'\b(?:школ|училищ|спту|пту)[а-я]*\b',

@@ -126,7 +126,7 @@ def test_new_report_and_cached_report_share_the_gate(monkeypatch):
     monkeypatch.setattr(osint, 'description_photos_for_links', lambda *args, **kwargs: [])
     monkeypatch.setattr(osint, 'vk_sources_for_links', lambda *args, **kwargs: [])
     fresh = osint.build_osint_report('', '', PLACE)
-    assert fresh['verification']['version'] == 3
+    assert fresh['verification']['version'] == 4
     cached = osint._refilter_report(fresh, PLACE)
     assert cached['items'] == fresh['items']
     assert cached['verification'] == fresh['verification']
@@ -183,3 +183,22 @@ def test_unscoped_generic_page_images_are_not_a_gallery():
 def test_street_and_house_without_settlement_are_insufficient():
     row = primary(item(), address='улица Юлиана Семенова, дом 6')
     assert verify_source(PLACE, row).status == 'unconfirmed'
+
+
+@pytest.mark.parametrize('name', ['Пионерлагерь «Голубой Факел»', 'Пионерлагеря «Голубой Факел»'])
+def test_compound_camp_name_accepts_matching_map_gallery(name):
+    place = dict(name=name, latitude=55.323611, longitude=37.778627)
+    url = 'https://yandex.ru/maps/org/goluboy_fakel/123456/'
+    row = primary(item('Пионерский лагерь Голубой факел', url=url),
+                  latitude=place['latitude'], longitude=place['longitude'])
+    photo = dict(source_url=url, image_url='https://example.org/camp.jpg',
+                 engine='yandex_maps', gallery_scope='organization',
+                 gallery_source_key=source_key(url), page_identity=row['page_identity'])
+    report = verify_report(dict(items=[row], photos=[photo]), place, [])
+    assert report['photos'] == [photo]
+    assert report['items'] == [row]
+    row['page_identity']['latitude'] = 56.0
+    assert verify_source(place, row).status == 'rejected'
+    row['page_identity']['latitude'] = place['latitude']
+    row['title'] = 'Пионерский лагерь Красный факел'
+    assert verify_source(place, row).status == 'unconfirmed'
