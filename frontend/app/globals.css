@@ -321,12 +321,12 @@ dialog[open], dialog[open]::backdrop, .detail, .gallery-stage img,
 /* Keep the mobile catalog focused on places, with compact navigation. */
 @media (max-width: 760px) {
   .detail-top {
-    padding-top: 40px;
+    padding-top: 48px;
     padding-bottom: 4px;
   }
 
   .place-fullscreen .detail-top {
-    padding-top: calc(max(24px, var(--app-safe-area-top)) + 16px);
+    padding-top: calc(max(24px, var(--app-safe-area-top)) + 24px);
   }
 
   .explorer {
@@ -481,6 +481,7 @@ body {
 
 @media (min-width: 761px) {
   .header { height: 48px; }
+  .header nav { margin-right: 24px; }
   .explorer {
     height: calc(100dvh - 48px - var(--app-safe-area-top));
   }
