@@ -60,3 +60,31 @@ def test_main_gallery_recovers_only_verified_estate_photos_from_saved_report(mon
         {'candidate': p, 'status': 'unconfirmed'} for p in [wrong, photo]
     ]}}
     assert sources.source_photos({'name': 'Шилля усадьба', 'description': PAGE}, report) == [photo]
+
+
+def test_description_link_overrides_conflicting_identity_and_recovers_gallery():
+    from urbex.infrastructure.osint_identity import source_key
+    photo = {'title': 'Шилля усадьба', 'source_url': PAGE, 'image_url': PHOTO,
+             'query': PAGE, 'engine': 'web_page', 'gallery_scope': 'primary',
+             'page_identity': {'source_key': source_key(PAGE), 'title': 'Шилля усадьба',
+                               'address': 'Ярославская область', 'latitude': 57, 'longitude': 39}}
+    place = {'name': 'Завод', 'full_address': 'Московская область',
+             'latitude': 55, 'longitude': 37,
+             'description': PAGE.replace('http://', 'https://www.')}
+    report = {'photos': [], 'verification': {'photos': [
+        {'candidate': photo, 'status': 'rejected', 'reasons': ['Не совпадает тип объекта']}
+    ]}}
+    result = osint._refilter_report(report, place)
+    assert result['photos'] == [photo]
+    assert result['verification']['sources'][0]['status'] == 'accepted'
+    assert result['verification']['sources'][0]['evidence'] == ['reference']
+    assert osint._refilter_report(report, dict(place, description=''))['photos'] == []
+
+
+def test_description_link_does_not_confirm_other_estates_or_lookalike_hosts():
+    from urbex.infrastructure.osint_identity import verify_source
+    place = {'name': 'Завод'}
+    assert verify_source(place, {'url': PAGE, 'title': 'Усадьба'},
+                         [PAGE.replace('209-shill', '210-other')]).status == 'rejected'
+    fake = PAGE.replace('podmoskovnye.ru', 'podmoskovnye.ru.evil.example')
+    assert verify_source(place, {'url': fake, 'title': 'Усадьба'}, [fake]).status == 'rejected'

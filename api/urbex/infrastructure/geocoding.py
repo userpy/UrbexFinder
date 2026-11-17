@@ -31,3 +31,31 @@ def reverse_address(url, origin, latitude, longitude):
         parts = payload.get('address') or {}
         region = parts.get('state') or parts.get('region') or parts.get('county') or parts.get('city') or address
         return {'address':address[:2000], 'region':str(region)[:200]}
+
+
+def check_description_region(place, reverse):
+    """Compare the described oblast with the region resolved from coordinates."""
+    import re
+    from .osint_identity import normalized, coordinates
+
+    def regions(value):
+        return set(re.findall(r"\b([а-я-]+?)(?:ая|ой|ую)\s+обл(?:асть|асти|астью|\.)(?=\W|$)", normalized(value)))
+
+    expected = regions(place.get('description'))
+    result = {'status': 'unconfirmed', 'description_regions': sorted(expected)}
+    point = coordinates(place)
+    if not expected or not point:
+        result['reason'] = 'Нет области в описании или корректных координат'
+        return result
+    try:
+        address = reverse(*point)
+    except DomainError:
+        result['reason'] = 'Не удалось определить область по координатам'
+        return result
+    actual = regions(address.get('region'))
+    result['coordinate_region'] = address.get('region', '')
+    result['status'] = ('matched' if expected & actual else 'mismatch') if actual else 'unconfirmed'
+    result['reason'] = {'matched': 'Координаты соответствуют области из описания',
+                        'mismatch': 'Координаты не соответствуют области из описания',
+                        'unconfirmed': 'Область по координатам не определена'}[result['status']]
+    return result

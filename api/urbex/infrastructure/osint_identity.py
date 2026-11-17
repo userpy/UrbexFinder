@@ -4,7 +4,7 @@ from math import asin, cos, radians, sin, sqrt, isfinite
 import re
 from urllib.parse import parse_qsl, urlencode, unquote, urlparse
 
-VERSION = 5
+VERSION = 8
 
 
 def normalized(text):
@@ -23,6 +23,12 @@ def source_key(url):
             org = re.match(r'^/maps/org/[^/]+/(\d+)(?:/|$)', path)
             if org:
                 return f'yandex_maps:{org[1]}'
+        if host in {'urban3p.ru', 'urban3p.com'} and (blog := re.match(r'^/blogs/(\d+)(?:/|$)', path)):
+            return f'urban3p.ru:blog:{blog[1]}'
+        if host in {'vk.com', 'vk.ru', 'm.vk.com', 'm.vk.ru'}:
+            host = 'vk.com'
+            if group := re.fullmatch(r'/(?:club|public)(\d+)', path):
+                return f'vk.com:group:{group[1]}'
         families = {
             'wikimapia.org': r'^/(\d+)(?:/|$)',
             'geocaching.su': r'^/cache/(\d+)(?:/|$)',
@@ -142,6 +148,13 @@ def verify_source(place, source, reference_urls=()):
         return Decision('rejected', ('Некорректная ссылка источника',))
     # A prior decision or an engine label cannot grant trust.
     reference_keys = {source_key(url) for url in reference_urls} - {''}
+    if key.startswith('urban3p.ru:') and key in reference_keys:
+        return Decision('accepted', ('Прямая ссылка Urban3P из описания объекта',), ('reference',))
+    if key.startswith('podmoskovnye.ru:') and key in reference_keys:
+        return Decision('accepted', ('Прямая ссылка «Подмосковные» из описания объекта',), ('reference',))
+    from .osint_description import is_vk_group_url
+    if key in reference_keys and is_vk_group_url(source.get('url') or source.get('source_url') or ''):
+        return Decision('accepted', ('Прямая ссылка на группу VK из описания объекта',), ('reference',))
     primary = source.get('page_identity') or {}
     if primary.get('source_key') != key:
         primary = {}

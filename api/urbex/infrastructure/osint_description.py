@@ -834,7 +834,7 @@ def vk_sources_for_links(
                     status = str(group.get('status') or '').strip()
                     activity = str(group.get('activity') or '').strip()
                     snippet_parts = [part for part in (description, status, activity) if part]
-                    page = f'https://vk.com/club{-owner_id}'
+                    page = url if is_vk_group_url(url) else f'https://vk.com/club{-owner_id}'
                     add(_vk_source_item(
                         title=f'VK: {name}',
                         url=page,

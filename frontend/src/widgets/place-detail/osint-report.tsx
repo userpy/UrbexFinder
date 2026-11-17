@@ -76,6 +76,7 @@ export type OsintReport = {
   photos?: OsintPhoto[];
   photos_total?: number;
   verification?: {
+    location?: { status: string; reason: string; coordinate_region?: string };
     version: number;
     sources: VerificationDecision[];
     photos: VerificationDecision[];
@@ -655,6 +656,12 @@ function OsintReportDialog({
                 <span>{photos.length}</span>
               </button>
             </div>
+            {report.verification?.location && (
+              <p className="osint-verification-reason" role="status">
+                {report.verification.location.reason}
+                {report.verification.location.coordinate_region && ` (${report.verification.location.coordinate_region})`}
+              </p>
+            )}
             {withheld.length > 0 && (
               <details className="osint-verification">
                 <summary>Не включены в отчёт: {withheld.length}</summary>

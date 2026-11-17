@@ -1093,6 +1093,8 @@ def _filter_sources(items: list[dict], place: dict) -> list[dict]:
         if is_direct_image_url(str(item.get('url') or '')):
             continue
         if is_vk_group_url(str(item.get('url') or '')):
+            if source_key(item.get('url')) in {source_key(url) for url in description_urls}:
+                kept.append(item)
             continue
         if item.get('engine') == 'vk' and item.get('url') in description_urls:
             kept.append(item)
@@ -1311,7 +1313,7 @@ def _build_osint_report(
     )
     vk_sources = vk_sources_for_links(vk_token, description_links, limit=_MAX_RESULTS)
     description_links = [link for link in description_links
-                         if not is_direct_image_url(link['url']) and not is_vk_group_url(link['url'])]
+                         if not is_direct_image_url(link['url'])]
 
     if not url:
         if description_links or curated_photos or vk_sources:
@@ -1503,7 +1505,7 @@ def _refilter_report(payload: dict, place: dict) -> dict:
     description_links = links_from_description(str(place.get('description') or ''))
     filtered = items  # Identity verification below is authoritative for cached reports.
     description_links = [link for link in description_links
-                         if not is_direct_image_url(link['url']) and not is_vk_group_url(link['url'])]
+                         if not is_direct_image_url(link['url'])]
     # Description URLs are authoritative — keep them even if an older report
     # omitted them or a prior filter drop removed the row.
     report['items'] = _merge(
@@ -1598,6 +1600,16 @@ def get_or_build_osint_report(
                     [tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS,
                 )
                 filtered['photos_total'] = len(filtered['photos'])
+                return save_osint_report(engine, place_id, _verify_report(filtered, place))
+            urban_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
+                             if photo.get('engine') == 'urban3p'}
+            missing_urban = [link for link in links_from_description(str(place.get('description') or ''))
+                             if link.get('category') == 'urban3p'
+                             and source_key(link['url']) not in urban_parents]
+            if missing_urban and time.time() - stored.get('urban3p_photos_checked_at', 0) >= 300:
+                recovered = urban3p_photos_for_links(missing_urban, _MAX_PHOTOS)
+                filtered['urban3p_photos_checked_at'] = time.time()
+                filtered['photos'] = _merge([tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS)
                 return save_osint_report(engine, place_id, _verify_report(filtered, place))
             # A transient source failure must not freeze an empty gallery forever.
             # Retry missing description galleries, at most once per five minutes.

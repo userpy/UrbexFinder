@@ -69,3 +69,19 @@ def test_saved_gallery_works_offline_and_excludes_other_caches(monkeypatch):
     wrong_host = dict(photo, image_url='https://unrelated.example/photo.jpg')
     report = {'photos': [unrelated, wrong_host, photo, photo]}
     assert sources.source_photos({'description': photo['source_url']}, report) == [photo]
+
+
+def test_urban_description_gallery_and_saved_report(monkeypatch):
+    sources._cache.clear()
+    place = {'description': 'https://urban3p.com/object42/gallery', 'name': 'Завод'}
+    photo = {'engine': 'urban3p', 'source_url': 'https://urban3p.ru/object42',
+             'query': 'https://urban3p.ru/object42', 'title': 'Школа',
+             'image_url': 'https://img01.urban3p.ru/up/o/42/gallery/123.jpg'}
+    calls = []
+    monkeypatch.setattr(sources, 'urban3p_photos_for_links', lambda links, limit: calls.append(links) or [photo])
+    assert sources.source_photos(place) == [photo]
+    assert sources.source_photos(place) == [photo]
+    assert len(calls) == 1
+    sources._cache.clear()
+    assert sources.source_photos(place, {'photos': [photo]}) == [photo]
+    assert len(calls) == 1

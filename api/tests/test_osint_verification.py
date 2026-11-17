@@ -126,7 +126,7 @@ def test_new_report_and_cached_report_share_the_gate(monkeypatch):
     monkeypatch.setattr(osint, 'description_photos_for_links', lambda *args, **kwargs: [])
     monkeypatch.setattr(osint, 'vk_sources_for_links', lambda *args, **kwargs: [])
     fresh = osint.build_osint_report('', '', PLACE)
-    assert fresh['verification']['version'] == 5
+    assert fresh['verification']['version'] == 8
     cached = osint._refilter_report(fresh, PLACE)
     assert cached['items'] == fresh['items']
     assert cached['verification'] == fresh['verification']
@@ -219,3 +219,16 @@ def test_camp_real_map_offset_and_structured_district_address():
     row['page_identity']['address'] = 'Московская область, Домодедово'
     row['page_identity']['latitude'] = 56.0
     assert verify_source(place, row).status == 'rejected'
+
+
+def test_cached_report_recovers_linked_urban_gallery(monkeypatch):
+    place = dict(PLACE, id=42, description='https://urban3p.com/object42/gallery')
+    photo = {'engine': 'urban3p', 'source_url': 'https://urban3p.ru/object42',
+             'query': 'https://urban3p.ru/object42',
+             'image_url': 'https://img01.urban3p.ru/up/o/42/gallery/123.jpg'}
+    monkeypatch.setattr(osint, 'load_osint_report', lambda *args: {'items': [], 'photos': []})
+    monkeypatch.setattr(osint, 'urban3p_photos_for_links', lambda *args: [photo])
+    monkeypatch.setattr(osint, 'save_osint_report', lambda engine, id, report: report)
+    result = osint.get_or_build_osint_report(None, '', '', place)
+    assert result['photos'] == [photo]
+    assert result['urban3p_photos_checked_at'] > 0

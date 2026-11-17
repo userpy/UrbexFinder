@@ -2,7 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
 from urbex.infrastructure.search import ElasticSearch
-from urbex.infrastructure.geocoding import reverse_address
+from urbex.infrastructure.geocoding import reverse_address, check_description_region
 from urbex.infrastructure.osint import get_or_build_osint_report, load_osint_report
 from urbex.infrastructure.source_photos import source_photos
 from urbex.infrastructure.external_images import ExternalImages
@@ -56,14 +56,17 @@ def create_app(config=None, storage=None):
         place, load_osint_report(app.state.engine, place['id']),
     ))
     app.state.urban3p_image = fetch_image
-    app.state.osint_report = lambda place, refresh=False: cache_report(get_or_build_osint_report(
-        app.state.engine,
-        config.searxng_url,
-        config.origin,
-        place,
-        vk_token=config.vk_access_token,
-        refresh=refresh,
-    ))
+    def osint_report(place, refresh=False):
+        report = cache_report(get_or_build_osint_report(
+            app.state.engine, config.searxng_url, config.origin, place,
+            vk_token=config.vk_access_token, refresh=refresh,
+        ))
+        report.setdefault('verification', {})['location'] = check_description_region(
+            place, app.state.reverse_address,
+        )
+        return report
+
+    app.state.osint_report = osint_report
     app.state.search = ElasticSearch(config, app.state.engine)
     app.state.storage = storage or S3Storage(config)
     app.state.external_images = ExternalImages(app.state.storage)
