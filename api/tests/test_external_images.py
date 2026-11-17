@@ -87,6 +87,10 @@ def test_failure_falls_back_and_retries_after_cooldown():
 
 
 @pytest.mark.parametrize('url', ['http://127.0.0.1/test', 'http://minio:9000/x',
+    'https://userapi.com.evil.org/x', 'https://eviluserapi.com/x',
+    'https://vkuserphoto.ru.evil.org/x', 'https://evilvkuserphoto.ru/x',
+    'https://user@sun9-16.vkuserphoto.ru/x', 'https://sun9.userapi.com:9000/x',
+    'http://sun9.userapi.com/x',
     'https://avatars.mds.yandex.net.evil.org/x', 'https://user@avatars.mds.yandex.net/x',
     'https://avatars.mds.yandex.net:9000/x', 'file:///etc/passwd', '/api/photos/1/content'])
 def test_disallowed_origins_are_not_queued(url):
@@ -106,6 +110,23 @@ def test_rejects_invalid_object_key_and_missing_image():
             with pytest.raises(DomainError) as exc:
                 cache.content(key)
             assert exc.value.status == 404
+    finally:
+        cache.close()
+
+
+@pytest.mark.parametrize('host', ['sun9-16.vkuserphoto.ru', 'sun9-51.userapi.com'])
+def test_vk_album_photos_are_cached_and_keep_album_provenance(host):
+    url = f'https://{host}/s/v1/ig2/camp.jpg?quality=96&cs=240x160'
+    album = 'https://vk.com/album-97053640_279187521'
+    fetched = []
+    cache = ExternalImages(Storage(), lambda image: fetched.append(image) or b'jpeg')
+    try:
+        photos = cache.photos([{'image_url': url, 'source_url': album, 'engine': 'vk'}])
+        assert len(photos) == 1
+        assert photos[0]['source_url'] == album
+        assert photos[0]['image_url'].startswith('/api/source-images/')
+        assert cache.content(photos[0]['image_url'].rsplit('/', 1)[-1]) == b'jpeg'
+        assert fetched == [url]
     finally:
         cache.close()
 

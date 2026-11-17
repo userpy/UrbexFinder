@@ -22,14 +22,23 @@ export type SourcePhoto = {
 export function sourcePhotoLabel(photo: SourcePhoto): string {
   try {
     const host = new URL(photo.source_url).hostname.replace(/^www\./, "");
+    if (["vk.com", "vk.ru", "m.vk.com", "m.vk.ru"].includes(host)) return "VK";
+    if (["geocaching.su", "geocaching.ru"].includes(host)) return "Geocaching";
+    if (["urban3p.ru", "urban3p.com"].includes(host)) return "Urban3P";
+    if (host === "wikimapia.org") return "Wikimapia";
+    if (host === "swalker.ru") return "Swalker";
+    if (host === "planetadorog.ru") return "Планета дорог";
+    if (host === "caves.ru") return "Caves";
+    if (["dzen.ru", "zen.yandex.ru"].includes(host)) return "Дзен";
     if (host === "podmoskovnye.ru") return "Подмосковные";
     if (["yandex.ru", "yandex.com", "yandex.by", "yandex.kz", "yandex.uz"].includes(host)) return "Яндекс Карты";
+    if (host) return host;
   } catch { /* Older records may have incomplete URLs. */ }
-  return "Geocaching";
+  return "Внешний источник";
 }
 
 export function SourceImage({ photo, alt }: { photo: SourcePhoto; alt: string }) {
-  return <StoredImage src={photo.image_url} alt={alt} />;
+  return <StoredImage src={photo.image_url} alt={alt} sourceName={sourcePhotoLabel(photo)} />;
 }
 
 export function PhotoGallery({

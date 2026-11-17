@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 
-export function StoredImage({ src, alt }: { src: string; alt: string }) {
-  return <StoredImageRequest key={src} src={src} alt={alt} />;
+type StoredImageProps = { src: string; alt: string; sourceName?: string };
+
+export function StoredImage({ src, alt, sourceName }: StoredImageProps) {
+  return <StoredImageRequest key={src} src={src} alt={alt} sourceName={sourceName} />;
 }
 
-function StoredImageRequest({ src, alt }: { src: string; alt: string }) {
+function StoredImageRequest({ src, alt, sourceName }: StoredImageProps) {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<"loading" | "ready" | "retry">("loading");
   const allowed = /^\/api\/source-images\/[a-f0-9]{64}$/.test(src);
@@ -20,6 +22,7 @@ function StoredImageRequest({ src, alt }: { src: string; alt: string }) {
   return <>
     {state !== "ready" && <span role="status" className="stored-image-status">
       {!allowed || attempt >= 30 ? "Фото временно недоступно" : "Загрузка фотографии…"}
+      {sourceName && <span>Источник: {sourceName}</span>}
     </span>}
     {allowed && (
       // eslint-disable-next-line @next/next/no-img-element

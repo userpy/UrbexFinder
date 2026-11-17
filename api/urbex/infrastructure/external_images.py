@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 from .storage import sanitize_photo, MAX_PHOTO_BYTES
 from urbex.domain.rules import DomainError
 
-# Exact trusted image origins; unsupported images are withheld from the gallery.
+# Trusted image origins; unsupported images are withheld from the gallery.
 HOSTS = frozenset({
     'avatars.mds.yandex.net', 'photos.wikimapia.org', 'geocaching.su',
     'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru',
@@ -20,12 +20,17 @@ HOSTS = frozenset({
     'img03.urban3p.ru', 'img04.urban3p.ru', 'swalker.ru',
     'planetadorog.ru', 'www.planetadorog.ru', 's3.dzeninfra.ru',
 })
+VK_IMAGE_DOMAINS = ('userapi.com', 'vkuserphoto.ru')
 
 
 def supported(url):
     try:
         p = urlparse(url)
-        return (p.scheme in {'http', 'https'} and p.hostname in HOSTS
+        host = p.hostname or ''
+        vk_image = p.scheme == 'https' and any(
+            host == domain or host.endswith('.' + domain) for domain in VK_IMAGE_DOMAINS
+        )
+        return (p.scheme in {'http', 'https'} and (host in HOSTS or vk_image)
                 and not p.username and not p.password and p.port in {None, 80, 443})
     except (ValueError, TypeError):
         return False
