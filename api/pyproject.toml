@@ -18,6 +18,8 @@ dependencies = [
     "python-multipart>=0.0.20,<1",
     "httpx>=0.28,<1",
     "curl_cffi>=0.13,<1",
+    "selectolax (>=0.3.27,<1)",
+    "extruct (>=0.18,<1)",
 ]
 
 [tool.poetry]

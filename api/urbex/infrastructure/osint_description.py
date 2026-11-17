@@ -7,7 +7,8 @@ import httpx
 from .vk_album import parse_vk_album
 from .yandex_gallery import org_gallery
 from .osint_identity import source_key
-from .osint_identity import primary_gallery, extract_page_identity
+from .osint_identity import primary_gallery
+from .page_parser import parse_page
 from .wikimapia import direct_photos, gallery_urls, is_object_url
 
 _log = logging.getLogger(__name__)
@@ -1970,7 +1971,7 @@ def _generic_image_ok(url: str) -> bool:
     return any(hint in lower for hint in _GENERIC_CONTENT_HINTS)
 
 
-def _extract_generic_image_urls(html: str, page_url: str) -> list[str]:
+def _extract_generic_image_urls(html: str, page_url: str, *, parsed_gallery=None) -> list[str]:
     if is_object_url(page_url):
         return gallery_urls(html, page_url)
     if _generic_engine_for(page_url) == 'geocache':
@@ -1988,7 +1989,7 @@ def _extract_generic_image_urls(html: str, page_url: str) -> list[str]:
             if image not in photos:
                 photos.append(image)
         return photos
-    scoped, images = primary_gallery(html, page_url)
+    scoped, images = parsed_gallery if parsed_gallery is not None else primary_gallery(html, page_url)
     if scoped:
         return [image for image in images if _generic_image_ok(image)]
     found: list[str] = []
@@ -2096,10 +2097,9 @@ def generic_page_photos_for_links(
             or 'Фото со страницы'
         )[:300]
         engine = _generic_engine_for(url)
-        primary_scope, _ = primary_gallery(html, url)
-        page_identity = extract_page_identity(html, url)
+        page_identity, primary_scope, gallery_images = parse_page(html, url, source_key)
         page_count = 0
-        for image in _extract_generic_image_urls(html, url):
+        for image in _extract_generic_image_urls(html, url, parsed_gallery=(primary_scope, gallery_images)):
             if len(photos) >= limit or page_count >= _MAX_GENERIC_PER_PAGE:
                 break
             key = image.rstrip('/').casefold()

@@ -1,10 +1,8 @@
 """Deterministic object identity checks. Never use a query or an image filename as evidence."""
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from math import asin, cos, radians, sin, sqrt, isfinite
-import json
 import re
-from urllib.parse import parse_qsl, urlencode, unquote, urlparse, urljoin
+from urllib.parse import parse_qsl, urlencode, unquote, urlparse
 
 VERSION = 3
 
@@ -211,12 +209,6 @@ def verify_source(place, source, reference_urls=()):
                     tuple(x for x, ok in [('name', same_name), ('type', compatible)] if ok))
 
 
-def _primary_container(tag, attrs):
-    return (tag in {'main', 'article'}
-            or 'articleBody' in str(attrs.get('itemprop', '')).split()
-            or bool(set(str(attrs.get('class', '')).split()) & {'item-page', 'entry-content', 'article-content'}))
-
-
 def catalog_gallery_matches(photo):
     """Podmoskovnye's per-estate photo directory can verify old parsed galleries."""
     page = urlparse(str(photo.get('source_url') or ''))
@@ -235,94 +227,16 @@ def catalog_gallery_matches(photo):
             and bool(re.fullmatch(r'[^/]+\.(?:jpe?g|png|webp)', parts[6], re.I)))
 
 
-class _PrimaryHTML(HTMLParser):
-    """Read main/article content; never mine navigation, footer or sidebars for addresses."""
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.stack = []
-        self.title = []
-        self.heading = []
-        self.body = []
-        self.scripts = []
-        self.script = []
-        self.images = []
-        self.has_primary = False
-
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if _primary_container(tag, attrs):
-            self.has_primary = True
-        tags = {frame[0] for frame in self.stack}
-        excluded = tags & {'nav', 'aside', 'footer'} or any(
-            re.search(r'footer|sidebar|related|recommend|comment|advert|banner', str(a.get('class', '')), re.I)
-            for _, a in self.stack + [(tag, attrs)]
-        )
-        inside_primary = any(_primary_container(t, a) for t, a in self.stack)
-        if tag in {'img', 'a'} and inside_primary and not excluded:
-            for attr in ('src', 'data-src', 'href'):
-                value = attrs.get(attr, '')
-                if re.search(r'\.(?:jpg|jpeg|png|webp)(?:\?|$)', value, re.I):
-                    self.images.append(value)
-        self.stack.append((tag, attrs)) if tag not in {'meta','link','img','br','hr','input','source','wbr','area','base','embed','param'} else None
-        if tag == 'script' and attrs.get('type') == 'application/ld+json':
-            self.script = []
-
-    def handle_endtag(self, tag):
-        if tag == 'script' and self.stack and self.stack[-1][1].get('type') == 'application/ld+json':
-            self.scripts.append(''.join(self.script))
-        for i in range(len(self.stack)-1, -1, -1):
-            if self.stack[i][0] == tag:
-                del self.stack[i:]
-                break
-
-    def handle_data(self, value):
-        tags = {x[0] for x in self.stack}
-        if 'script' in tags:
-            self.script.append(value)
-            return
-        excluded = {'nav','aside','footer','style'}
-        if tags & excluded or any(re.search(r'footer|sidebar|related|recommend|comment', str(a.get('class','')), re.I) for _, a in self.stack):
-            return
-        if 'title' in tags: self.title.append(value)
-        if 'h1' in tags: self.heading.append(value)
-        if any(_primary_container(t, a) for t, a in self.stack): self.body.append(value)
-
-
 def primary_gallery(html, url):
-    parser = _PrimaryHTML()
-    parser.feed(html[:1_000_000])
-    return parser.has_primary, list(dict.fromkeys(urljoin(url, image) for image in parser.images))
+    from .page_parser import parse_page
+    _, scoped, images = parse_page(html, url, source_key)
+    return scoped, images
 
 
 def extract_page_identity(html, url):
-    parser = _PrimaryHTML()
-    parser.feed(html[:1_000_000])
-    result = {'source_key': source_key(url), 'title': ' '.join(parser.heading or parser.title)[:300],
-              'text': ' '.join(parser.body)[:4000]}
-    # Only the page's main entity/root Place is eligible. Ignore publishers,
-    # recommendations, ItemList and arbitrary nested Organization addresses.
-    allowed = {'Place', 'LandmarksOrHistoricalBuildings', 'TouristAttraction', 'Residence', 'House'}
-    for raw in parser.scripts:
-        try: node = json.loads(raw)
-        except (ValueError, TypeError): continue
-        if not isinstance(node, dict): continue
-        node = node.get('mainEntity', node)
-        if not isinstance(node, dict): continue
-        types = node.get('@type', [])
-        if isinstance(types, str): types = [types]
-        if not set(types) & allowed: continue
-        if node.get('url') and source_key(node['url']) != source_key(url): continue
-        result['title'] = str(node.get('name') or result['title'])[:300]
-        address = node.get('address')
-        if isinstance(address, dict):
-            result['locality'] = str(address.get('addressLocality') or '')
-            result['address'] = ', '.join(str(address[k]) for k in ('streetAddress', 'addressLocality', 'addressRegion') if address.get(k))
-        elif isinstance(address, str): result['address'] = address[:500]
-        geo = node.get('geo')
-        if isinstance(geo, dict) and coordinates(geo):
-            result.update(latitude=geo['latitude'], longitude=geo['longitude'])
-        break
-    return result
+    from .page_parser import parse_page
+    identity, _, _ = parse_page(html, url, source_key)
+    return identity
 
 
 def verify_report(report, place, reference_urls, *, junk_source=lambda item: False, junk_photo=lambda item: False):
