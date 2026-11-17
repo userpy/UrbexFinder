@@ -69,7 +69,8 @@ test("guest map covers all pages; search, empty state and selection", async ({
   await expect(page.locator(".place-row")).toHaveCount(30);
 });
 
-test("Telegram Mini App signs the browser in automatically", async ({ page }) => {
+for (const launchMode of ["sdk", "desktop-url", "desktop-reload"]) {
+test(`Telegram Mini App signs in automatically: ${launchMode}`, async ({ page }) => {
   const telegramInitData = "signed-telegram-mini-app-data";
   const user = {
     id: 987,
@@ -82,11 +83,14 @@ test("Telegram Mini App signs the browser in automatically", async ({ page }) =>
   await page.route("https://telegram.org/js/telegram-web-app.js", (route) =>
     route.fulfill({ body: "" }),
   );
-  await page.addInitScript((initData) => {
+  if (launchMode === "sdk") await page.addInitScript((initData) => {
     Object.defineProperty(window, "Telegram", {
       configurable: true,
       value: { WebApp: { initData, ready: () => {} } },
     });
+  }, telegramInitData);
+  if (launchMode === "desktop-reload") await page.addInitScript((initData) => {
+    sessionStorage.setItem("__telegram__initParams", JSON.stringify({ tgWebAppData: initData, tgWebAppPlatform: "tdesktop" }));
   }, telegramInitData);
   await page.route("**/api/auth/telegram/mini-app", async (route) => {
     receivedInitData = (
@@ -107,13 +111,17 @@ test("Telegram Mini App signs the browser in automatically", async ({ page }) =>
     });
   });
 
-  await page.goto("/");
+  await page.goto(launchMode === "desktop-url" ? `/#tgWebAppData=${encodeURIComponent(telegramInitData)}&tgWebAppPlatform=tdesktop` : "/");
 
   await expect(
     page.getByRole("link", { name: "Telegram исследователь" }),
   ).toBeVisible();
   expect(receivedInitData).toBe(telegramInitData);
+  await page.getByRole("link", { name: "Telegram исследователь" }).click();
+  await expect(page.getByRole("heading", { name: user.name })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Выйти", exact: true })).toHaveCount(0);
 });
+}
 
 test("place detail copies a link that opens the selected place", async ({
   page,

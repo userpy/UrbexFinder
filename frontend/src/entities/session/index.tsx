@@ -6,6 +6,7 @@ import {
   useState,
   ReactNode,
 } from "react";
+import { telegramLaunch } from "./telegram";
 import { api, body, setCsrf } from "@/shared/api";
 export type User = {
   id: number;
@@ -47,21 +48,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
   async function logout() {
+    if (telegramLaunch(window).isMiniApp) return;
     await api("/auth/logout", { method: "POST" });
     setUser(null);
     setCsrf(null);
   }
   useEffect(() => {
     let active = true;
-    const telegramWebApp = (
-      window as Window & {
-        Telegram?: { WebApp?: { initData?: string; ready?: () => void } };
-      }
-    ).Telegram?.WebApp;
-    telegramWebApp?.ready?.();
+    const telegram = telegramLaunch(window);
+    telegram.ready();
     async function initialize() {
-      setIsMiniApp(Boolean(telegramWebApp?.initData));
-      if (telegramWebApp?.initData) {
+      setIsMiniApp(telegram.isMiniApp);
+      if (telegram.initData) {
         try {
           const currentSession = await api<{
             user: User | null;
@@ -73,7 +71,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           }
           const session = await api<{ csrf: string }>("/auth/telegram/mini-app", {
             method: "POST",
-            body: body({ init_data: telegramWebApp.initData }),
+            body: body({ init_data: telegram.initData }),
           });
           if (active) {
             setCsrf(session.csrf);

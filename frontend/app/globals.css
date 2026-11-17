@@ -481,8 +481,8 @@ body {
 
 @media (min-width: 761px) {
   .header { height: 48px; }
-  .header nav { margin-right: 72px; }
-  .place-fullscreen .detail-top .detail-expand { margin-right: 72px; }
+  .header nav { margin-right: 144px; }
+  .place-fullscreen .detail-top .detail-expand { margin-right: 144px; }
   .explorer {
     height: calc(100dvh - 48px - var(--app-safe-area-top));
   }
