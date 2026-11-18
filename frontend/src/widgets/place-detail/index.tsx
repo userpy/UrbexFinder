@@ -110,17 +110,26 @@ export function PlaceDetail({
   const sourceStatus = sourceGallery?.placeId === place.id ? sourceGallery.status : "";
   useEffect(() => {
     const abort = new AbortController();
-    setSourceGallery({ placeId: place.id, photos: [], status: "Загружаем фото источника…" });
-    api<{ items: SourcePhoto[] }>(`/places/${place.id}/source-photos`, { signal: abort.signal })
-      .then((data) => {
-        if (!abort.signal.aborted)
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function load(attempt = 0) {
+      setSourceGallery({ placeId: place.id, photos: [], status: "Загружаем фото источника…" });
+      try {
+        const data = await api<{ items: SourcePhoto[] }>(`/places/${place.id}/source-photos`, { signal: abort.signal });
+        if (!abort.signal.aborted) {
           setSourceGallery({ placeId: place.id, photos: data.items, status: "" });
-      })
-      .catch(() => {
-        if (!abort.signal.aborted)
-          setSourceGallery({ placeId: place.id, photos: [], status: "Фото источника временно недоступны" });
-      });
-    return () => abort.abort();
+        }
+      } catch {
+        if (abort.signal.aborted) return;
+        const retry = attempt < 2;
+        setSourceGallery({ placeId: place.id, photos: [], status: retry
+          ? "Фото источника временно недоступны. Повторим загрузку через 30 секунд…"
+          : "Фото источника временно недоступны" });
+        // The API caches temporary source failures for 30 seconds.
+        if (retry) timer = setTimeout(() => { void load(attempt + 1); }, 31_000);
+      }
+    }
+    void load();
+    return () => { abort.abort(); clearTimeout(timer); };
   }, [place.id, galleryRevision]);
   useEffect(() => {
     if (message !== "Сообщение отправлено") return;

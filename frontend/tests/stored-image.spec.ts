@@ -35,3 +35,32 @@ test('source image waits for storage, retries locally and never requests origin'
   expect(requests).toBeGreaterThanOrEqual(2);
   expect(externalImages).toBe(0);
 });
+
+test('source gallery recovers from a temporary failure after the API cooldown', async ({ page }) => {
+  let requests = 0;
+  await page.clock.install();
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/places/1') return route.fulfill({ json: {
+      id: 1, name: 'Лагерь Слава', latitude: 55.8, longitude: 37.0,
+      description: '', category_id: 1, status: 'published',
+    } });
+    if (path === '/api/places/1/source-photos') {
+      requests++;
+      return requests === 1
+        ? route.fulfill({ status: 502, json: { detail: 'Источник недоступен' } })
+        : route.fulfill({ json: { items: [{ image_url: '/api/source-images/' + 'a'.repeat(64),
+            source_url: 'https://vk.com/album-97053640_272512036', title: 'Фото' }], total: 1 } });
+    }
+    if (path === '/api/auth/me') return route.fulfill({ json: { user: null, csrf: null } });
+    if (path === '/api/map') return route.fulfill({ json: { type: 'FeatureCollection', features: [] } });
+    return route.fulfill({ json: { items: [], total: 0 } });
+  });
+  await page.goto('/?place=1');
+  await expect(page.getByText(/Повторим загрузку/).first()).toBeVisible();
+  await page.clock.fastForward(29_000);
+  expect(requests).toBe(1);
+  await page.clock.fastForward(2_000);
+  await expect(page.locator('.gallery-total')).toHaveText('1 фото');
+  expect(requests).toBe(2);
+});
