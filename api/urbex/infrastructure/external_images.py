@@ -42,6 +42,9 @@ def supported(url):
 def download(url):
     if not supported(url):
         raise ValueError('Unsupported image origin')
+    parsed = urlparse(url)
+    if parsed.scheme == 'http' and parsed.hostname in {'podmoskovnye.ru', 'www.podmoskovnye.ru'}:
+        url = parsed._replace(scheme='https').geturl()
     try:
         return _download_image(url)
     except (httpx.HTTPError, ValueError, DomainError):

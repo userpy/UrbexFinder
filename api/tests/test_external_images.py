@@ -223,3 +223,18 @@ def test_urban3p_download_uses_com_only_when_ru_fails(monkeypatch, failure):
 def test_urban3p_mirror_rejects_lookalike_hosts(url):
     with pytest.raises(ValueError, match='Unsupported image origin'):
         download(url)
+
+
+def test_podmoskovnye_legacy_image_download_uses_https(monkeypatch):
+    image = BytesIO()
+    Image.new('RGB', (4, 4)).save(image, format='PNG')
+    calls = []
+    original = httpx.Client
+    def respond(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, content=image.getvalue())
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(
+        transport=httpx.MockTransport(respond), **kwargs))
+    url = 'http://podmoskovnye.ru/images/stories/photos/2_podmoskov/bogorodskoe/bogorodskoe.jpg'
+    assert download(url).startswith(b'\xff\xd8\xff')
+    assert calls == [url.replace('http:', 'https:')]

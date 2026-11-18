@@ -63,6 +63,8 @@ def parse_page(html, url, key):
     html = str(html or '')[:1_000_000]
     tree = LexborHTMLParser(html)
     for node in reversed(tree.css('nav, aside, footer, style, [class], [id]')):
+        if node.tag in {'html', 'body'}:
+            continue
         if node.tag in {'nav', 'aside', 'footer', 'style'} or NOISE.search(
                 node.attributes.get('class', '') + ' ' + node.attributes.get('id', '')):
             node.decompose()

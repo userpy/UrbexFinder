@@ -88,3 +88,29 @@ def test_description_link_does_not_confirm_other_estates_or_lookalike_hosts():
                          [PAGE.replace('209-shill', '210-other')]).status == 'rejected'
     fake = PAGE.replace('podmoskovnye.ru', 'podmoskovnye.ru.evil.example')
     assert verify_source(place, {'url': fake, 'title': 'Усадьба'}, [fake]).status == 'rejected'
+
+
+def test_gantry_sidebar_layout_class_does_not_remove_article(monkeypatch):
+    page = 'http://podmoskovnye.ru/usadba/podmoskovnaya/article/63-leninskii/298-bogorodskoe'
+    image = 'http://podmoskovnye.ru/images/stories/photos/2_podmoskov/bogorodskoe/bogorodskoe.jpg'
+    html = f'''<body class="gantry site g-rightsidebar"><div class="item-page">
+        <h1>Богородское</h1><div itemprop="articleBody"><img src="{image}"></div></div>
+        <aside><img src="/images/other.jpg"></aside></body>'''
+    assert primary_gallery(html, page) == (True, [image])
+    monkeypatch.setattr(description, '_fetch_generic_html', lambda _: html)
+    photos = description.generic_page_photos_for_links([{'url': page}])
+    report = osint._refilter_report({'photos': photos}, {'name': 'Богородское', 'description': page})
+    assert [p['image_url'] for p in report['photos']] == [image]
+
+
+def test_old_http_article_is_fetched_over_https(monkeypatch):
+    import httpx
+    calls = []
+    original = httpx.Client
+    def respond(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, text='<html>' + 'x' * 500 + '</html>')
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(
+        **{**kwargs, 'transport': httpx.MockTransport(respond)}))
+    assert description._fetch_generic_html(PAGE)
+    assert calls == [PAGE.replace('http:', 'https:')]

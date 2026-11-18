@@ -2054,6 +2054,9 @@ def _generic_title_from_html(html: str) -> str:
 
 
 def _fetch_generic_html(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme == 'http' and parsed.hostname in {'podmoskovnye.ru', 'www.podmoskovnye.ru'}:
+        url = parsed._replace(scheme='https').geturl()
     if is_object_url(url):
         return fetch_wikimapia_html(url)
     try:
