@@ -1417,48 +1417,56 @@ def _fetch_urban3p_html_impersonated(url: str) -> str:
         from curl_cffi import requests as curl_requests
     except ImportError:
         return ''
-    # First pass: all profiles; retry only the most reliable ones on SSL flaps.
-    for batch in (_URBAN3P_IMPERSONATE, _URBAN3P_IMPERSONATE[:2]):
-        for impersonate in batch:
-            try:
-                response = curl_requests.get(
-                    url,
-                    impersonate=impersonate,
-                    timeout=12,
-                    headers=_URBAN3P_BROWSER_HEADERS,
-                    allow_redirects=True,
-                )
-                if int(getattr(response, 'status_code', 0) or 0) >= 400:
-                    continue
-                html = _urban3p_html_ok(
-                    response.text or '',
-                    str(getattr(response, 'url', '') or url),
-                )
-                if html:
-                    return html
-            except Exception:
+    # Bound cold-gallery latency; the caller also tries the .com mirror.
+    for impersonate in _URBAN3P_IMPERSONATE[:2]:
+        try:
+            response = curl_requests.get(
+                url,
+                impersonate=impersonate,
+                timeout=3,
+                headers=_URBAN3P_BROWSER_HEADERS,
+                allow_redirects=True,
+            )
+            if int(getattr(response, 'status_code', 0) or 0) >= 400:
                 continue
+            html = _urban3p_html_ok(
+                response.text or '',
+                str(getattr(response, 'url', '') or url),
+            )
+            if html:
+                return html
+        except Exception:
+            continue
     _log.warning('Urban3P impersonated fetch failed for %s', url)
     return ''
 
 
 def _fetch_urban3p_html(url: str) -> str:
-    html = _fetch_urban3p_html_impersonated(url)
-    if html:
-        return html
-    try:
-        with httpx.Client(
-            timeout=18.0,
-            follow_redirects=True,
-            headers=_URBAN3P_BROWSER_HEADERS,
-        ) as client:
-            response = client.get(url)
-            if response.status_code >= 400:
-                return ''
-            return _urban3p_html_ok(response.text or '', str(response.url))
-    except httpx.HTTPError:
-        _log.warning('Urban3P fetch failed for %s', url)
-        return ''
+    parsed = urlparse(url)
+    urls = [url]
+    if parsed.hostname in {'urban3p.ru', 'www.urban3p.ru'}:
+        urls.append(parsed._replace(scheme='https', netloc='urban3p.com').geturl())
+    for candidate in urls:
+        html = _fetch_urban3p_html_impersonated(candidate)
+        if html:
+            return html
+    for candidate in urls:
+        try:
+            with httpx.Client(
+                timeout=2.0,
+                follow_redirects=True,
+                headers=_URBAN3P_BROWSER_HEADERS,
+            ) as client:
+                response = client.get(candidate)
+                if response.status_code >= 400:
+                    continue
+                html = _urban3p_html_ok(response.text or '', str(response.url))
+                if html:
+                    return html
+        except httpx.HTTPError:
+            continue
+    _log.warning('Urban3P fetch failed for %s and its mirrors', url)
+    return ''
 
 
 def _urban3p_cover_urls(oid: str) -> list[str]:

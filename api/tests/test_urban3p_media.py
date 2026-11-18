@@ -58,3 +58,26 @@ def test_browser_tls_fallback(monkeypatch):
     monkeypatch.setattr(requests, 'get', lambda url, **kwargs: SimpleNamespace(status_code=200, content=b'\xff\xd8\xffphoto'))
     assert media.fetch_image('img04', 17147, 'gallery', '384557.jpg') == b'\xff\xd8\xffphoto'
     media.fetch_image.cache_clear()
+
+
+def test_gallery_page_uses_com_mirror_when_ru_fails(monkeypatch):
+    calls = []
+    html = '<title>Бункер ЗРК</title>' + ' ' * 500
+    def fetch(url):
+        calls.append(url)
+        return html if url == 'https://urban3p.com/object7957' else ''
+    monkeypatch.setattr(description, '_fetch_urban3p_html_impersonated', fetch)
+    assert description._fetch_urban3p_html('https://urban3p.ru/object7957') == html
+    assert calls == ['https://urban3p.ru/object7957', 'https://urban3p.com/object7957']
+
+
+def test_gallery_connection_failures_have_bounded_attempts(monkeypatch):
+    from curl_cffi import requests
+    calls = []
+    def fail(url, **kwargs):
+        calls.append(kwargs)
+        raise OSError('TLS unavailable')
+    monkeypatch.setattr(requests, 'get', fail)
+    assert description._fetch_urban3p_html_impersonated('https://urban3p.ru/object7957') == ''
+    assert len(calls) == 2
+    assert all(call['timeout'] == 3 for call in calls)
