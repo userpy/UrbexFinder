@@ -121,9 +121,7 @@ export function PlaceDetail({
       } catch {
         if (abort.signal.aborted) return;
         const retry = attempt < 2;
-        setSourceGallery({ placeId: place.id, photos: [], status: retry
-          ? "Фото источника временно недоступны. Повторим загрузку через 30 секунд…"
-          : "Фото источника временно недоступны" });
+        setSourceGallery({ placeId: place.id, photos: [], status: "Фото источника временно недоступны" });
         // The API caches temporary source failures for 30 seconds.
         if (retry) timer = setTimeout(() => { void load(attempt + 1); }, 31_000);
       }

@@ -57,7 +57,7 @@ test('source gallery recovers from a temporary failure after the API cooldown', 
     return route.fulfill({ json: { items: [], total: 0 } });
   });
   await page.goto('/?place=1');
-  await expect(page.getByText(/Повторим загрузку/).first()).toBeVisible();
+  await expect(page.getByText('Фото источника временно недоступны', { exact: true }).first()).toBeVisible();
   await page.clock.fastForward(29_000);
   expect(requests).toBe(1);
   await page.clock.fastForward(2_000);

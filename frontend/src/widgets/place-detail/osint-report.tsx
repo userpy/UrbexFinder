@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
-  Shield,
   Building2,
   Images,
   Image as ImageIcon,
@@ -85,12 +84,6 @@ export type OsintReport = {
   cached?: boolean;
   updated_at?: string | null;
 };
-
-const SECURITY_LEVELS = [
-  { id: "low", label: "Низкая" },
-  { id: "medium", label: "Средняя" },
-  { id: "high", label: "Высокая" },
-] as const;
 
 const CONDITION_LEVELS = [
   { id: "abandoned", label: "Заброшен" },
@@ -618,12 +611,6 @@ function OsintReportDialog({
           <div className="osint-report-body">
             {report.assessment && (
               <section className="osint-indicators" aria-label="Индикаторы оценки">
-                <LevelMeter
-                  title="Охраняемость"
-                  icon={<Shield size={14} aria-hidden="true" />}
-                  levels={SECURITY_LEVELS}
-                  current={report.assessment.security}
-                />
                 <LevelMeter
                   title="Состояние"
                   icon={<Building2 size={14} aria-hidden="true" />}
