@@ -105,3 +105,22 @@ def test_vk_group_gallery_fetches_with_token_and_reuses_verified_saved_photos(mo
     sources._cache.clear()
     assert sources.source_photos(place, {'photos': [photo]}, vk_token='token') == [photo]
     assert calls == [('token', url)]
+
+
+def test_verified_search_galleries_share_budget_with_description_photos():
+    urban = 'https://urban3p.ru/object42'
+    wiki = 'https://wikimapia.org/123/ru/radar'
+    place = {'name': 'Дунай', 'description': 'РЛС https://urban3p.ru/object42',
+             'latitude': 55.48, 'longitude': 36.64}
+    identity = {'source_key': sources.source_key(wiki), 'title': 'РЛС Дунай',
+                'latitude': 55.48, 'longitude': 36.64}
+    urban_photos = [dict(engine='urban3p', source_url=urban, query=urban,
+                        image_url=f'https://img01.urban3p.ru/up/o/42/gallery/{i}.jpg') for i in range(12)]
+    other = dict(engine='wikimapia', source_url=wiki, query=wiki, page_identity=identity,
+                 image_url='https://photos.wikimapia.org/p/00/01/02/03/04.jpg')
+    wrong = dict(other, image_url='https://photos.wikimapia.org/p/00/01/02/03/05.jpg',
+                 source_url='https://wikimapia.org/999', query='https://wikimapia.org/999', page_identity={})
+    result = sources.source_photos(place, {'photos': urban_photos + [other, wrong]})
+    assert len(result) == 12
+    assert result[1] == other
+    assert wrong not in result

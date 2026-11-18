@@ -5,7 +5,7 @@ from threading import Lock
 from time import monotonic
 from urllib.parse import urlparse
 import httpx
-from .osint_identity import extract_page_identity, source_key, verify_source
+from .osint_identity import extract_page_identity, source_key, verify_source, name_cues, words_present
 
 _HOSTS = {'wikimapia.org', 'geocaching.su', 'urban3p.ru', 'urban3p.com',
           'swalker.ru', 'podmoskovnye.ru', 'planetadorog.ru'}
@@ -28,6 +28,15 @@ def _fetch(url):
         cached = _cache.get(key)
         if cached and cached[0] > monotonic(): return cached[1]
     evidence = None
+    from .wikimapia import is_object_url, fetch_html
+    if is_object_url(url):
+        html = fetch_html(url)
+        evidence = extract_page_identity(html, url) if html else None
+        with _lock:
+            _cache[key] = (monotonic() + (900 if evidence else 60), evidence)
+            _cache.move_to_end(key)
+            while len(_cache) > 128: _cache.popitem(last=False)
+        return evidence
     try:
         with httpx.Client(timeout=httpx.Timeout(3, connect=2), follow_redirects=False) as client:
             with client.stream('GET', url) as response:
@@ -50,7 +59,11 @@ def _fetch(url):
 
 def enrich_candidates(place, candidates, reference_urls):
     rows = [dict(row) for row in candidates]
-    pending = [row for row in rows if verify_source(place, row, reference_urls).status == 'unconfirmed'][:4]
+    pending = [row for row in rows
+               if urlparse(row.get('url', '')).hostname in _HOSTS
+               and verify_source(place, row, reference_urls).status == 'unconfirmed']
+    pending.sort(key=lambda row: not words_present(name_cues(place.get('name')), row.get('title', '')))
+    pending = pending[:4]
     with ThreadPoolExecutor(max_workers=4) as pool:
         for row, evidence in zip(pending, pool.map(_fetch, [row.get('url', '') for row in pending])):
             if evidence: row['page_identity'] = evidence

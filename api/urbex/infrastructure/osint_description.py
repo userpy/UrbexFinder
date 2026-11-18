@@ -9,7 +9,7 @@ from .yandex_gallery import org_gallery
 from .osint_identity import source_key
 from .osint_identity import primary_gallery
 from .page_parser import parse_page
-from .wikimapia import direct_photos, gallery_urls, is_object_url
+from .wikimapia import direct_photos, gallery_urls, is_object_url, fetch_html as fetch_wikimapia_html, enrich_identity as enrich_wikimapia_identity
 
 _log = logging.getLogger(__name__)
 _LINK_RE = re.compile(
@@ -2054,6 +2054,8 @@ def _generic_title_from_html(html: str) -> str:
 
 
 def _fetch_generic_html(url: str) -> str:
+    if is_object_url(url):
+        return fetch_wikimapia_html(url)
     try:
         with httpx.Client(
             timeout=httpx.Timeout(15.0, connect=5.0),
@@ -2111,6 +2113,7 @@ def generic_page_photos_for_links(
         )[:300]
         engine = _generic_engine_for(url)
         page_identity, primary_scope, gallery_images = parse_page(html, url, source_key)
+        page_identity = enrich_wikimapia_identity(page_identity, html, url)
         page_count = 0
         for image in _extract_generic_image_urls(html, url, parsed_gallery=(primary_scope, gallery_images)):
             if len(photos) >= limit or page_count >= _MAX_GENERIC_PER_PAGE:

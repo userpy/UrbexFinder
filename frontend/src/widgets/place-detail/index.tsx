@@ -105,6 +105,7 @@ export function PlaceDetail({
   const [sourceGallery, setSourceGallery] = useState<{
     placeId: number; photos: SourcePhoto[]; status: string;
   } | null>(null);
+  const [galleryRevision, setGalleryRevision] = useState(0);
   const sourcePhotos = sourceGallery?.placeId === place.id ? sourceGallery.photos : [];
   const sourceStatus = sourceGallery?.placeId === place.id ? sourceGallery.status : "";
   useEffect(() => {
@@ -120,7 +121,7 @@ export function PlaceDetail({
           setSourceGallery({ placeId: place.id, photos: [], status: "Фото источника временно недоступны" });
       });
     return () => abort.abort();
-  }, [place.id]);
+  }, [place.id, galleryRevision]);
   useEffect(() => {
     if (message !== "Сообщение отправлено") return;
     const timer = setTimeout(() => setMessage(""), 3000);
@@ -170,8 +171,7 @@ export function PlaceDetail({
           <button
             className="detail-expand"
             onClick={() => {
-              if (fullscreen) onClose();
-              else setExpanded(false);
+              setExpanded(false);
             }}
           >
             <X size={19} />
@@ -366,7 +366,7 @@ export function PlaceDetail({
                     <Share2 size={14} aria-hidden="true" />
                     Поделиться
                   </button>
-                  <OsintReportTrigger placeId={place.id} />
+                  <OsintReportTrigger placeId={place.id} onClose={() => setGalleryRevision((value) => value + 1)} />
                   {shareNotice && (
                     <span
                       className={
@@ -536,8 +536,7 @@ export function PlaceDetail({
           aria-label={place.name}
           onCancel={(event) => {
             event.preventDefault();
-            if (fullscreen) onClose();
-            else setExpanded(false);
+            setExpanded(false);
           }}
         >
           {content}

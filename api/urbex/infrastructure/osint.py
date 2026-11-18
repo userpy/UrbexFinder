@@ -323,7 +323,7 @@ def _compact_region_label(place: dict) -> str:
 
 def _settlement_label(place: dict) -> str:
     """Locality from address/content: «Анашкино», «Лесниково», …"""
-    for field in ('full_address', 'region', 'description'):
+    for field in ('full_address', 'region'):
         text = str(place.get(field) or '')
         for raw in re.split(r'\s*,\s*', text):
             part = raw.strip().strip(' «»"\'')
@@ -365,9 +365,21 @@ def _search_location(place: dict) -> str:
     return _short_location(place)
 
 
+def _search_name(place: dict) -> str:
+    from html import unescape
+    from .osint_identity import kinds, name_cues, words_present
+    name = str(place.get('name') or '').strip()
+    description = unescape(re.sub(r'<[^>]+>', ' ', str(place.get('description') or '')))
+    opening = re.split(r'[.!?\n]', description, maxsplit=1)[0].strip()
+    if (name and not kinds(name) and kinds(opening) and len(opening) <= 160
+            and words_present(name_cues(name), opening)):
+        return opening
+    return name
+
+
 def _urbex_site_query(place: dict) -> str:
     """Restrict SearXNG to known RU urbex catalogs."""
-    name = (place.get('name') or '').strip()
+    name = _search_name(place)
     location = _search_location(place)
     subject = ' '.join(part for part in (name, location) if part).strip()
     if not subject:
@@ -378,7 +390,7 @@ def _urbex_site_query(place: dict) -> str:
 
 def _queries_for(place: dict) -> list[str]:
     """Build SearXNG queries: urbex sites, then name+settlement/region, then coords."""
-    name = (place.get('name') or '').strip()
+    name = _search_name(place)
     location = _search_location(place)
     settlement = _settlement_label(place)
     coords = _coords(place)
@@ -435,7 +447,7 @@ def _unit_numbers(text: str) -> set[str]:
 
 def _image_queries_for(place: dict) -> list[str]:
     """Image queries: prefer settlement/region+coords; avoid bare generic names."""
-    name = (place.get('name') or '').strip()
+    name = _search_name(place)
     location = _search_location(place)
     coords = _coords(place)
     distinctive = _distinctive_tokens(name)
@@ -1355,10 +1367,13 @@ def _build_osint_report(
     ]
 
     references = [link['url'] for link in description_links]
-    source_candidates = enrich_candidates(
-        place, _merge(general_batches, 'url', _MAX_RESULTS), references,
-    )
     photo_candidates = _merge(image_batches, 'image_url', _MAX_PHOTOS)
+    source_candidates = enrich_candidates(
+        place, _merge_round_robin(
+            [_merge(general_batches, 'url', _MAX_RESULTS), _sources_from_photos(photo_candidates)],
+            'url', _MAX_RESULTS * 2,
+        ), references,
+    )
     # Only verified pages can seed gallery extraction or secondary VK fetching.
     searched = [item for item in source_candidates
                 if not _is_junk_source(item)
@@ -1587,6 +1602,15 @@ def get_or_build_osint_report(
         stored = load_osint_report(engine, place_id)
         if stored is not None:
             filtered = _refilter_report(stored, place)
+            missing_identity = [row['candidate'] for row in filtered.get('verification', {}).get('sources', [])
+                                if row.get('status') == 'unconfirmed'
+                                and is_object_url(str(row.get('candidate', {}).get('url') or ''))]
+            if missing_identity and time.time() - stored.get('wikimapia_identity_checked_at', 0) >= 300:
+                references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
+                recovered_sources = enrich_candidates(place, missing_identity, references)
+                filtered['items'] = recovered_sources + filtered['items']
+                filtered = _refilter_report(filtered, place)
+                filtered['wikimapia_identity_checked_at'] = time.time()
             gallery_urls = {photo.get('source_url') for photo in filtered['photos']
                             if photo.get('engine') == 'wikimapia'}
             missing_wikimapia = [
@@ -1658,6 +1682,7 @@ def get_or_build_osint_report(
             # Persist tightened filters so junk does not return next time.
             if (
                 filtered.get('verification') != stored.get('verification')
+                or filtered.get('wikimapia_identity_checked_at') != stored.get('wikimapia_identity_checked_at')
                 or filtered.get('items') != stored.get('items')
                 or filtered.get('total') != stored.get('total')
                 or filtered.get('photos_total') != stored.get('photos_total')

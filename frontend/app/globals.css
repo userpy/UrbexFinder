@@ -518,3 +518,12 @@ body {
 @media (max-width: 760px) {
   .osint-dialog .osint-dialog-panel { padding-top: 42px; }
 }
+
+.place-fullscreen { overflow: hidden; outline: none; }
+.place-fullscreen .detail, .gallery-thumbnails {
+  scrollbar-width: thin;
+  scrollbar-color: #405365 var(--panel);
+}
+
+/* The browser can focus this scroll container when showModal() opens. */
+.place-fullscreen > .detail:focus { outline: none; }

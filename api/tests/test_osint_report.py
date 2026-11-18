@@ -1998,3 +1998,40 @@ def test_osint_report_fetches_vk_photos_from_description(monkeypatch):
     assert payload['photos'][0]['image_url'] == 'https://cdn.vk/camp.jpg'
     assert any('без охраны' in (s.get('snippet') or '').casefold() for s in payload['items'])
     assert payload['assessment']['condition']['level'] == 'abandoned'
+
+
+def test_vague_radar_name_uses_description_subject_not_description_as_locality():
+    place = {'name': 'Бывший Дунай', 'region': 'Московская область',
+             'description': 'Заброшенная РЛС ДО "Дунай-3М" в народе "Шалаш". <br>Так вот тот самый шалаш...',
+             'latitude': 55.4806, 'longitude': 36.6485}
+    assert osint._settlement_label(place) == ''
+    queries = osint._queries_for(place)
+    assert all('<br>' not in q and 'Так вот' not in q for q in queries)
+    assert 'Дунай-3М' in queries[1]
+    assert 'Шалаш' in queries[1]
+    assert 'Московская область' in queries[1]
+    assert 'Дунай-3М' in osint._image_queries_for(place)[0]
+
+
+def test_image_search_landing_page_seeds_verified_gallery(monkeypatch):
+    page = 'https://wikimapia.org/123/ru/radar'
+    place = {'id': 1, 'name': 'РЛС Дунай', 'latitude': 55.48, 'longitude': 36.64}
+    photo = {'image_url': 'https://photos.wikimapia.org/p/00/01/02/03/04.jpg',
+             'source_url': page, 'query': page, 'title': 'РЛС Дунай', 'engine': 'wikimapia', 'score': 12}
+    monkeypatch.setattr(osint, 'description_photos_for_links', lambda *a, **k: [])
+    monkeypatch.setattr(osint, 'vk_sources_for_links', lambda *a, **k: [])
+    monkeypatch.setattr(osint, 'urban3p_photos_for_links', lambda *a, **k: [])
+    monkeypatch.setattr(osint, '_search_soft', lambda url, origin, query, category:
+                        (dict(photo, engine='search'),) if category == 'images' else ())
+    def enrich(place, rows, references):
+        return [dict(row, page_identity={'source_key': osint.source_key(row['url']),
+                     'title': 'РЛС Дунай', 'latitude': 55.48, 'longitude': 36.64}) for row in rows]
+    monkeypatch.setattr(osint, 'enrich_candidates', enrich)
+    calls = []
+    def gallery(links, **kwargs):
+        calls.extend(link['url'] for link in links)
+        return [photo]
+    monkeypatch.setattr(osint, 'site_photos_for_links', gallery)
+    report = osint._build_osint_report('https://search.test', '', place)
+    assert page in calls
+    assert report['photos'] == [photo]

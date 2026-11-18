@@ -422,7 +422,7 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
   web: "Web",
 };
 
-export function OsintReportTrigger({ placeId }: { placeId: number }) {
+export function OsintReportTrigger({ placeId, onClose }: { placeId: number; onClose?: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -438,7 +438,7 @@ export function OsintReportTrigger({ placeId }: { placeId: number }) {
       </button>
       {open &&
         createPortal(
-          <OsintReportDialog placeId={placeId} onClose={() => setOpen(false)} />,
+          <OsintReportDialog placeId={placeId} onClose={() => { setOpen(false); onClose?.(); }} />,
           document.body,
         )}
     </>

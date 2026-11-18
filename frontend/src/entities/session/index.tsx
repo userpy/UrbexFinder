@@ -59,7 +59,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       let telegram = telegramLaunch(window);
       setIsMiniApp(telegram.isMiniApp);
       // A desktop WebView may initialize its bridge after React has mounted.
-      for (let attempt = 0; !telegram.initData && attempt < 30 && active; attempt++) {
+      for (let attempt = 0; telegram.isMiniApp && !telegram.initData && attempt < 30 && active; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         telegram = telegramLaunch(window);
       }

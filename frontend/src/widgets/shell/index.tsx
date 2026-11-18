@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Compass, Map, Plus, Route, UserRound, ShieldCheck } from "lucide-react";
 import { useSession } from "@/entities/session";
 export function Header() {
-  const { user, authError } = useSession();
+  const { user, loading, authError } = useSession();
   return (
     <>
       <header className="header">
@@ -14,7 +14,7 @@ export function Header() {
             <small>АТЛАС ЗАБЫТЫХ МЕСТ</small>
           </span>
         </Link>
-        <nav>
+        <nav aria-busy={loading} style={{ visibility: loading ? "hidden" : "visible" }}>
           <Link href="/">
             <Map size={16} />
             Карта

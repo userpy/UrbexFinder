@@ -581,6 +581,9 @@ export function Explorer() {
           place={selected}
           fullscreen={sharedPlace}
           onClose={() => {
+            const url = new URL(window.location.href);
+            url.searchParams.delete("place");
+            window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
             setSharedPlace(false);
             setSelected(null);
           }}

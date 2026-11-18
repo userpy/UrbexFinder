@@ -212,3 +212,17 @@ def test_manor_does_not_match_namesake_housing(place, title):
     assert any(row['candidate']['url'] == right['url'] and row['status'] == 'unconfirmed'
                for row in report['verification']['sources'])
     assert report['assessment'] == osint.assess_osint_items(report['items'])
+
+
+def test_enrichment_does_not_spend_page_budget_on_unsupported_search_noise(monkeypatch):
+    from urbex.infrastructure import osint_evidence as evidence
+    noise = [{'url': f'https://example.org/{i}', 'title': 'Общая страница'} for i in range(8)]
+    relevant = {'url': 'https://wikimapia.org/123', 'title': 'РЛС Дунай'}
+    calls = []
+    def fetch(url):
+        calls.append(url)
+        return {'source_key': 'wikimapia.org:123', 'title': 'РЛС Дунай'}
+    monkeypatch.setattr(evidence, '_fetch', fetch)
+    rows = evidence.enrich_candidates({'name': 'Дунай'}, noise + [relevant], [])
+    assert calls == [relevant['url']]
+    assert rows[-1]['page_identity']['title'] == 'РЛС Дунай'

@@ -4,7 +4,7 @@ from math import asin, cos, radians, sin, sqrt, isfinite
 import re
 from urllib.parse import parse_qsl, urlencode, unquote, urlparse
 
-VERSION = 8
+VERSION = 10
 
 
 def normalized(text):
@@ -48,6 +48,7 @@ def source_key(url):
 
 
 _TYPES = {
+    'radar': r'\bрлс\b|\bрадиолокационн[а-я]*\s+станци[а-я]*\b',
     'shelter': r'\b(?:убежищ|бомбоубежищ|бункер)[а-я]*\b',
     'manor': r'\bусад(?:ьб|еб)[а-я]*\b',
     'housing': r'\bтаунхаус[а-я]*\b|\bкоттеджн[а-я]*\s+посел[а-я]*\b|\bжил[а-я]*\s+(?:комплекс|квартал)[а-я]*\b|\bжк\b',
@@ -249,8 +250,27 @@ def primary_gallery(html, url):
 
 def extract_page_identity(html, url):
     from .page_parser import parse_page
+    from .wikimapia import enrich_identity
     identity, _, _ = parse_page(html, url, source_key)
-    return identity
+    return enrich_identity(identity, html, url)
+
+
+def diverse_photos(photos: list[dict], limit: int = 12) -> list[dict]:
+    groups = {}
+    seen = set()
+    for photo in photos:
+        image = photo.get('image_url')
+        if not image or image in seen:
+            continue
+        seen.add(image)
+        key = source_key(photo.get('source_url')) or photo.get('engine') or ''
+        groups.setdefault(key, []).append(photo)
+    result = []
+    while len(result) < limit and any(groups.values()):
+        for group in groups.values():
+            if group and len(result) < limit:
+                result.append(group.pop(0))
+    return result
 
 
 def verify_report(report, place, reference_urls, *, junk_source=lambda item: False, junk_photo=lambda item: False):
@@ -312,7 +332,7 @@ def verify_report(report, place, reference_urls, *, junk_source=lambda item: Fal
                 and bool(re.fullmatch(r'/photos/areas/\d+\.(?:jpg|png|webp)', image_parts.path))
             ) or (
                 photo.get('engine') == 'wikimapia' and image_parts.hostname == 'photos.wikimapia.org'
-                and bool(re.fullmatch(r'/p/(?:\d{2}/){4}\d{2}(?:_\d+)?\.jpg', image_parts.path))
+                and bool(re.fullmatch(r'/p/(?:\d{2}/){4}\d{2}(?:_(?:\d+|big))?\.jpg', image_parts.path))
             )
             gallery = gallery or (parent in reference_keys and legacy_gallery)
             if photo.get('engine') in {'web_page', 'planetadorog', 'caves', 'urbexstalker'}:
@@ -328,7 +348,7 @@ def verify_report(report, place, reference_urls, *, junk_source=lambda item: Fal
         if decision.status == 'accepted': accepted_photos.append(photo)
     output.pop('source_candidates', None)
     output.pop('photo_candidates', None)
-    output.update(items=accepted[:12], photos=accepted_photos[:12], total=min(12, len(accepted)),
+    output.update(items=accepted[:12], photos=diverse_photos(accepted_photos), total=min(12, len(accepted)),
                   photos_total=min(12, len(accepted_photos)),
                   verification={'version': VERSION, 'sources': audits, 'photos': photo_audits})
     return output

@@ -88,3 +88,78 @@ def test_saved_wikimapia_gallery_retries_with_cooldown(monkeypatch):
              'image_url': 'https://photos.wikimapia.org/p/00/08/50/63/08_1280.jpg'}
     monkeypatch.setattr(osint, 'wikimapia_photos_for_links', lambda *args: [photo])
     assert osint.get_or_build_osint_report(None, '', '', place)['photos'] == [photo]
+
+
+def test_session_refresh_loads_object_without_running_javascript(monkeypatch):
+    import httpx
+    from urbex.infrastructure.wikimapia import fetch_html
+    calls = []
+    html = '<title>РЛС Дунай</title>' + ' ' * 500
+    def respond(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(200, text='<script>document.cookie="nsess=' + 'a' * 32 + '";</script>')
+        assert request.headers['cookie'] == 'nsess=' + 'a' * 32
+        return httpx.Response(200, text=html)
+    original = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs))
+    assert fetch_html('http://wikimapia.org/3787319/ru/') == html
+    assert len(calls) == 2
+    assert all(r.url.scheme == 'https' for r in calls)
+
+
+def test_object_meta_coordinates_confirm_dunay_and_ignore_map_and_neighbours():
+    from urbex.infrastructure.osint_identity import extract_page_identity, verify_source
+    url = 'https://wikimapia.org/3787319/ru/'
+    html = '''<h1>Территория бывшей РЛС ПРО Дунай-3М</h1>
+    <meta property="og:url" content="http://wikimapia.org/3787319/ru/test">
+    <meta property="place:location:latitude" content="55.4800267">
+    <meta property="place:location:longitude" content="36.6482017">
+    <script>map = {lat: 1, lon: 2}; nearby = {latitude: 3, longitude: 4}</script>'''
+    identity = extract_page_identity(html, url)
+    assert (identity['latitude'], identity['longitude']) == (55.4800267, 36.6482017)
+    place = {'name': 'Бывший Дунай', 'description': 'Заброшенная РЛС Дунай-3М',
+             'latitude': 55.4806, 'longitude': 36.6485}
+    assert verify_source(place, {'url': url, 'page_identity': identity}).status == 'accepted'
+    assert 'latitude' not in extract_page_identity(html, 'https://wikimapia.org/999/ru/')
+    assert 'latitude' not in extract_page_identity(html, 'https://example.org/3787319')
+
+
+def test_session_fetch_does_not_follow_redirect_to_other_hosts_or_objects(monkeypatch):
+    import httpx
+    from urbex.infrastructure.wikimapia import fetch_html
+    original = httpx.Client
+    for target in ['http://127.0.0.1/private', 'https://wikimapia.org/999', 'https://wikimapia.org.evil.test/3787319']:
+        calls = []
+        def respond(request):
+            calls.append(request)
+            return httpx.Response(302, headers={'location': target})
+        monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs))
+        assert fetch_html('https://wikimapia.org/3787319') == ''
+        assert len(calls) == 1
+
+
+def test_cached_unconfirmed_wikimapia_recovers_identity_then_gallery(monkeypatch):
+    url = 'https://wikimapia.org/3787319/ru/'
+    place = {'id': 3477, 'name': 'Бывший Дунай', 'description': 'РЛС Дунай-3М',
+             'latitude': 55.4806, 'longitude': 36.6485}
+    candidate = {'url': url, 'title': 'РЛС Дунай-3М'}
+    stored = {'items': [], 'photos': [], 'source_candidates': [candidate]}
+    monkeypatch.setattr(osint, 'load_osint_report', lambda *a: stored)
+    monkeypatch.setattr(osint, 'save_osint_report', lambda engine, id, report: report)
+    identity = {'source_key': 'wikimapia.org:3787319', 'title': 'РЛС Дунай-3М',
+                'latitude': 55.4800267, 'longitude': 36.6482017}
+    monkeypatch.setattr(osint, 'enrich_candidates', lambda *a: [dict(candidate, page_identity=identity)])
+    photo = {'engine': 'wikimapia', 'source_url': url, 'query': url,
+             'page_identity': identity, 'image_url': 'https://photos.wikimapia.org/p/00/08/50/63/08_1280.jpg'}
+    monkeypatch.setattr(osint, 'wikimapia_photos_for_links', lambda *a: [photo])
+    report = osint.get_or_build_osint_report(None, '', '', place)
+    assert report['photos'] == [photo]
+    assert report['items'][0]['url'] == url
+    assert report['wikimapia_identity_checked_at'] > 0
+
+
+def test_gallery_prefers_full_size_big_links_over_75_pixel_thumbnails():
+    assert gallery_urls('''<a href="http://photos.wikimapia.org/p/00/00/55/48/42_big.jpg">
+        <img src="http://photos.wikimapia.org/p/00/00/55/48/42_75.jpg"></a>''',
+        'https://wikimapia.org/3787319') == ['https://photos.wikimapia.org/p/00/00/55/48/42_big.jpg']

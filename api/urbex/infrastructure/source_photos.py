@@ -1,4 +1,4 @@
-"""Load the linked cache gallery without running a general web search."""
+"""Combine linked galleries with verified photos discovered by the report."""
 from collections import OrderedDict
 from threading import Lock
 from time import monotonic
@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 import re
 
 from urbex.domain.rules import DomainError
-from .osint_identity import verify_report, source_key
+from .osint_identity import verify_report, source_key, diverse_photos
 from .osint_description import links_from_description, generic_page_photos_for_links, urban3p_photos_for_links, vk_photos_for_links
 
 _cache = OrderedDict()
@@ -22,14 +22,13 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
                  'urban3p.ru', 'www.urban3p.ru', 'urban3p.com', 'www.urban3p.com',
              }][:2]
     references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
-    maps = []
+    checked_photos = []
     if saved_report:
         checked = verify_report(saved_report, place, references)
-        maps = [photo for photo in checked['photos'] if photo.get('engine') == 'yandex_maps']
+        checked_photos = checked['photos']
     if not links:
-        return maps
-    # Reports persist the provenance of each image. Reuse only the gallery
-    # linked by this card, never general search results or another cache.
+        return diverse_photos(checked_photos)
+    # Reuse only photos whose source and gallery membership pass verification.
     source_urls = {link['url'].rstrip('/') for link in links}
     podmoskovnye = {source_key(link['url']) for link in links
                     if (urlparse(link['url']).hostname or '').removeprefix('www.') == 'podmoskovnye.ru'}
@@ -39,13 +38,13 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
                 if source_key(photo.get('source_url')) in podmoskovnye]
     urban = [link for link in links if link.get('category') == 'urban3p']
     urban_keys = {source_key(link['url']) for link in urban}
-    urban_saved = [photo for photo in verify_report(saved_report or {}, place, references)['photos']
+    urban_saved = [photo for photo in checked_photos
                    if source_key(photo.get('source_url')) in urban_keys]
     vk = [link for link in links if link.get('category') == 'vk']
     vk_keys = {source_key(link['url']) for link in vk}
-    vk_saved = [photo for photo in verify_report(saved_report or {}, place, references)['photos']
+    vk_saved = [photo for photo in checked_photos
                 if source_key(photo.get('source_url')) in vk_keys]
-    saved = vk_saved + urban_saved + maps + (verified_podmoskovnye(saved_report or {}) if podmoskovnye else [])
+    saved = list(checked_photos)
     seen = {photo['image_url'] for photo in saved}
     for photo in (saved_report or {}).get('photos', []):
         image = urlparse(str(photo.get('image_url') or ''))
@@ -58,15 +57,15 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
             seen.add(image.geturl())
             saved.append(photo)
     if saved and (not urban or urban_saved) and (not vk or vk_saved):
-        return saved[:12]
+        return diverse_photos(saved)
     key = (tuple(link['url'] for link in links), bool(vk_token))
     with _lock:
         cached = _cache.get(key)
         if cached and cached[0] > monotonic():
             _cache.move_to_end(key)
-            if cached[1] is None:
+            if cached[1] is None and not saved:
                 raise DomainError('Не удалось загрузить фото источника. Повторите позже.', 502)
-            return cached[1]
+            return diverse_photos((cached[1] or []) + saved)
     photos = urban3p_photos_for_links(urban, 12) if urban else []
     if vk:
         fetched_vk = vk_photos_for_links(vk_token, vk, 12)
@@ -74,7 +73,6 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
     other_links = [link for link in links if link not in urban and link not in vk]
     if other_links:
         photos += generic_page_photos_for_links(other_links, limit=12, max_pages=2)
-    photos = (photos + saved)[:12]
     if podmoskovnye:
         verified = verified_podmoskovnye({'photos': photos})
         photos = [photo for photo in photos if source_key(photo.get('source_url')) not in podmoskovnye] + verified
@@ -85,6 +83,7 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
         _cache.move_to_end(key)
         while len(_cache) > 256:
             _cache.popitem(last=False)
+    photos = diverse_photos(photos + saved)
     if not photos:
         raise DomainError('Не удалось загрузить фото источника. Повторите позже.', 502)
     return photos
