@@ -7,7 +7,13 @@ import re
 
 from urbex.domain.rules import DomainError
 from .osint_identity import verify_report, source_key, diverse_photos
-from .osint_description import links_from_description, generic_page_photos_for_links, urban3p_photos_for_links, vk_photos_for_links
+from .osint_description import (
+    links_from_description,
+    generic_page_photos_for_links,
+    urban3p_photos_for_links,
+    vk_photos_for_links,
+    wikimapia_photos_for_links,
+)
 
 _cache = OrderedDict()
 _lock = Lock()
@@ -20,6 +26,7 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
                  'podmoskovnye.ru', 'www.podmoskovnye.ru',
                  'vk.com', 'www.vk.com', 'm.vk.com', 'vk.ru', 'www.vk.ru', 'm.vk.ru',
                  'urban3p.ru', 'www.urban3p.ru', 'urban3p.com', 'www.urban3p.com',
+                 'wikimapia.org', 'www.wikimapia.org',
              }][:2]
     references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
     checked_photos = []
@@ -44,6 +51,10 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
     vk_keys = {source_key(link['url']) for link in vk}
     vk_saved = [photo for photo in checked_photos
                 if source_key(photo.get('source_url')) in vk_keys]
+    wikimapia = [link for link in links if link.get('category') == 'wikimapia']
+    wikimapia_keys = {source_key(link['url']) for link in wikimapia}
+    wikimapia_saved = [photo for photo in checked_photos
+                       if source_key(photo.get('source_url')) in wikimapia_keys]
     saved = list(checked_photos)
     seen = {photo['image_url'] for photo in saved}
     for photo in (saved_report or {}).get('photos', []):
@@ -56,7 +67,8 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
                 and image.geturl() not in seen):
             seen.add(image.geturl())
             saved.append(photo)
-    if saved and (not urban or urban_saved) and (not vk or vk_saved):
+    if (saved and (not urban or urban_saved) and (not vk or vk_saved)
+            and (not wikimapia or wikimapia_saved)):
         return diverse_photos(saved)
     key = (tuple(link['url'] for link in links), bool(vk_token))
     with _lock:
@@ -67,10 +79,18 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
                 raise DomainError('Не удалось загрузить фото источника. Повторите позже.', 502)
             return diverse_photos((cached[1] or []) + saved)
     photos = urban3p_photos_for_links(urban, 12) if urban else []
+    if wikimapia:
+        fetched_wikimapia = wikimapia_photos_for_links(wikimapia, 12)
+        photos += verify_report(
+            {'photos': fetched_wikimapia}, place, references,
+        )['photos']
     if vk:
         fetched_vk = vk_photos_for_links(vk_token, vk, 12)
         photos += verify_report({'photos': fetched_vk}, place, references)['photos']
-    other_links = [link for link in links if link not in urban and link not in vk]
+    other_links = [
+        link for link in links
+        if link not in urban and link not in vk and link not in wikimapia
+    ]
     if other_links:
         photos += generic_page_photos_for_links(other_links, limit=12, max_pages=2)
     if podmoskovnye:

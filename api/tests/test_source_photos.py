@@ -87,6 +87,44 @@ def test_urban_description_gallery_and_saved_report(monkeypatch):
     assert len(calls) == 1
 
 
+def test_wikimapia_description_gallery_is_loaded_and_verified(monkeypatch):
+    sources._cache.clear()
+    url = 'https://wikimapia.org/37454702/ru/Бывший-магазин'
+    identity = {
+        'source_key': sources.source_key(url),
+        'title': 'Бывший магазин',
+        'latitude': 53.095835,
+        'longitude': 34.071292,
+    }
+    photo = {
+        'engine': 'wikimapia',
+        'source_url': url,
+        'query': url,
+        'page_identity': identity,
+        'image_url': 'https://photos.wikimapia.org/p/00/01/02/03/04_1280.jpg',
+    }
+    calls = []
+
+    def fetch(links, limit):
+        calls.append((links, limit))
+        return [photo]
+
+    monkeypatch.setattr(sources, 'wikimapia_photos_for_links', fetch)
+    place = {
+        'name': 'Бывший магазин (ru)',
+        'region': 'Брянская область',
+        'latitude': 53.095835,
+        'longitude': 34.071292,
+        'description': url,
+    }
+
+    assert sources.source_photos(place) == [photo]
+    assert sources.source_photos(place) == [photo]
+    assert len(calls) == 1
+    assert calls[0][0][0]['url'] == url
+    assert calls[0][1] == 12
+
+
 def test_vk_group_gallery_fetches_with_token_and_reuses_verified_saved_photos(monkeypatch):
     sources._cache.clear()
     url = 'https://vk.com/club42'

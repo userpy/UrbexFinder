@@ -420,6 +420,12 @@ body {
   overflow-x: hidden;
 }
 
+.shared-place-loading {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
 @media (max-width: 760px) {
   .header {
     height: 56px;

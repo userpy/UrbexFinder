@@ -29,12 +29,15 @@ import {
   descriptionExcerpt,
 } from "@/shared/ui/highlight-match";
 import { Button } from "@/shared/ui/button";
-export function Explorer() {
+export function Explorer({ initialPlaceId }: { initialPlaceId?: string }) {
   const [clustered, setClustered] = useState(true);
   const searchInput = useRef<HTMLInputElement>(null);
   const [places, setPlaces] = useState<Place[]>([]),
     [selected, setSelected] = useState<Place | null>(null),
     [sharedPlace, setSharedPlace] = useState(false),
+    [initialPlacePending, setInitialPlacePending] = useState(
+      Boolean(initialPlaceId),
+    ),
     [categories, setCategories] = useState<Category[]>([]);
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState(""),
@@ -48,10 +51,9 @@ export function Explorer() {
     [radius, setRadius] = useState("10"),
     [retry, setRetry] = useState(0);
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("place");
-    if (!id || !/^\d+$/.test(id)) return;
+    if (!initialPlaceId) return;
     const abort = new AbortController();
-    api<Place>(`/places/${id}`, { signal: abort.signal })
+    api<Place>(`/places/${initialPlaceId}`, { signal: abort.signal })
       .then((place) => {
         setSelected(place);
         setSharedPlace(true);
@@ -59,9 +61,12 @@ export function Explorer() {
       })
       .catch((e) => {
         if (e.name !== "AbortError") setError(e.message);
+      })
+      .finally(() => {
+        if (!abort.signal.aborted) setInitialPlacePending(false);
       });
     return () => abort.abort();
-  }, []);
+  }, [initialPlaceId]);
   function resetFilters() {
     setQuery("");
     setCategory("");
@@ -228,6 +233,14 @@ export function Explorer() {
     radius,
     retry,
   ]);
+  if (initialPlacePending) {
+    return (
+      <main className="explorer shared-place-loading" aria-busy="true">
+        <p role="status">Загружаем место…</p>
+      </main>
+    );
+  }
+
   async function choose(id: number) {
     try {
       const p =
