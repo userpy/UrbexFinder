@@ -69,3 +69,40 @@ def test_confirmed_maps_gallery_is_available_on_place_card(monkeypatch):
     assert source_photos.source_photos(PLACE, {'photos': photos}) == photos
     wrong_place = dict(PLACE, name='Санаторий Алексин Бор', latitude=56.0)
     assert source_photos.source_photos(wrong_place, {'photos': photos}) == []
+
+
+def test_place_search_uses_matching_yandex_result_title_when_page_title_is_generic(monkeypatch):
+    place = {
+        'id': 3302,
+        'name': 'Усадьба «Гребнево»',
+        'full_address': 'Щёлковский городской округ, Московская область',
+        'latitude': 55.9489,
+        'longitude': 38.0868,
+    }
+    oid = '141562594761'
+    search_html = (
+        '<meta property="og:title" content="Яндекс Карты">'
+        '<div data-id="141562594761">'
+        '<div class="search-business-snippet-view__title">Усадьба Гребнево</div>'
+        '<a href="/maps/org/grebnevo_estate/141562594761/"></a></div>'
+    )
+    gallery = {
+        'stack': [{'results': {'items': [{
+            'id': oid,
+            'title': 'Усадьба Гребнево',
+            'address': 'Щёлковский городской округ, Московская область',
+            'coordinates': [38.087618, 55.949299],
+            'categories': [{'name': 'Усадьба'}],
+            'photos': {'items': [{'urlTemplate': IMAGE}]},
+        }]}}]
+    }
+    gallery_html = '<script type="application/json" class="state-view">' + json.dumps(gallery) + '</script>'
+    monkeypatch.setattr(
+        description, '_fetch_ymaps_html',
+        lambda url: search_html if '/maps/?' in url else gallery_html,
+    )
+
+    photos = description.yandex_maps_photos_for_place(place)
+    assert len(photos) == 1
+    assert photos[0]['engine'] == 'yandex_maps'
+    assert photos[0]['page_identity']['latitude'] == 55.949299

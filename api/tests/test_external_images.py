@@ -147,6 +147,24 @@ def test_fetch_sanitizes_and_rejects_redirects_and_nonimages(monkeypatch):
         download(URL)
 
 
+def test_wikimedia_download_sends_source_headers(monkeypatch):
+    image = BytesIO()
+    Image.new('RGB', (4, 4)).save(image, format='PNG')
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, content=image.getvalue())
+
+    original_client = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original_client(
+        transport=httpx.MockTransport(handler), **kwargs))
+    url = 'https://upload.wikimedia.org/wikipedia/commons/ermolino.jpg'
+    assert download(url).startswith(b'\xff\xd8\xff')
+    assert requests[0].headers['referer'] == 'https://commons.wikimedia.org/'
+    assert requests[0].headers['user-agent'].startswith('UrbexFinder/')
+
+
 def test_head_failure_is_not_a_cache_miss():
     storage = object.__new__(S3Storage)
     storage.bucket = 'test'

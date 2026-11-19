@@ -78,6 +78,7 @@ services:
       URBEX_TELEGRAM_BOT_TOKEN: ${URBEX_TELEGRAM_BOT_TOKEN:-${TOKEN:-}}
       URBEX_GEOCODER_URL: ${URBEX_GEOCODER_URL:-}
       URBEX_SEARXNG_URL: ${URBEX_SEARXNG_URL:-http://searxng:8080}
+      URBEX_SEMANTIC_URL: http://semantic:8100
       URBEX_TELEGRAM_BOT_USERNAME: ${URBEX_TELEGRAM_BOT_USERNAME:-}
     ports:
     - 127.0.0.1:58000:8000
@@ -88,6 +89,8 @@ services:
         condition: service_healthy
       searxng:
         condition: service_healthy
+      semantic:
+        condition: service_started
       migrations:
         condition: service_completed_successfully
     healthcheck:
@@ -117,6 +120,28 @@ services:
       interval: 10s
       timeout: 8s
       retries: 18
+    restart: unless-stopped
+  semantic:
+    build:
+      context: ./semantic
+    environment:
+      BGE_M3_REVISION: 5617a9f61b028005a4858fdac845db406aefb181
+      BGE_RERANKER_REVISION: 953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e
+      OMP_NUM_THREADS: '4'
+    volumes:
+    - urbex_semantic_models:/models
+    mem_limit: 10g
+    cpus: 4.0
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8100/health')
+      interval: 15s
+      timeout: 5s
+      retries: 60
+      start_period: 5m
     restart: unless-stopped
   web:
     build:
@@ -355,6 +380,7 @@ services:
 volumes:
   urbex_pg: null
   urbex_photos: null
+  urbex_semantic_models: null
   urbex_search: null
   bot_logs:
     name: telegram-bot-prod_bot_logs

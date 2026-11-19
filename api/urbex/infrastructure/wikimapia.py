@@ -1,7 +1,22 @@
 """Wikimapia photo links and object galleries (never map tiles or UI images)."""
 from html.parser import HTMLParser
 import re
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
+
+
+def object_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    if parsed.scheme not in {'http', 'https'} or parsed.hostname not in {'wikimapia.org', 'www.wikimapia.org'}:
+        return None
+    match = re.match(r'^/(\d+)(?:/|$)', parsed.path)
+    if match:
+        return url
+    shown = parse_qs(parsed.fragment).get('show', [''])[0]
+    match = re.fullmatch(r'/(\d+)(?:/([a-z]{2}))?/?', shown, re.I)
+    if not match:
+        return None
+    language = f'/{match[2]}' if match[2] else ''
+    return f'https://wikimapia.org/{match[1]}{language}'
 
 
 def photo_url(url: str) -> str | None:
@@ -14,10 +29,7 @@ def photo_url(url: str) -> str | None:
 
 
 def is_object_url(url: str) -> bool:
-    parsed = urlparse(url)
-    return (parsed.scheme in {'http', 'https'}
-            and parsed.hostname in {'wikimapia.org', 'www.wikimapia.org'}
-            and bool(re.match(r'^/\d+(?:/|$)', parsed.path)))
+    return object_url(url) is not None
 
 
 def gallery_urls(html: str, page_url: str) -> list[str]:
@@ -67,9 +79,21 @@ def fetch_html(url: str) -> str:
         return ''
     object_id = original.path.strip('/').split('/')[0]
     target = original._replace(scheme='https', netloc='wikimapia.org', fragment='').geturl()
-    cookie_set = False
+    cookie_refreshes = 0
     try:
-        with httpx.Client(timeout=httpx.Timeout(8, connect=3), follow_redirects=False) as client:
+        with httpx.Client(
+            timeout=httpx.Timeout(8, connect=5),
+            transport=httpx.HTTPTransport(retries=1),
+            follow_redirects=False,
+            headers={
+                'User-Agent': (
+                    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                    '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                ),
+                'Accept': 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+            },
+        ) as client:
             started = monotonic()
             for _ in range(4):
                 with client.stream('GET', target) as response:
@@ -91,9 +115,9 @@ def fetch_html(url: str) -> str:
                             return ''
                     html = body.decode(response.encoding or 'utf-8', errors='replace')
                 cookie = re.search(r'document\.cookie\s*=\s*["\']nsess=([a-f0-9]{32})["\']', html)
-                if cookie and len(html) < 2000 and not cookie_set:
+                if cookie and len(html) < 2000 and cookie_refreshes < 2:
                     client.cookies.set('nsess', cookie[1], domain='wikimapia.org', path='/')
-                    cookie_set = True
+                    cookie_refreshes += 1
                     continue
                 return html if not cookie and len(html) >= 400 else ''
     except (httpx.HTTPError, ValueError):

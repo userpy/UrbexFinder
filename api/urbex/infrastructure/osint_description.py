@@ -1,5 +1,6 @@
 """Trusted links from place.description, with optional VK / Dzen / Maps / page photos."""
 from __future__ import annotations
+from html import unescape
 import logging
 import re
 from urllib.parse import quote, unquote, urlencode, urljoin, urlparse
@@ -9,7 +10,14 @@ from .yandex_gallery import org_gallery
 from .osint_identity import source_key
 from .osint_identity import primary_gallery
 from .page_parser import parse_page
-from .wikimapia import direct_photos, gallery_urls, is_object_url, fetch_html as fetch_wikimapia_html, enrich_identity as enrich_wikimapia_identity
+from .wikimapia import (
+    direct_photos,
+    gallery_urls,
+    is_object_url,
+    object_url as wikimapia_object_url,
+    fetch_html as fetch_wikimapia_html,
+    enrich_identity as enrich_wikimapia_identity,
+)
 
 _log = logging.getLogger(__name__)
 _LINK_RE = re.compile(
@@ -204,6 +212,7 @@ def links_from_description(description: str) -> list[dict]:
         url = _http_url(raw)
         if not url:
             continue
+        url = wikimapia_object_url(url) or url
         if match.group(1) is None:
             label = url
         key = url.rstrip('/').casefold()
@@ -1053,6 +1062,24 @@ def _ymaps_title_from_html(html: str) -> str:
     return ''
 
 
+def _ymaps_search_result_title(html: str, oid: str) -> str:
+    marker = re.search(r'\bdata-id=["\']' + re.escape(oid) + r'["\']', html or '')
+    if not marker:
+        return ''
+    result = (html or '')[marker.start():marker.start() + 12000]
+    for pattern in (
+        r'<div[^>]*class=["\'][^"\']*search-business-snippet-view__title[^"\']*["\'][^>]*>(.*?)</div>',
+        r'<a[^>]*class=["\'][^"\']*link-overlay[^"\']*["\'][^>]*aria-label=["\']([^"\']+)["\']',
+    ):
+        match = re.search(pattern, result, re.IGNORECASE | re.DOTALL)
+        if match:
+            title = unescape(re.sub(r'<[^>]*>', ' ', match.group(1)))
+            title = re.sub(r'\s+', ' ', title).strip()
+            if title:
+                return title[:300]
+    return ''
+
+
 def _ymaps_name_tokens(text: str) -> set[str]:
     tokens = {
         token for token in re.findall(r'[а-яёa-z0-9]{3,}', (text or '').casefold())
@@ -1211,7 +1238,7 @@ def yandex_maps_photos_for_place(
     if not org:
         return []
     slug, oid = org
-    title = _ymaps_title_from_html(html)
+    title = _ymaps_search_result_title(html, oid) or _ymaps_title_from_html(html)
     org_label = title or slug.replace('_', ' ')
     if not _ymaps_names_match(name, org_label):
         return []

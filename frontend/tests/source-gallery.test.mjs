@@ -54,3 +54,16 @@ test("estate source photos retain Podmoskovnye attribution", () => {
   assert.match(html, /Фото · Подмосковные/);
   assert.doesNotMatch(html, /Geocaching|Удалить фото/);
 });
+
+test("open-license source photos display author and license attribution", () => {
+  const html = renderToStaticMarkup(React.createElement(PhotoGallery, {
+    photos: [], name: "Аэродром Ермолино", onDeleted: () => {},
+    sourcePhotos: [{
+      image_url: `/api/source-images/${"a".repeat(64)}`,
+      source_url: "https://ru.wikipedia.org/wiki/Ермолино_(аэродром)",
+      title: "Площадь перед КПП аэродрома Ермолино",
+      attribution: "Wikimedia Commons · Apetrov09703 · CC BY-SA 4.0",
+    }],
+  }));
+  assert.match(html, /Wikimedia Commons · Apetrov09703 · CC BY-SA 4\.0/);
+});

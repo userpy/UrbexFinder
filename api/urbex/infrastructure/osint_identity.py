@@ -4,7 +4,7 @@ from math import asin, cos, radians, sin, sqrt, isfinite
 import re
 from urllib.parse import parse_qsl, urlencode, unquote, urlparse
 
-VERSION = 10
+VERSION = 16
 
 
 def normalized(text):
@@ -23,6 +23,13 @@ def source_key(url):
             org = re.match(r'^/maps/org/[^/]+/(\d+)(?:/|$)', path)
             if org:
                 return f'yandex_maps:{org[1]}'
+        if host == 'wikimapia.org':
+            wikimapia_path = path or parse_qsl(p.fragment)
+            if isinstance(wikimapia_path, list):
+                shown = dict(wikimapia_path).get('show', '')
+                match = re.fullmatch(r'/(\d+)(?:/[a-z]{2})?', shown, re.I)
+                if match:
+                    return f'wikimapia.org:{match[1]}'
         if host in {'urban3p.ru', 'urban3p.com'} and (blog := re.match(r'^/blogs/(\d+)(?:/|$)', path)):
             return f'urban3p.ru:blog:{blog[1]}'
         if host in {'vk.com', 'vk.ru', 'm.vk.com', 'm.vk.ru'}:
@@ -49,10 +56,12 @@ def source_key(url):
 
 _TYPES = {
     'radar': r'\bрлс\b|\bрадиолокационн[а-я]*\s+станци[а-я]*\b',
+    'radio_center': r'\b(?:радиоцентр[а-я]*|пдрц)\b',
     'shelter': r'\b(?:убежищ|бомбоубежищ|бункер)[а-я]*\b',
     'manor': r'\bусад(?:ьб|еб)[а-я]*\b',
     'housing': r'\bтаунхаус[а-я]*\b|\bкоттеджн[а-я]*\s+посел[а-я]*\b|\bжил[а-я]*\s+(?:комплекс|квартал)[а-я]*\b|\bжк\b',
-    'camp': r'\b(?:пионерлагер[а-я]*|пионерск[а-я]*\s+лагер[а-я]*|лагер[а-я]*|детск[а-я]*\s+лагер[а-я]*)\b',
+    'camp': r'\b(?:п\s*/\s*л|пионерлагер[а-я]*|пионерск[а-я]*\s+лагер[а-я]*|лагер[а-я]*|детск[а-я]*\s+лагер[а-я]*)\b',
+    'airport': r'\b(?:аэродром[а-я]*|аэропорт[а-я]*|aerodrome|airport|airfield)\b',
     'factory': r'\b(?:завод|фабрик|комбинат)[а-я]*\b',
     'church': r'\b(?:церков|церкв|храм|собор|часовн)[а-я]*\b',
     'school': r'\b(?:школ|училищ|спту|пту)[а-я]*\b',
@@ -60,12 +69,21 @@ _TYPES = {
     'military': r'\b(?:воинск|войсков)[а-я]*\s+част[а-я]*\b',
     'hospital': r'\b(?:больниц|госпитал|санатори)[а-я]*\b',
 }
-_GENERIC = set('заброшенный заброшенная заброшенное заброшенные бывший бывшая старый старая старое новый новая летний детский пионерский оздоровительный стандартное подземное корпуса корпус территория территории новой гражданской обороны го ру ru en фото объект место на в и у имени им'.split())
+_GENERIC = set('заброшенный заброшенная заброшенное заброшенные небольшой бывший бывшая старый старая старое новый новая летний детский пионерский оздоровительный стандартное подземное корпуса корпус территория территории новой гражданской обороны го ру ru en фото объект место на в и у имени им'.split())
 
 
 def kinds(text):
     value = normalized(text)
     return {kind for kind, pattern in _TYPES.items() if re.search(pattern, value)}
+
+
+def radio_center_numbers(text):
+    value = normalized(text)
+    patterns = (
+        r'\bрадиоцентр[а-я]*\s*(?:№|номер)?\s*(\d+)\b',
+        r'\b(\d+)\s*(?:-?(?:й|ый|ой))?\s*\)?\s+радиоцентр[а-я]*\b',
+    )
+    return {number for pattern in patterns for number in re.findall(pattern, value)}
 
 
 def name_cues(name):
@@ -81,18 +99,40 @@ def words_present(cues, text):
     return bool(cues) and cues <= words
 
 
+def exact_place_title(name, title):
+    name = normalized(name)
+    title = normalized(title)
+    return bool(name) and any(
+        title == name or title.startswith(name + suffix)
+        for suffix in (' (', ' /', ' — ', ' – ', ' - ')
+    )
+
+
 def address_parts(text):
     """Extract street+house without treating arbitrary dates as house numbers."""
     value = normalized(text)
     street = ''
     house = ''
     marker = r'(?:улица|ул\.|проспект|пр-т|переулок|пер\.|шоссе|набережная|аллея)'
+    leading_house = re.search(
+        rf'(?:^|[,;])\s*(\d+[а-яa-z]?(?:[/\-]\d+[а-яa-z]?)?)\s*[,;]\s*'
+        rf'([^,;]+?)\s+{marker}(?=\s|[,;]|$)',
+        value,
+    )
+    if leading_house:
+        return leading_house[2].strip(), leading_house[1]
     m = re.search(rf'(?:^|[,;])\s*{marker}\s+([^,;]+)', value)
     if not m:
         m = re.search(rf'(?:^|[,;])\s*([^,;]+?)\s+{marker}(?=\s|[,;]|$)', value)
     if m:
         street = m[1].strip()
-        number = re.search(r'(?:,\s*|\s+(?:дом|д\.)\s*)(\d+[а-яa-z]?(?:[/\-]\d+[а-яa-z]?)?(?:\s*(?:к(?:орпус)?\.?|стр\.?)\s*\d+)?)', value[m.end():])
+        next_segment = re.split(r'[,;]', value[m.end():].lstrip(' ,;'), maxsplit=1)[0]
+        number = re.match(
+            r'(?:(?:дом|д\.?)\s*)?'
+            r'(\d+[а-яa-z]?(?:[/\-]\d+[а-яa-z]?)?(?:\s*(?:к(?:орпус)?\.?|стр\.?)\s*\d+)?)'
+            r'(?=\s|$)',
+            next_segment,
+        )
         if number:
             house = re.sub(r'\s+', '', number[1])
     return street, house
@@ -113,6 +153,7 @@ def locality_cues(text):
 def settlement_cues(address):
     value = normalized(address)
     cities = set(re.findall(r'\b(?:город|г\.|деревня|село|поселок)\s+([а-я-]+)', value))
+    cities.update(re.findall(r'\b(?:микрорайон|мкр\.?)\s+([а-я-]+)', value))
     cities.update(part.strip() for part in value.split(',')
                   if re.fullmatch(r'[а-я-]+', part.strip()) and part.strip() not in {'россия', 'рф'})
     return cities
@@ -164,6 +205,12 @@ def verify_source(place, source, reference_urls=()):
     place_types = kinds(' '.join(str(place.get(k) or '') for k in ('name', 'category_name', 'category', 'description')))
     source_types = kinds(title)
     compatible = bool(place_types & source_types)
+    place_radio_numbers = radio_center_numbers(place.get('name') or '')
+    radio_center_match = (
+        'radio_center' in place_types
+        and 'radio_center' in source_types
+        and bool(place_radio_numbers & radio_center_numbers(text))
+    )
     conflicts = []
     if 'housing' in source_types and place_types - {'housing'}:
         conflicts.append('Жилая застройка вместо искомого объекта')
@@ -191,7 +238,7 @@ def verify_source(place, source, reference_urls=()):
         conflicts.append('Указан другой номер дома')
     a, b = coordinates(place), coordinates(primary)
     metres = distance(a, b) if a and b else None
-    if metres is not None and metres > 1500:
+    if metres is not None and metres > 1500 and not radio_center_match:
         conflicts.append('Координаты источника дальше 1,5 км от объекта')
     # Institution numbers must not be supplied by dates or unrelated URL IDs.
     codes = re.findall(r'\b([А-ЯA-Z]{2,10})\s*(?:[-–—№]\s*|\s+)(\d+)\b', str(place.get('name') or ''))
@@ -203,16 +250,40 @@ def verify_source(place, source, reference_urls=()):
             conflicts.append('Не совпадает номер объекта')
     if conflicts:
         return Decision('rejected', tuple(conflicts))
+    abbreviated_center_match = (
+        'radio_center' in place_types
+        and 'radio_center' in source_types
+        and bool(re.search(r'\bпдрц\b', normalized(place.get('name') or '')))
+        and bool(re.search(r'\bпдрц\b', normalized(title)))
+        and metres is not None
+        and metres <= 100
+    )
+    if abbreviated_center_match:
+        return Decision('accepted', ('Совпали аббревиатура ПДРЦ и координаты объекта',),
+                        ('name', 'coordinates', 'type'))
+    if exact_place_title(place.get('name'), title) and compatible:
+        return Decision('accepted', ('Совпали полное название и тип объекта',), ('name', 'type'))
     if key in reference_keys:
         return Decision('accepted', ('Исходная ссылка или тот же идентификатор объекта',), ('reference',))
+    if radio_center_match and compatible:
+        return Decision('accepted', ('Совпали номер и тип радиоцентра',), ('name', 'type'))
     cues = name_cues(place.get('name'))
     same_name = words_present(cues, title) or numbered_match
+    if ('airport' in place_types and 'airport' in source_types and same_name
+            and (metres is None or metres <= 1000)):
+        return Decision('accepted', ('Совпали название аэродрома и тип объекта',), ('name', 'type'))
+    micro_localities = settlement_cues(place_address) - locality_cues(place_address) - {'москва'}
+    if (not cues and compatible
+            and any(len(cue) >= 4 and words_present({cue}, title) for cue in micro_localities)):
+        return Decision('accepted', ('Совпали тип объекта и название микрорайона',), ('location', 'type'))
     settlements = settlement_cues(place_address)
     same_settlement = bool(settlements) and words_present(settlements, str(candidate_address) + ' ' + str(primary.get('locality') or ''))
+    core_name_cues = cues - settlements
+    same_core_name = len(core_name_cues) >= 2 and words_present(core_name_cues, title)
     if compatible and same_settlement and street and street == candidate_street and house and house == candidate_house:
         return Decision('accepted', ('Совпали населённый пункт, улица, дом и тип объекта',), ('address', 'type'))
     # Require precise proximity, not a whole-city search coordinate or a map centre.
-    if metres is not None and metres <= 100 and compatible and same_name:
+    if metres is not None and metres <= 100 and compatible and (same_name or same_core_name):
         return Decision('accepted', ('Совпали координаты, название и тип объекта',), ('coordinates', 'name', 'type'))
     local = locality_cues(place_address)
     # A lone common name needs more than a region. Multiple distinctive words

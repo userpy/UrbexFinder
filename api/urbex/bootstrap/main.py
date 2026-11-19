@@ -59,7 +59,7 @@ def create_app(config=None, storage=None):
     def osint_report(place, refresh=False):
         report = cache_report(get_or_build_osint_report(
             app.state.engine, config.searxng_url, config.origin, place,
-            vk_token=config.vk_access_token, refresh=refresh,
+            vk_token=config.vk_access_token, semantic_url=config.semantic_url, refresh=refresh,
         ))
         report.setdefault('verification', {})['location'] = check_description_region(
             place, app.state.reverse_address,

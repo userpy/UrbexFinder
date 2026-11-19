@@ -10,7 +10,8 @@ import httpx
 from sqlalchemy import text
 from urbex.domain.rules import DomainError
 from urbex.infrastructure.osint_identity import verify_report, verify_source, source_key
-from urbex.infrastructure.osint_evidence import enrich_candidates
+from urbex.infrastructure.osint_evidence import enrich_candidates, wikipedia_photos_for_sources
+from urbex.infrastructure.semantic_ranking import rank_candidates
 from urbex.infrastructure.osint_assess import assess_osint_items
 from urbex.infrastructure.wikimapia import direct_photos, is_object_url
 from urbex.infrastructure.osint_description import (
@@ -1319,6 +1320,7 @@ def _build_osint_report(
     place: dict,
     *,
     vk_token: str = '',
+    semantic_url: str = '',
 ) -> dict:
     description_links = links_from_description(str(place.get('description') or ''))
     curated_photos = description_photos_for_links(
@@ -1368,17 +1370,19 @@ def _build_osint_report(
 
     references = [link['url'] for link in description_links]
     photo_candidates = _merge(image_batches, 'image_url', _MAX_PHOTOS)
-    source_candidates = enrich_candidates(
-        place, _merge_round_robin(
-            [_merge(general_batches, 'url', _MAX_RESULTS), _sources_from_photos(photo_candidates)],
-            'url', _MAX_RESULTS * 2,
-        ), references,
+    candidate_pool = _merge_round_robin(
+        [_merge(general_batches, 'url', _MAX_RESULTS), _sources_from_photos(photo_candidates)],
+        'url', _MAX_RESULTS * 2,
     )
+    candidate_pool = rank_candidates(semantic_url, place, candidate_pool)
+    source_candidates = enrich_candidates(place, candidate_pool, references)
     # Only verified pages can seed gallery extraction or secondary VK fetching.
     searched = [item for item in source_candidates
                 if not _is_junk_source(item)
                 and verify_source(place, item, references).status == 'accepted']
-    searched_photos = []  # Search thumbnails are candidates, never gallery proof.
+    # Wikipedia lead photos are used only after their article passes identity
+    # checks and Commons reports an open license with attribution.
+    searched_photos = wikipedia_photos_for_sources(searched, _MAX_PHOTOS)
     # Description / VK wall are curated — prepend and skip geo filter.
     # Also enrich VK links found by SearXNG (same soft-fail helpers).
     vk_from_search = vk_sources_for_links(
@@ -1465,6 +1469,8 @@ def _build_osint_report(
 
     merged.sort(key=lambda item: (
         _source_rank(item, url_key='url'),
+        -(item.get('reranker_score') or 0),
+        -(item.get('embedding_score') or 0),
         -(item['score'] or 0),
         item['title'],
     ))
@@ -1497,8 +1503,20 @@ def _verify_report(payload: dict, place: dict) -> dict:
     return report
 
 
-def build_osint_report(url: str, origin: str, place: dict, *, vk_token: str = '') -> dict:
-    return _verify_report(_build_osint_report(url, origin, place, vk_token=vk_token), place)
+def build_osint_report(
+    url: str,
+    origin: str,
+    place: dict,
+    *,
+    vk_token: str = '',
+    semantic_url: str = '',
+) -> dict:
+    return _verify_report(
+        _build_osint_report(
+            url, origin, place, vk_token=vk_token, semantic_url=semantic_url,
+        ),
+        place,
+    )
 
 
 def _report_for_response(payload: dict, *, cached: bool, updated_at) -> dict:
@@ -1594,6 +1612,7 @@ def get_or_build_osint_report(
     place: dict,
     *,
     vk_token: str = '',
+    semantic_url: str = '',
     refresh: bool = False,
 ) -> dict:
     """Serve a persisted report when present; otherwise build and store it."""
@@ -1602,9 +1621,15 @@ def get_or_build_osint_report(
         stored = load_osint_report(engine, place_id)
         if stored is not None:
             filtered = _refilter_report(stored, place)
-            missing_identity = [row['candidate'] for row in filtered.get('verification', {}).get('sources', [])
-                                if row.get('status') == 'unconfirmed'
-                                and is_object_url(str(row.get('candidate', {}).get('url') or ''))]
+            missing_identity = []
+            for row in filtered.get('verification', {}).get('sources', []):
+                candidate = row.get('candidate') or {}
+                identity = candidate.get('page_identity') or {}
+                if (is_object_url(str(candidate.get('url') or ''))
+                        and (row.get('status') == 'unconfirmed'
+                             or identity.get('latitude') is None
+                             or identity.get('longitude') is None)):
+                    missing_identity.append(candidate)
             if missing_identity and time.time() - stored.get('wikimapia_identity_checked_at', 0) >= 300:
                 references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
                 recovered_sources = enrich_candidates(place, missing_identity, references)
@@ -1690,5 +1715,7 @@ def get_or_build_osint_report(
             ):
                 return save_osint_report(engine, place_id, _verify_report(filtered, place))
             return filtered
-    report = build_osint_report(url, origin, place, vk_token=vk_token)
+    report = build_osint_report(
+        url, origin, place, vk_token=vk_token, semantic_url=semantic_url,
+    )
     return save_osint_report(engine, place_id, report)

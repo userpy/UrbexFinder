@@ -87,6 +87,84 @@ def test_urban_description_gallery_and_saved_report(monkeypatch):
     assert len(calls) == 1
 
 
+def test_search_discovered_wikimapia_gallery_loads_without_description_link(monkeypatch):
+    sources._cache.clear()
+    url = 'https://wikimapia.org/5129849/ru/Техническое-здание-ПДРЦ-№1'
+    identity = {
+        'source_key': sources.source_key(url),
+        'title': 'Техническое здание ПДРЦ №1',
+        'latitude': 56.0826923,
+        'longitude': 37.0896894,
+    }
+    place = {
+        'name': 'Пдрц',
+        'category': 'разное',
+        'description': 'Здесь находились КВ-передатчики, подключенные к антеннам РГД.',
+        'full_address': 'городской округ Солнечногорск, Московская область',
+        'latitude': 56.082651,
+        'longitude': 37.089576,
+    }
+    photo = {
+        'engine': 'wikimapia',
+        'source_url': url,
+        'query': url,
+        'page_identity': identity,
+        'image_url': 'https://photos.wikimapia.org/p/00/01/36/45/96_big.jpg',
+    }
+    calls = []
+    monkeypatch.setattr(
+        sources, 'wikimapia_photos_for_links',
+        lambda links, limit: calls.append((links, limit)) or [photo],
+    )
+    saved_report = {'items': [{
+        'title': 'Техническое здание ПДРЦ №1 - Wikimapia',
+        'url': url,
+        'page_identity': identity,
+    }], 'photos': []}
+
+    assert sources.source_photos(place, saved_report) == [photo]
+    assert len(calls) == 1
+    assert calls[0][0][0]['url'] == url
+    assert calls[0][1] == 12
+
+
+def test_accepted_urban3p_search_result_loads_gallery_without_description_link(monkeypatch):
+    sources._cache.clear()
+    place = {
+        'name': 'Заброшенный п/л под Истрой',
+        'category': 'разное',
+        'description': 'Заброшенный пионерский лагерь.',
+        'full_address': 'Буньково, муниципальный округ Истра, Московская область',
+        'latitude': 55.8907,
+        'longitude': 36.8257,
+    }
+    candidate = {
+        'title': 'Заброшенный п/л под Истрой — Urban3P',
+        'url': 'https://urban3p.ru/object1593/',
+    }
+    photo = {
+        'engine': 'urban3p',
+        'source_url': 'https://urban3p.ru/object1593',
+        'query': 'https://urban3p.ru/object1593',
+        'image_url': 'https://img04.urban3p.ru/up/o/1593/photo.jpg',
+    }
+    calls = []
+    monkeypatch.setattr(
+        sources, 'urban3p_photos_for_links',
+        lambda links, limit: calls.append((links, limit)) or [photo],
+    )
+    saved_report = {
+        'items': [],
+        'photos': [],
+        'verification': {'sources': [{'candidate': candidate, 'status': 'unconfirmed'}]},
+    }
+
+    assert sources.source_photos(place, saved_report) == [photo]
+    assert len(calls) == 1
+    assert calls[0][0][0]['url'] == candidate['url']
+    assert calls[0][1] == 12
+
+
 def test_wikimapia_description_gallery_is_loaded_and_verified(monkeypatch):
     sources._cache.clear()
     url = 'https://wikimapia.org/37454702/ru/Бывший-магазин'

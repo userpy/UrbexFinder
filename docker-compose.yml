@@ -86,9 +86,33 @@ services:
       timeout: 8s
       retries: 18
     restart: unless-stopped
+  semantic:
+    build:
+      context: ./semantic
+    environment:
+      BGE_M3_REVISION: 5617a9f61b028005a4858fdac845db406aefb181
+      BGE_RERANKER_REVISION: 953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e
+      OMP_NUM_THREADS: '4'
+    volumes:
+    - urbex_semantic_models:/models
+    mem_limit: 10g
+    cpus: 4.0
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8100/health')
+      interval: 15s
+      timeout: 5s
+      retries: 60
+      start_period: 5m
+    restart: unless-stopped
   api:
     build: *id001
-    environment: *id002
+    environment:
+      <<: *id002
+      URBEX_SEMANTIC_URL: http://semantic:8100
     ports:
     - 127.0.0.1:58000:8000
     # Docker DNS often fails for urban3p.ru; pin hosts so OSINT can scrape galleries.
@@ -106,6 +130,8 @@ services:
         condition: service_healthy
       searxng:
         condition: service_healthy
+      semantic:
+        condition: service_started
       migrations:
         condition: service_completed_successfully
     healthcheck:
@@ -331,6 +357,7 @@ services:
 volumes:
   urbex_pg: null
   urbex_photos: null
+  urbex_semantic_models: null
   urbex_search: null
   loki_data:
     name: telegram_bot2_loki_data

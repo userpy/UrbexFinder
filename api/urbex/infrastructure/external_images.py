@@ -59,7 +59,11 @@ def download(url):
 
 
 def _download_image(url):
-    with httpx.Client(timeout=httpx.Timeout(8, connect=3), follow_redirects=False) as client:
+    headers = {'User-Agent': 'UrbexFinder/1.0 (open-source photo cache)'}
+    if urlparse(url).hostname == 'upload.wikimedia.org':
+        headers['Referer'] = 'https://commons.wikimedia.org/'
+    with httpx.Client(timeout=httpx.Timeout(8, connect=3), follow_redirects=False,
+                      headers=headers) as client:
         with client.stream('GET', url) as response:
             response.raise_for_status()
             if response.is_redirect:

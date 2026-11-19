@@ -17,9 +17,11 @@ export type SourcePhoto = {
   image_url: string;
   source_url: string;
   title: string;
+  attribution?: string;
 };
 
 export function sourcePhotoLabel(photo: SourcePhoto): string {
+  if (photo.attribution) return photo.attribution;
   try {
     const host = new URL(photo.source_url).hostname.replace(/^www\./, "");
     if (["vk.com", "vk.ru", "m.vk.com", "m.vk.ru"].includes(host)) return "VK";

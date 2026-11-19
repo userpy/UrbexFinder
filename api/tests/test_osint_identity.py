@@ -52,6 +52,36 @@ def test_specific_shelter_wikipedia_article_is_not_blocked():
     assert not osint._is_junk_photo(item)
 
 
+def test_wikipedia_commons_photos_require_open_license_and_keep_attribution():
+    from urbex.infrastructure.osint_evidence import _open_commons_license, wikipedia_photos_for_sources
+
+    assert _open_commons_license('CC BY-SA 4.0')
+    assert _open_commons_license('CC BY 4.0')
+    assert _open_commons_license('Public domain')
+    assert not _open_commons_license('All rights reserved')
+    source_url = 'https://ru.wikipedia.org/wiki/Ермолино_(аэродром)'
+    source = {
+        'url': source_url,
+        'title': 'Ермолино (аэродром)',
+        'page_identity': {
+            'source_key': 'ru.wikipedia.org:/wiki/Ермолино_(аэродром)',
+            'title': 'Ермолино (аэродром)',
+            'wikipedia_image': {
+                'image_url': 'https://upload.wikimedia.org/wikipedia/commons/ermolino.jpg',
+                'title': 'Аэродром Ермолино',
+                'source_url': 'https://commons.wikimedia.org/wiki/File:Ermolino.jpg',
+                'attribution': 'Wikimedia Commons · Автор · CC BY-SA 4.0',
+                'license_url': 'https://creativecommons.org/licenses/by-sa/4.0',
+            },
+        },
+    }
+    photo = wikipedia_photos_for_sources([source])[0]
+    assert photo['source_url'] == source_url
+    assert photo['image_source_url'] == 'https://commons.wikimedia.org/wiki/File:Ermolino.jpg'
+    assert photo['attribution'] == 'Wikimedia Commons · Автор · CC BY-SA 4.0'
+    assert photo['gallery_scope'] == 'primary'
+
+
 @pytest.mark.parametrize('publisher', ['fire.info', 'www.fire.info', 'reference.example'])
 def test_generic_shelter_publisher_suffix_does_not_identify_an_object(publisher):
     place = {'name': 'Убежище', 'region': 'Москва',
