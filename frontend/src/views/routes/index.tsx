@@ -57,6 +57,13 @@ export function RoutesView() {
   const [deleteTarget, setDeleteTarget] = useState<Route | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const deleteDialog = useRef<HTMLDialogElement>(null);
+  const [manualExport, setManualExport] = useState<{
+    filename: string;
+    content: string;
+  } | null>(null);
+  const exportDialog = useRef<HTMLDialogElement>(null);
+  const exportTextArea = useRef<HTMLTextAreaElement>(null);
+  const [exportCopyStatus, setExportCopyStatus] = useState("");
   const [shareCopied, setShareCopied] = useState(false);
   const shareNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -66,13 +73,18 @@ export function RoutesView() {
     [],
   );
   useEffect(() => {
-    if (!["Сохранено", "KML скачан", "GPX скачан"].includes(message)) return;
+    if (message !== "Сохранено" && !message.startsWith("Экспорт ")) return;
     const timer = setTimeout(() => setMessage(""), 3000);
     return () => clearTimeout(timer);
   }, [message]);
   useEffect(() => {
     if (deleteTarget) deleteDialog.current?.showModal();
   }, [deleteTarget]);
+  useEffect(() => {
+    if (manualExport && !exportDialog.current?.open) {
+      exportDialog.current?.showModal();
+    }
+  }, [manualExport]);
   const routeId = route?.id;
   useEffect(() => {
     if (!user) return;
@@ -220,6 +232,52 @@ export function RoutesView() {
       setBusy(false);
     }
   }
+  async function handleExport(format: "kml" | "gpx") {
+    if (!route || busy) return;
+
+    const points = exportPoints();
+    if (!points.length) {
+      setError("В маршруте нет мест с координатами");
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setManualExport(null);
+    setExportCopyStatus("");
+    setBusy(true);
+
+    try {
+      // Важно: вызываем экспорт сразу по нажатию кнопки,
+      // без предварительных await (нужно для браузерных API).
+      const result = format === "kml"
+        ? await downloadRouteKml(route.name, points)
+        : await downloadRouteGpx(route.name, points);
+
+      switch (result.status) {
+        case "saved":
+          setMessage(`Экспорт ${format.toUpperCase()}: файл сохранён`);
+          break;
+        case "shared":
+          setMessage(`Экспорт ${format.toUpperCase()}: системное меню передачи закрыто`);
+          break;
+        case "requested":
+          setMessage(`Экспорт ${format.toUpperCase()}: запрос на скачивание отправлен браузеру`);
+          break;
+        case "cancelled":
+          setMessage(`Экспорт ${format.toUpperCase()}: сохранение отменено`);
+          break;
+        case "manual":
+          setManualExport({ filename: result.filename, content: result.content });
+          break;
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Не удалось экспортировать маршрут");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const canExportRoute = !!route && exportPoints().length > 0;
   if (loading) return <main className="page routes-page">Загрузка…</main>;
   if (!user)
@@ -686,16 +744,7 @@ export function RoutesView() {
               <Button
                 variant="outline"
                 type="button"
-                onClick={() => {
-                  const points = exportPoints();
-                  if (!points.length) {
-                    setError("В маршруте нет мест с координатами");
-                    return;
-                  }
-                  setError("");
-                  downloadRouteKml(route.name, points);
-                  setMessage("KML скачан");
-                }}
+                onClick={() => void handleExport("kml")}
                 disabled={!canExportRoute}
               >
                 <Download size={16} aria-hidden="true" />
@@ -704,16 +753,7 @@ export function RoutesView() {
               <Button
                 variant="outline"
                 type="button"
-                onClick={() => {
-                  const points = exportPoints();
-                  if (!points.length) {
-                    setError("В маршруте нет мест с координатами");
-                    return;
-                  }
-                  setError("");
-                  downloadRouteGpx(route.name, points);
-                  setMessage("GPX скачан");
-                }}
+                onClick={() => void handleExport("gpx")}
                 disabled={!canExportRoute}
               >
                 <Download size={16} aria-hidden="true" />
@@ -738,6 +778,59 @@ export function RoutesView() {
             onClose={() => setSelected(null)}
           />
         </div>
+      )}
+      {manualExport && (
+        <dialog
+          ref={exportDialog}
+          className="route-confirm"
+          aria-labelledby="route-export-title"
+          aria-describedby="route-export-help"
+          onCancel={(event) => {
+            event.preventDefault();
+            setManualExport(null);
+          }}
+          onClose={() => setManualExport(null)}
+        >
+          <h2 id="route-export-title">Ручное сохранение маршрута</h2>
+          <p id="route-export-help">
+            Telegram Desktop не предоставил поддерживаемый способ сохранения.
+            Скопируйте текст и сохраните его в редакторе как{" "}
+            <strong>{manualExport.filename}</strong> в кодировке UTF-8.
+          </p>
+          <textarea
+            ref={exportTextArea}
+            readOnly
+            aria-label="Содержимое файла маршрута"
+            value={manualExport.content}
+            onFocus={(event) => event.currentTarget.select()}
+            style={{ width: "min(75vw, 720px)", maxWidth: "100%", height: 280 }}
+          />
+          {exportCopyStatus && <p role="status">{exportCopyStatus}</p>}
+          <div className="actions">
+            <Button
+              type="button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(manualExport.content);
+                  setExportCopyStatus("XML скопирован в буфер обмена");
+                } catch {
+                  exportTextArea.current?.focus();
+                  exportTextArea.current?.select();
+                  setExportCopyStatus("Скопируйте выделенный текст через Ctrl+C");
+                }
+              }}
+            >
+              Скопировать XML
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setManualExport(null)}
+            >
+              Закрыть
+            </Button>
+          </div>
+        </dialog>
       )}
       {deleteTarget && (
         <dialog
