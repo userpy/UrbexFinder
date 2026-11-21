@@ -21,10 +21,27 @@ def signed(ctx):
 
 
 def session_response(auth, user, request, response):
-    token, csrf = auth.start(user, request.cookies.get('urbex_session'))
-    response.set_cookie('urbex_session', token, httponly=True, secure=auth.config.secure_cookie,
-                        samesite='lax', max_age=auth.config.session_hours*3600, path='/')
-    return {'user': public_user(user), 'csrf': csrf}
+    token, csrf = auth.start(
+        user,
+        request.cookies.get('urbex_session')
+    )
+
+    secure = auth.config.secure_cookie
+
+    response.set_cookie(
+        key='urbex_session',
+        value=token,
+        httponly=True,
+        secure=secure,
+        samesite='none' if secure else 'lax',
+        max_age=auth.config.session_hours * 3600,
+        path='/',
+    )
+
+    return {
+        'user': public_user(user),
+        'csrf': csrf,
+    }
 
 
 @router.get('/health')
