@@ -6,6 +6,7 @@ and httpx. No second *query-generator* module is needed.
 v3: bounded concurrent SearXNG calls, cache TTL, safer geographic query parsing,
 source-verified image results, diversified source/image pools and search diagnostics.
 v3.1: expanded RU/international OSINT discovery sources with bounded site groups.
+v3.2: isolated contextual-relevance review for sources lacking independent geolocation.
 """
 import json
 import logging
@@ -1808,10 +1809,159 @@ def _build_osint_report(
     }
 
 
+
+# ---------------------------------------------------------------------------
+# Contextual relevance is NOT independent geographical identity verification.
+# Keep strong name + locality matches visible for manual review when a source
+# omits coordinates/oblast. Never use these to seed photo galleries, assign
+# protection/condition scores, or change verified `items`.
+# ---------------------------------------------------------------------------
+_REVIEW_COMMERCE_HOSTS = frozenset({
+    'ozon.ru', 'www.ozon.ru', 'wildberries.ru', 'www.wildberries.ru',
+    'market.yandex.ru', 'aliexpress.ru', 'www.aliexpress.ru',
+})
+_REVIEW_GENERIC_ACRONYMS = frozenset({
+    'СНТ', 'ДНТ', 'ДОЛ', 'СНП', 'ДПК', 'ГСК', 'ЖК', 'СМИ', 'РФ',
+})
+
+
+def _review_normalize(value: object) -> str:
+    """Normalize human-readable text for a conservative lexical check."""
+    value = str(value or '').casefold().replace('ё', 'е')
+    return ' ' + re.sub(r'[^0-9a-zа-я]+', ' ', value).strip() + ' '
+
+
+def _review_contains_phrase(haystack: str, needle: str) -> bool:
+    text = _review_normalize(needle).strip()
+    return bool(text) and f' {text} ' in _review_normalize(haystack)
+
+
+def _contextual_relevance(place: dict, item: dict) -> dict | None:
+    """Find review-worthy *unconfirmed* search hits using independent cues.
+
+    Two cues must come from the source's human-readable title/snippet:
+    (1) the object's distinctive name/acronym; (2) the card's locality.
+    The search query/URL alone is NEVER considered proof.
+    """
+    url = str(item.get('url') or '')
+    if not url.startswith(('https://', 'http://')) or _is_junk_source(item):
+        return None
+    host = _host_of(url)
+    if host in _REVIEW_COMMERCE_HOSTS:
+        return None
+
+    title = str(item.get('title') or '')
+    snippet = str(item.get('snippet') or '')
+    evidence = f'{title} {snippet}'
+    locality, _ = _qg_location(place)
+    if not locality or len(_review_normalize(locality).strip()) < 5:
+        return None
+    if not _review_contains_phrase(evidence, locality):
+        return None
+
+    primary, aliases = _qg_names(place)
+    names = [primary, *aliases]
+    # Exact distinct acronyms are high-signal ('СНУР'), but common structure
+    # abbreviations ('ДОЛ', 'СНТ') are not sufficient.
+    acronyms = {
+        match.group(0) for name in names
+        for match in re.finditer(r'(?<![A-Za-zА-ЯЁа-яё])[A-ZА-ЯЁ]{3,9}(?![A-Za-zА-ЯЁа-яё])', name)
+        if match.group(0) not in _REVIEW_GENERIC_ACRONYMS
+    }
+    for acronym in sorted(acronyms, key=len, reverse=True):
+        if _review_contains_phrase(evidence, acronym):
+            return {
+                'evidence': f'Упоминаются {acronym} и {locality}',
+                'relevance': 'probable',
+            }
+
+    # Otherwise, require a distinctive proper-name word other than locality,
+    # building category, or common camp labels. Bare locality + "сталкеры"
+    # does not identify one particular structure.
+    locality_tokens = set(_review_normalize(locality).split())
+    cue_tokens = set()
+    for name in names:
+        cue_tokens.update(_unique_name_tokens(name))
+    cue_tokens = {
+        word for word in cue_tokens
+        if len(word) >= 5 and word not in locality_tokens
+        and word not in _GENERIC_PLACE_TOKENS
+        and word not in _COMMON_PLACE_NAMES
+    }
+    for cue in sorted(cue_tokens, key=len, reverse=True):
+        if _review_contains_phrase(evidence, cue):
+            return {
+                'evidence': f'Совпадают «{cue}» и населённый пункт {locality}',
+                'relevance': 'probable',
+            }
+    return None
+
+
+def _attach_relevance_review(report: dict, payload: dict, place: dict) -> dict:
+    """Expose probable matches separately without bypassing verify_report().
+
+    The frontend can show `related_sources` as a third, non-confirmed
+    category. Entries are *not* part of `items` or `photos`.
+    """
+    # Identity v20 already did the full audit (including explicit geo conflicts).
+    # Never broaden its decisions with the older, title/snippet-only fallback.
+    if (report.get('verification') or {}).get('version', 0) >= 20:
+        report['related_sources'] = list(report.get('related_sources') or [])[:20]
+        report['related_total'] = len(report['related_sources'])
+        return report
+    accepted = {
+        source_key(item.get('url')) for item in report.get('items', [])
+        if item.get('url')
+    }
+    raw_candidates = list(payload.get('source_candidates') or [])
+    for source in (payload, report):
+        for row in (source.get('verification') or {}).get('sources', []):
+            if row.get('status') == 'accepted':
+                continue
+            candidate = row.get('candidate') or {}
+            if candidate:
+                raw_candidates.append(candidate)
+    reviewed: list[dict] = list(report.get('related_sources') or [])[:20]
+    seen: set[str] = {
+        source_key(item.get('url')) for item in reviewed if item.get('url')
+    }
+    # Never re-label a verifier-rejected candidate as probable.
+    rejected = {
+        source_key(row['candidate'].get('url') or row['candidate'].get('source_url'))
+        for row in (report.get('verification') or {}).get('sources', [])
+        if row.get('status') == 'rejected' and isinstance(row.get('candidate'), dict)
+    }
+    for item in raw_candidates:
+        if len(reviewed) >= 20:
+            break
+        url = str(item.get('url') or '')
+        key = source_key(url) if url else ''
+        if not key or key in accepted or key in seen or key in rejected:
+            continue
+        seen.add(key)
+        match = _contextual_relevance(place, item)
+        if not match:
+            continue
+        reviewed.append({
+            'url': url,
+            'title': str(item.get('title') or ''),
+            'snippet': str(item.get('snippet') or ''),
+            'status': 'needs_geographic_confirmation',
+            'reason': 'Похоже на нужный объект, но точная геопривязка пока не подтверждена',
+            **match,
+        })
+        if len(reviewed) >= 20:
+            break
+    report['related_sources'] = reviewed
+    report['related_total'] = len(reviewed)
+    return report
+
+
 def _verify_report(payload: dict, place: dict) -> dict:
     references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
     report = verify_report(payload, place, references,
                            junk_source=_is_junk_source, junk_photo=_is_junk_photo)
+    report = _attach_relevance_review(report, payload, place)
     report['assessment'] = assess_osint_items(report['items'])
     return report
 

@@ -1,6 +1,8 @@
 """Deterministic identification of UrbexFinder sources and photo galleries.
 
-v19. Drop-in replacement for urbex.infrastructure.osint_identity.
+v20. Drop-in replacement for urbex.infrastructure.osint_identity.
+
+Contextual name + locality matches are review-only, not verified sources.
 
 Safety principles:
 * Search rank, query strings, images' file names and snippets alone do not prove identity.
@@ -16,7 +18,7 @@ from math import asin, cos, isfinite, radians, sin, sqrt
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse
 import re
 
-VERSION = 19
+VERSION = 20
 
 _TYPES = {
     "radar": r"\bрлс\b|\bрадиолокационн[а-я]*\s+станци[а-я]*\b",
@@ -31,6 +33,7 @@ _TYPES = {
     "school": r"\b(?:школ|училищ|спту|пту)[а-я]*\b",
     "kindergarten": r"\bдетск[а-я]*\s+сад[а-я]*\b",
     "military": r"\b(?:воинск|войсков)[а-я]*\s+част[а-я]*\b",
+    "test_site": r"\bполигон[а-я]*\b",
     "hospital": r"\b(?:больниц|госпитал|санатори)[а-я]*\b",
     # A missing hotel type made «Трудовые резервы» look unrelated to its card.
     "hotel": r"\b(?:гостиниц|отел|хостел)[а-я]*\b|\bhotel\b",
@@ -192,6 +195,84 @@ def settlement_cues(address) -> set[str]:
     return result
 
 
+
+# A relevant search hit is not necessarily a *verified* object.  A distinctive
+# name (especially an acronym) AND a precise place locality are useful cues,
+# but a search title cannot independently prove geographic identity.
+_CONTEXT_EXCLUDED_HOSTS = frozenset({
+    "ozon.ru", "wildberries.ru", "market.yandex.ru", "aliexpress.ru",
+})
+_CONTEXT_GENERIC_ACRONYMS = frozenset({
+    "СНТ", "ДНТ", "ДОЛ", "СНП", "ДПК", "ГСК", "ЖК", "СМИ", "РФ", "ГО",
+})
+_CONTEXT_BAD_LOCALITIES = frozenset({
+    "россия", "рф", "москва", "московская область", "область", "район",
+    "поселок", "посёлок", "городской округ", "муниципальный округ",
+})
+
+
+def _context_has_phrase(text: str, phrase: str) -> bool:
+    """Whole-word normalized matching; СНУР must not match longer acronyms."""
+    needle = " ".join(_words(phrase))
+    return bool(needle) and (" " + needle + " ") in (" " + " ".join(_words(text)) + " ")
+
+
+def _context_localities(place: dict) -> set[str]:
+    """Collect *fine* place names from card metadata, not the searched pages."""
+    found: set[str] = set()
+    for field in ("settlement", "locality", "city"):
+        raw = str(place.get(field) or "").strip()
+        if raw:
+            found.add(raw)
+    for field in ("full_address", "address"):
+        address = str(place.get(field) or "")
+        found.update(settlement_cues(address))
+        # Support common human-readable forms: «Николо-Урюпино, район, область».
+        for part in re.split(r"[,;]", address):
+            part = part.strip()
+            part = re.sub(r"^(?:д(?:еревня)?\.?|с(?:ело)?\.?|пос[её]лок|г(?:ород)?\.?)\s+", "", part, flags=re.I)
+            if re.fullmatch(r"[а-яёА-ЯЁ-]{4,60}", part):
+                found.add(part)
+    result = set()
+    for value in found:
+        value = normalized(value)
+        if (value in _CONTEXT_BAD_LOCALITIES or len(value) < 5
+                or any(stop in value.split() for stop in ("область", "район", "округ", "шоссе", "улица", "снт", "россия"))):
+            continue
+        result.add(value)
+    return result
+
+
+def contextual_match(place: dict, source: dict) -> tuple[str, ...]:
+    """Return name + locality evidence for MANUAL REVIEW, never for acceptance.
+
+    Both cues must occur in the human-readable source title. Search query,
+    source URL, and image filename are deliberately ignored as evidence.
+    """
+    title = str(source.get("title") or "")
+    place_name = str(place.get("name") or "")
+    if not title or not place_name:
+        return ()
+    localities = sorted(_context_localities(place), key=len, reverse=True)
+    matched_locality = next((x for x in localities if _context_has_phrase(title, x)), None)
+    if not matched_locality:
+        return ()
+    acronyms = {
+        token for token in re.findall(r"(?<![\w])[А-ЯЁA-Z]{3,9}(?![\w])", place_name)
+        if token not in _CONTEXT_GENERIC_ACRONYMS
+    }
+    matched_name = next((x for x in sorted(acronyms) if _context_has_phrase(title, x)), None)
+    if not matched_name:
+        # Only multiword distinctive names: one generic name like «Дружба»
+        # plus a village does not uniquely identify a camp.
+        cues = name_cues(place_name) - _COMMON_NAMES
+        cues -= {"полигон", "сооружение", "объект", "завод", "лагерь", "снт"}
+        if len(cues) < 2 or not all(_context_has_phrase(title, x) for x in cues):
+            return ()
+        matched_name = ", ".join(sorted(cues))
+    return (f"Название: {matched_name}", f"Населённый пункт: {matched_locality}")
+
+
 def coordinates(data):
     try:
         lat, lon = float(data["latitude"]), float(data["longitude"])
@@ -255,12 +336,16 @@ def _is_vk_group_url(url: str) -> bool:
 def verify_source(place, source, reference_urls=()) -> Decision:
     """Classify candidate as accepted / rejected / unconfirmed.
 
-    The v17 hotel fix is generic: all well-identified *multiword* names work,
+    The v20 rules preserve the v17 *multiword* name behavior,
     regardless of category, with no site-specific title whitelist.
     """
     key = source_key(source.get("url") or source.get("source_url"))
     if not key:
         return Decision("rejected", ("Некорректная ссылка источника",))
+    host = (urlparse(str(source.get("url") or source.get("source_url") or "")).hostname or "").lower()
+    if any(host == excluded or host.endswith("." + excluded)
+           for excluded in _CONTEXT_EXCLUDED_HOSTS):
+        return Decision("rejected", ("Торговая площадка не является подтверждением объекта",))
     reference_keys = {source_key(url) for url in reference_urls} - {""}
     if key in reference_keys and key.startswith(("urban3p.ru:", "podmoskovnye.ru:")):
         return Decision("accepted", ("Прямая ссылка на объект из описания",), ("reference",))
@@ -404,6 +489,13 @@ def verify_source(place, source, reference_urls=()) -> Decision:
         if any(len(cue) >= 4 and words_present({cue}, title) for cue in micro):
             return Decision("accepted", ("Совпали тип объекта и микрорайон",),
                             ("location", "type"))
+    context = contextual_match(place, {"title": title})
+    if context:
+        return Decision(
+            "unconfirmed",
+            ("Вероятно относится к объекту, но независимая геопривязка не подтверждена",),
+            ("contextual_name_location", *context),
+        )
     return Decision("unconfirmed", ("Недостаточно данных для привязки к конкретному объекту",),
                     tuple(k for k, yes in (("name", same_name), ("type", compatible)) if yes))
 
@@ -547,6 +639,7 @@ def verify_report(report, place, reference_urls, *, junk_source=lambda item: Fal
     decisions = {}
     audits = []
     accepted = []
+    related = []
     for key, item in list(unique.items())[:60]:
         decision = verify_source(place, item, reference_urls)
         if junk_source(item) and "reference" not in decision.evidence:
@@ -555,6 +648,17 @@ def verify_report(report, place, reference_urls, *, junk_source=lambda item: Fal
         audits.append({"candidate": item, **decision.json()})
         if decision.status == "accepted":
             accepted.append(item)
+        elif decision.status == "unconfirmed" and "contextual_name_location" in decision.evidence:
+            if len(related) < 20:
+                related.append({
+                    "url": item.get("url") or item.get("source_url") or "",
+                    "title": item.get("title") or "",
+                    "snippet": item.get("snippet") or "",
+                    "status": "needs_geographic_confirmation",
+                    "reason": decision.reasons[0],
+                    "evidence": "; ".join(decision.evidence[1:]),
+                    "relevance": "probable",
+                })
     # Keep the highest-trust decision for each image. An earlier search-engine
     # thumbnail must not hide a later verified Wikimapia gallery record for the
     # *same image URL* (the old `seen` check silently discarded the latter).
@@ -623,5 +727,6 @@ def verify_report(report, place, reference_urls, *, junk_source=lambda item: Fal
     output.pop("photo_candidates", None)
     output.update(items=accepted[:12], photos=diverse_photos(accepted_photos),
                   total=min(12, len(accepted)), photos_total=min(12, len(accepted_photos)),
+                   related_sources=related, related_total=len(related),
                   verification={"version": VERSION, "sources": audits, "photos": photo_audits})
     return output
