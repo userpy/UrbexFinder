@@ -66,6 +66,9 @@ export function RoutesView() {
   const [exportCopyStatus, setExportCopyStatus] = useState("");
   const [shareCopied, setShareCopied] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
+  const [shareLinkLoading, setShareLinkLoading] = useState(false);
+  const [shareLinkError, setShareLinkError] = useState("");
+  const [shareRetry, setShareRetry] = useState(0);
   const shareLinkInput = useRef<HTMLInputElement>(null);
   const shareNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -88,6 +91,52 @@ export function RoutesView() {
     }
   }, [manualExport]);
   const routeId = route?.id;
+
+  // Создаём ссылку заранее, как только открыт маршрут.
+  // Тогда копирование вызывается напрямую нажатием кнопки
+  // и работает лучше в мобильном Telegram WebView.
+  useEffect(() => {
+    if (!routeId || !user) {
+      setShareUrl("");
+      setShareLinkLoading(false);
+      setShareLinkError("");
+      return;
+    }
+
+    let active = true;
+    setShareUrl("");
+    setShareCopied(false);
+    setShareLinkLoading(true);
+    setShareLinkError("");
+
+    void api<{ token: string }>(`/itineraries/${routeId}/share`, {
+      method: "POST",
+    })
+      .then(({ token }) => {
+        if (!active) return;
+        const url = new URL(
+          `/routes/share?token=${encodeURIComponent(token)}`,
+          window.location.origin,
+        );
+        setShareUrl(url.toString());
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setShareLinkError(
+          error instanceof Error
+            ? error.message
+            : "Не удалось подготовить ссылку на маршрут",
+        );
+      })
+      .finally(() => {
+        if (active) setShareLinkLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [routeId, user?.id, shareRetry]);
+
   useEffect(() => {
     if (!user) return;
     const abort = new AbortController();
@@ -209,37 +258,6 @@ export function RoutesView() {
       ];
     });
   }
-  async function shareRoute() {
-    if (!route || busy) return;
-    setBusy(true);
-    setError("");
-    setMessage("");
-    setShareCopied(false);
-    setShareUrl("");
-    if (shareNoticeTimer.current) clearTimeout(shareNoticeTimer.current);
-
-    try {
-      const { token } = await api<{ token: string }>(
-        `/itineraries/${route.id}/share`,
-        { method: "POST" },
-      );
-      const url = new URL(
-        `/routes/share?token=${encodeURIComponent(token)}`,
-        window.location.origin,
-      );
-
-      // После сетевого запроса в мобильном WebView уже может не быть
-      // разрешения на запись в буфер обмена. Показываем ссылку отдельно.
-      setShareUrl(url.toString());
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Не удалось создать ссылку",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function copyShareLink() {
     if (!shareUrl) return;
 
@@ -785,11 +803,11 @@ export function RoutesView() {
               <Button
                 variant="outline"
                 type="button"
-                onClick={() => void shareRoute()}
-                disabled={!route.name.trim()}
+                onClick={() => void copyShareLink()}
+                disabled={!route.name.trim() || !shareUrl || shareLinkLoading}
               >
                 <Share2 size={16} aria-hidden="true" />
-                Поделиться маршрутом
+                Скопировать ссылку
               </Button>
               <Button
                 variant="outline"
@@ -810,6 +828,20 @@ export function RoutesView() {
                 Скачать GPX
               </Button>
             </div>
+            {shareLinkError && (
+              <div className="route-share-link" style={{ marginTop: 12 }}>
+                <p role="alert" className="notice">
+                  Не удалось получить ссылку: {shareLinkError}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShareRetry((value) => value + 1)}
+                >
+                  Повторить подготовку ссылки
+                </Button>
+              </div>
+            )}
             {shareUrl && (
               <div className="route-share-link" style={{ marginTop: 12 }}>
                 <label htmlFor="route-share-url">Ссылка на маршрут</label>
@@ -822,14 +854,6 @@ export function RoutesView() {
                   onFocus={(event) => event.currentTarget.select()}
                   style={{ width: "100%", marginTop: 8, marginBottom: 12 }}
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void copyShareLink()}
-                >
-                  <Share2 size={16} aria-hidden="true" />
-                  Скопировать ссылку
-                </Button>
               </div>
             )}
           </fieldset>
