@@ -5,6 +5,7 @@ and httpx. No second *query-generator* module is needed.
 
 v3: bounded concurrent SearXNG calls, cache TTL, safer geographic query parsing,
 source-verified image results, diversified source/image pools and search diagnostics.
+v3.1: expanded RU/international OSINT discovery sources with bounded site groups.
 """
 import json
 import logging
@@ -47,9 +48,21 @@ from urbex.infrastructure.osint_description import (
 # ---------------------------------------------------------------------------
 OSINTQueryStrategy = Literal['exact', 'local', 'alias', 'site', 'coordinates', 'fallback', 'images']
 
+# Public search scopes for UrbexFinder. A path is included where searching the
+# entire domain would be too broad (Pikabu community, Yandex Maps).
+# These are only discovery targets, not permission to copy map data or images.
 _QG_SITES: tuple[str, ...] = (
-    'urban3p.ru', 'swalker.ru', 'caves.ru', 'planetadorog.ru',
-    'urbexstalker.com', 'wikimapia.org', 'geocaching.su', 'geocaching.ru',
+    # Always start with the two historically high-yield catalogs.
+    'urban3p.ru', 'swalker.ru',
+    # Russian urbex forums, photo reports and object directories.
+    'caves.ru', 'planetadorog.ru', 'stalk-zktmo.ru',
+    'stalkersworld.ru', 'urban-explorer.ru', 'map-stalk-zktmo.ru',
+    # Historical/geographic sources and geocaching.
+    'wikimapia.org', 'geocaching.su', 'geocaching.ru', 'pastvu.com',
+    'pikabu.ru/community/urbex', 'openstreetmap.org', 'yandex.ru/maps',
+    # International urbex catalogs that also index Russian locations.
+    'urbexstalker.com', 'urbex-maps.com', 'urbexology.com',
+    'zuniz.com', 'carte-urbex.com',
 )
 _QG_MAX_QUERY_LENGTH = 200
 _QG_MAX_TEXT_QUERIES = 6
@@ -198,6 +211,37 @@ def _qg_compose(*parts: str, limit: int = _QG_MAX_QUERY_LENGTH) -> str:
     return ' '.join(words)
 
 
+def _qg_site_queries(name: str) -> list[str]:
+    """Batch discovery sites into bounded SearXNG queries.
+
+    There are more sources than the per-report search budget. Urban3P/Swalker
+    are always included, while other domains rotate deterministically across
+    objects; otherwise sites appended to _QG_SITES would never be queried.
+    Search engines may vary in their handling of grouped site: operators.
+    """
+    # Use whole words to leave sufficient room for multiple domain operators.
+    subject = _qg_compose(*name.split(), limit=72) or _qg_clean(name, max_len=72)
+    # Rotation has no Python hash-randomization and is repeatable for a place.
+    core = _QG_SITES[:2]
+    other = _QG_SITES[2:]
+    offset = sum(ord(char) for char in name.casefold()) % len(other) if other else 0
+    sites = core + other[offset:] + other[:offset]
+
+    queries: list[str] = []
+    batch: list[str] = []
+    for site in sites:
+        operator = f'site:{site}'
+        proposed = ' OR '.join((*batch, operator))
+        if batch and len(f'{subject} ({proposed})') > _QG_MAX_QUERY_LENGTH:
+            queries.append(f"{subject} ({' OR '.join(batch)})")
+            batch = [operator]
+        else:
+            batch.append(operator)
+    if batch:
+        queries.append(f"{subject} ({' OR '.join(batch)})")
+    return queries
+
+
 def generate_osint_queries(place: dict, *, max_queries: int = _QG_MAX_TEXT_QUERIES,
                      image: bool = False) -> list[OSINTSearchQuery]:
     """Return prioritized *diverse* queries. Defaults work with SearXNG JSON API."""
@@ -240,8 +284,8 @@ def generate_osint_queries(place: dict, *, max_queries: int = _QG_MAX_TEXT_QUERI
     else:
         if name:
             add('exact', 110, name, settlement or region)
-            for site in _QG_SITES:
-                add('site', 100, name, f'site:{site}')
+            for index, query in enumerate(_qg_site_queries(name)):
+                candidates.append(OSINTSearchQuery('site', query, 100 - index))
             for alias in aliases[:5]:
                 add('alias', 95, alias, settlement or region)
             if settlement and region:
@@ -256,10 +300,10 @@ def generate_osint_queries(place: dict, *, max_queries: int = _QG_MAX_TEXT_QUERI
             if location:
                 add('local', 60, location)
 
-    # OSINTQueryStrategy quotas keep all first N from becoming an arbitrary domain-only batch.
-    # Exact, site, alias, local, coordinates, fallback.
+    # Query quotas: favor three *different groups* of sites without adding
+    # HTTP requests. Keep exact, alias and local search for identity matching.
     order = (['images'] if image else
-             ['exact', 'site', 'alias', 'local', 'coordinates', 'site', 'alias', 'fallback'])
+             ['exact', 'site', 'alias', 'site', 'local', 'site', 'coordinates', 'fallback'])
     by_strategy: dict[str, list[OSINTSearchQuery]] = {}
     seen: set[str] = set()
     for item in candidates:
@@ -297,18 +341,29 @@ _MAX_PHOTOS = 12
 # One slot is reserved for urbex site: queries (Urban3P, Swalker, …).
 _MAX_QUERIES = 6
 _MAX_IMAGE_QUERIES = 3
-# Prefer these RU urbex catalogs over generic web noise.
+# Specialized catalogs and location-history sources, used for source
+# prioritization after identity verification. Generic hostnames (pikabu.ru,
+# yandex.ru, openstreetmap.org) must NOT be treated as dedicated urbex hosts.
 _URBEX_SITE_DOMAINS = (
     'urban3p.ru',
     'swalker.ru',
     'caves.ru',
     'planetadorog.ru',
+    'stalk-zktmo.ru',
+    'stalkersworld.ru',
+    'urban-explorer.ru',
+    'map-stalk-zktmo.ru',
     'urbexstalker.com',
+    'urbex-maps.com',
+    'urbexology.com',
+    'zuniz.com',
+    'carte-urbex.com',
     'geocaching.com',
     'geocaching.ru',
     'geocaching.su',
     'opencaching.pl',
     'wikimapia.org',
+    'pastvu.com',
 )
 _URBEX_SITE_QUERY = (
     '('
@@ -317,7 +372,9 @@ _URBEX_SITE_QUERY = (
 )
 _URBEX_SITE_TEXT = (
     '(urban3p OR swalker OR caves.ru OR planetadorog OR "планета дорог" '
-    'OR urbexstalker OR geocaching OR геокешинг OR opencaching)'
+    'OR stalk-zktmo OR stalkersworld OR urban-explorer OR map-stalk-zktmo '
+    'OR urbexstalker OR urbex-maps OR urbexology OR zuniz OR carte-urbex '
+    'OR geocaching OR геокешинг OR opencaching OR wikimapia OR pastvu)'
 )
 _CACHE_SIZE = 256
 # Only successful non-empty answers are cached. Empty answers must not stick forever
@@ -1679,8 +1736,13 @@ def _build_osint_report(
     urban_budget = min(8, _MAX_PHOTOS)
     urban_from_search = urban3p_photos_for_links(scrape_links, urban_budget)
     other_budget = max(0, catalog_budget - min(len(urban_from_search), _SITE_GALLERY_RESERVE))
+    # The STALK_ZKTMO map forbids copying map content without written consent.
+    # Treat its pages as search evidence only; never auto-extract its galleries.
+    gallery_links = [item for item in scrape_links
+                     if _host_of(str(item.get('url') or '')) != 'map-stalk-zktmo.ru'
+                     and not _host_of(str(item.get('url') or '')).endswith('.map-stalk-zktmo.ru')]
     site_from_search = site_photos_for_links(
-        scrape_links, limit=other_budget, vk_token=vk_token,
+        gallery_links, limit=other_budget, vk_token=vk_token,
     ) if other_budget else []
     # Interleave Urban3P with Maps/web so one family cannot fill all slots.
     photos = _merge_round_robin(
