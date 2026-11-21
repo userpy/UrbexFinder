@@ -65,6 +65,8 @@ export function RoutesView() {
   const exportTextArea = useRef<HTMLTextAreaElement>(null);
   const [exportCopyStatus, setExportCopyStatus] = useState("");
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareUrl, setShareUrl] = useState("");
+  const shareLinkInput = useRef<HTMLInputElement>(null);
   const shareNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -123,6 +125,8 @@ export function RoutesView() {
         .catch((e) => setError(e.message));
   }, []);
   async function open(id: number) {
+    setShareUrl("");
+    setShareCopied(false);
     setSortDirection(null);
     setEditing(false);
     setBusy(true);
@@ -206,30 +210,71 @@ export function RoutesView() {
     });
   }
   async function shareRoute() {
-    if (!route) return;
+    if (!route || busy) return;
     setBusy(true);
     setError("");
     setMessage("");
     setShareCopied(false);
+    setShareUrl("");
     if (shareNoticeTimer.current) clearTimeout(shareNoticeTimer.current);
+
     try {
       const { token } = await api<{ token: string }>(
         `/itineraries/${route.id}/share`,
         { method: "POST" },
       );
-      const shareUrl = new URL(
+      const url = new URL(
         `/routes/share?token=${encodeURIComponent(token)}`,
         window.location.origin,
       );
-      await navigator.clipboard.writeText(shareUrl.toString());
-      setShareCopied(true);
-      shareNoticeTimer.current = setTimeout(() => setShareCopied(false), 2500);
+
+      // После сетевого запроса в мобильном WebView уже может не быть
+      // разрешения на запись в буфер обмена. Показываем ссылку отдельно.
+      setShareUrl(url.toString());
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : "Не удалось скопировать ссылку",
+        e instanceof Error ? e.message : "Не удалось создать ссылку",
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function copyShareLink() {
+    if (!shareUrl) return;
+
+    let copied = false;
+    try {
+      // Эта функция вызывается непосредственно при нажатии кнопки.
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        copied = true;
+      }
+    } catch (error) {
+      console.warn("[Routes] Clipboard API unavailable:", error);
+    }
+
+    if (!copied) {
+      const input = shareLinkInput.current;
+      if (input) {
+        input.focus();
+        input.select();
+        input.setSelectionRange(0, shareUrl.length);
+        try {
+          copied = document.execCommand("copy");
+        } catch {
+          copied = false;
+        }
+      }
+    }
+
+    if (copied) {
+      setShareCopied(true);
+      setMessage("");
+      if (shareNoticeTimer.current) clearTimeout(shareNoticeTimer.current);
+      shareNoticeTimer.current = setTimeout(() => setShareCopied(false), 2500);
+    } else {
+      setMessage("Telegram ограничил копирование. Выделите ссылку и скопируйте вручную.");
     }
   }
   async function handleExport(format: "kml" | "gpx") {
@@ -477,6 +522,8 @@ export function RoutesView() {
               setChoosing(true);
               setPage(1);
               setRoute(null);
+              setShareUrl("");
+              setShareCopied(false);
               setEditing(false);
               setSelected(null);
               setMessage("");
@@ -763,6 +810,28 @@ export function RoutesView() {
                 Скачать GPX
               </Button>
             </div>
+            {shareUrl && (
+              <div className="route-share-link" style={{ marginTop: 12 }}>
+                <label htmlFor="route-share-url">Ссылка на маршрут</label>
+                <input
+                  id="route-share-url"
+                  ref={shareLinkInput}
+                  type="text"
+                  readOnly
+                  value={shareUrl}
+                  onFocus={(event) => event.currentTarget.select()}
+                  style={{ width: "100%", marginTop: 8, marginBottom: 12 }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void copyShareLink()}
+                >
+                  <Share2 size={16} aria-hidden="true" />
+                  Скопировать ссылку
+                </Button>
+              </div>
+            )}
           </fieldset>
           {shareCopied && (
             <p className="success-toast" role="status">
