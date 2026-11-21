@@ -1,6 +1,6 @@
 """Deterministic identification of UrbexFinder sources and photo galleries.
 
-v17. Drop-in replacement for urbex.infrastructure.osint_identity.
+v19. Drop-in replacement for urbex.infrastructure.osint_identity.
 
 Safety principles:
 * Search rank, query strings, images' file names and snippets alone do not prove identity.
@@ -16,7 +16,7 @@ from math import asin, cos, isfinite, radians, sin, sqrt
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse
 import re
 
-VERSION = 17
+VERSION = 19
 
 _TYPES = {
     "radar": r"\bрлс\b|\bрадиолокационн[а-я]*\s+станци[а-я]*\b",
@@ -50,6 +50,7 @@ _GENERIC = set("""
 _COMMON_NAMES = set("""
 волна дружба заря радуга восход юность смена орленок орленок чайка березки
 сокол маяк родина победа восток лесной огонек сосновый спартак динамо
+елочки елки солнышко искра звездочка звезда лесная лесное простор надежда
 """.split())
 
 _GEO_ADMIN_NOISE = {"россия", "рф", "центральный", "городской", "муниципальный", "московская", "область", "край"}
@@ -228,6 +229,15 @@ def _candidate_codes(text: str, acronym: str) -> set[str]:
     return set(re.findall(rf"\b{re.escape(acronym)}\s*(?:[-–—№]\s*|\s+)(\d+)\b", normalized(text)))
 
 
+def _is_dedicated_catalog_object(key: str) -> bool:
+    """True only for a stable *individual object* URL in known catalogs.
+
+    A search result, general article, tag/category page or Urban3P blog cannot
+    certify that a single one-word proper name denotes the object in the card.
+    """
+    return bool(re.fullmatch(r"(?:wikimapia\.org|urban3p\.ru):\d+", key))
+
+
 def _source_type_is_compatible(place_types: set[str], source_types: set[str]) -> bool:
     if place_types and source_types:
         return bool(place_types & source_types)
@@ -369,6 +379,25 @@ def verify_source(place, source, reference_urls=()) -> Decision:
         return Decision("accepted", ("Совпали отличительное составное название и тип объекта",),
                         ("name", "type"))
 
+    # v19: one distinctive proper name (e.g. Доватор) + the same object type
+    # may be enough when a dedicated Wikimapia/Urban3P object page names it.
+    # The previous >=2-token requirement accidentally discarded such pages,
+    # preventing their own galleries from even being requested. This exception
+    # DOES NOT apply to general web results, catalogs, broad articles or common
+    # camp names (Дружба, Волна...). All explicit contradictions were rejected
+    # above, before we reach this branch.
+    if (compatible and len(cues) == 1 and phrase_match
+            and not (cues & _COMMON_NAMES)
+            and _is_dedicated_catalog_object(key)
+            and ("camp" in place_types and "camp" in source_types
+                 or len(place_types & source_types) == 1)):
+        return Decision(
+            "accepted",
+            ("Совпали отличительное название и тип на отдельной странице объекта; "
+             "географическая привязка не подтверждена",),
+            ("name", "type", "catalog_object", "geo_unverified"),
+        )
+
     # Generic place names and title-only category matches are *not* identities.
     if not cues and compatible:
         micro = settlement_cues(place_address) - fine_local - {"москва"}
@@ -396,6 +425,50 @@ def catalog_gallery_matches(photo) -> bool:
     return (len(estate) >= 4 and len(parts) == 7
             and parts[:6] == ["", "images", "stories", "photos", region, estate]
             and bool(re.fullmatch(r"[^/]+\.(?:jpe?g|png|webp)", parts[6], re.I)))
+
+
+
+def _wikimapia_object_gallery_photo(photo: dict, parent: str) -> bool:
+    """Recognize backend-extracted Wikimapia object photos, not search thumbnails.
+
+    A search query is *not* a source URL; Wikimapia photos often have a human
+    text query or no query at all. Instead require an already verified object
+    page, a matching source_url and a Wikimapia-hosted photograph. We do not
+    infer object identity from a CDN filename or from a gallery engine alone.
+    """
+    if photo.get("engine") != "wikimapia" or not parent.startswith("wikimapia.org:"):
+        return False
+    if source_key(photo.get("source_url")) != parent:
+        return False
+
+    scoped_key = str(photo.get("gallery_source_key") or "")
+    if scoped_key and scoped_key != parent:
+        return False
+    # A URL-shaped query to a *different* Wikimapia object is conflicting
+    # provenance. A normal SearXNG search string is not a URL and is ignored.
+    query_key = source_key(photo.get("query"))
+    if query_key.startswith("wikimapia.org:") and query_key != parent:
+        return False
+
+    try:
+        image = urlparse(str(photo.get("image_url") or ""))
+        if (image.scheme not in {"http", "https"}
+                or image.hostname != "photos.wikimapia.org"
+                or image.username or image.password):
+            return False
+    except (ValueError, TypeError):
+        return False
+
+    path = unquote(image.path)
+    # Established Wikimapia photo-CDN path (including resized variants).
+    canonical = bool(re.fullmatch(
+        r"/p/(?:\d{2}/){4}\d{2}(?:_(?:\d+|big))?\.(?:jpe?g|png|webp)",
+        path, re.IGNORECASE,
+    ))
+    # Newer parsers can provide explicit, same-object primary-gallery scope.
+    scoped = (photo.get("gallery_scope") in {"primary", "object", "wikimapia_object"}
+              and scoped_key == parent)
+    return canonical or scoped
 
 
 def primary_gallery(html, url):
@@ -440,11 +513,25 @@ def verify_report(report, place, reference_urls, *, junk_source=lambda item: Fal
     photos = list(report.get("photos") or []) + list(report.get("photo_candidates") or [])
     photos += [row["candidate"] for row in prior.get("photos", [])
                if isinstance(row.get("candidate"), dict)]
+    reference_keys = {source_key(url) for url in reference_urls} - {""}
     for photo in photos:
-        if photo.get("source_url") and photo.get("source_url") != photo.get("image_url"):
-            sources.append({"url": photo["source_url"], "title": photo.get("title", ""),
+        photo_url = str(photo.get("source_url") or "")
+        if not photo_url or photo_url == photo.get("image_url"):
+            continue
+        parent_key = source_key(photo_url)
+        primary = photo.get("page_identity")
+        verified_page_metadata = (isinstance(primary, dict)
+                                  and primary.get("source_key") == parent_key
+                                  and bool(primary.get("title") or primary.get("address")))
+        # A photo's own caption/title is NOT evidence about its landing page.
+        # Add the parent only when it was explicitly referenced by the place
+        # card or when the parser extracted identity from that exact page.
+        if parent_key in reference_keys or verified_page_metadata:
+            sources.append({"url": photo_url,
+                            "title": (primary or {}).get("title", "") if verified_page_metadata else "",
                             "snippet": "", "engine": photo.get("engine"),
-                            "page_identity": photo.get("page_identity"), "query": ""})
+                            "page_identity": primary if verified_page_metadata else None,
+                            "query": ""})
     unique: dict[str, dict] = {}
     for item in sources:
         key = source_key(item.get("url"))
@@ -468,22 +555,27 @@ def verify_report(report, place, reference_urls, *, junk_source=lambda item: Fal
         audits.append({"candidate": item, **decision.json()})
         if decision.status == "accepted":
             accepted.append(item)
-    photo_audits = []
-    accepted_photos = []
-    seen = set()
+    # Keep the highest-trust decision for each image. An earlier search-engine
+    # thumbnail must not hide a later verified Wikimapia gallery record for the
+    # *same image URL* (the old `seen` check silently discarded the latter).
+    photo_choices: dict[str, dict] = {}
     reference_keys = {source_key(url) for url in reference_urls} - {""}
     gallery_engines = {"wikimapia", "geocache", "vk", "urban3p", "swalker", "web_page",
                        "planetadorog", "caves", "urbexstalker", "dzen", "yandex_maps", "youtube", "rutube"}
+    trust_order = {"rejected": 0, "unconfirmed": 1, "accepted": 2}
     for photo in photos:
         image_url = str(photo.get("image_url") or "")
-        if not image_url or image_url in seen:
+        if not image_url:
             continue
-        seen.add(image_url)
-        if len(photo_audits) >= 48:
-            break
+        if image_url not in photo_choices and len(photo_choices) >= 48:
+            continue
+        if (image_url in photo_choices
+                and photo_choices[image_url]["status"] == "accepted"):
+            continue
         parent = source_key(photo.get("source_url"))
         decision = decisions.get(parent, Decision("unconfirmed", ("Нет подтверждённой страницы источника",)))
         direct = source_key(image_url) in reference_keys
+        wikimapia_gallery = _wikimapia_object_gallery_photo(photo, parent)
         if direct:
             decision = Decision("accepted", ("Прямая ссылка на фото из описания объекта",), ("reference_image",))
         elif decision.status == "accepted":
@@ -499,19 +591,34 @@ def verify_report(report, place, reference_urls, *, junk_source=lambda item: Fal
                 photo.get("engine") == "wikimapia" and image_parts.hostname == "photos.wikimapia.org"
                 and bool(re.fullmatch(r"/p/(?:\d{2}/){4}\d{2}(?:_(?:\d+|big))?\.jpg", image_parts.path))
             )
-            gallery = gallery or (parent in reference_keys and legacy_gallery)
+            gallery = gallery or wikimapia_gallery or (parent in reference_keys and legacy_gallery)
             if photo.get("engine") in {"web_page", "planetadorog", "caves", "urbexstalker"}:
                 gallery = gallery and (photo.get("gallery_scope") == "primary" or catalog_gallery_matches(photo))
             if gallery:
                 decision = Decision("accepted", ("Фото из галереи подтверждённого источника",), ("gallery", parent))
             else:
                 decision = Decision("unconfirmed", ("Не подтверждено, что фото входит в галерею принятого источника",))
-        junk_candidate = dict(photo, title="") if parent in reference_keys else photo
+        # Accepted Wikimapia gallery has object-level provenance. Its caption
+        # may contain generic anti-noise phrases (e.g. «в Москве»), so apply
+        # junk filtering to URLs/media, as already done for explicit references.
+        trusted_photo = (direct or
+                         (decision.status == "accepted" and wikimapia_gallery))
+        wiki_conflict = (photo.get("engine") == "wikimapia" and parent.startswith("wikimapia.org:")
+                         and ((photo.get("gallery_source_key")
+                               and photo.get("gallery_source_key") != parent)
+                              or (source_key(photo.get("query")).startswith("wikimapia.org:")
+                                  and source_key(photo.get("query")) != parent)))
+        if wiki_conflict and not direct:
+            decision = Decision("rejected", ("Галерея ссылается на другой объект Wikimapia",))
+        junk_candidate = dict(photo, title="") if trusted_photo or parent in reference_keys else photo
         if junk_photo(junk_candidate):
             decision = Decision("rejected", ("Служебное или неподходящее изображение",))
-        photo_audits.append({"candidate": photo, **decision.json()})
-        if decision.status == "accepted":
-            accepted_photos.append(photo)
+        candidate = {"candidate": photo, **decision.json()}
+        old = photo_choices.get(image_url)
+        if old is None or trust_order[decision.status] > trust_order[old["status"]]:
+            photo_choices[image_url] = candidate
+    photo_audits = list(photo_choices.values())
+    accepted_photos = [row["candidate"] for row in photo_audits if row["status"] == "accepted"]
     output.pop("source_candidates", None)
     output.pop("photo_candidates", None)
     output.update(items=accepted[:12], photos=diverse_photos(accepted_photos),
