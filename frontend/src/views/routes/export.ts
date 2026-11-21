@@ -23,15 +23,69 @@ function safeFilename(name: string, extension: string): string {
   return `${base || "route"}.${extension}`;
 }
 
-function downloadText(filename: string, content: string, mime: string) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
+
+async function downloadText(
+  filename: string,
+  content: string,
+  mime: string
+): Promise<void> {
+  const tg = (
+    window as Window & {
+      Telegram?: {
+        WebApp?: { initData?: string };
+      };
+    }
+  ).Telegram?.WebApp;
+
+  const isTelegram = Boolean(tg?.initData);
+
+  // Создаём файл на фронтенде
+  const file = new File([content], filename, {
+    type: mime,
+  });
+
+  // Если открыто в Telegram Mini App
+  if (isTelegram) {
+    console.log("Telegram Mini App detected");
+
+    if (
+      typeof navigator.share === "function" &&
+      navigator.canShare?.({ files: [file] })
+    ) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: filename,
+        });
+
+        return;
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+
+        console.warn("Telegram share failed:", error);
+      }
+    }
+  }
+
+  // Fallback: обычное скачивание
+  const url = URL.createObjectURL(file);
   const anchor = document.createElement("a");
+
   anchor.href = url;
   anchor.download = filename;
+
+  document.body.appendChild(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
+
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
+
 
 export function buildKml(routeName: string, points: ExportPoint[]): string {
   const placemarks = points
