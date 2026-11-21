@@ -1957,12 +1957,51 @@ def _attach_relevance_review(report: dict, payload: dict, place: dict) -> dict:
     return report
 
 
+def _verified_items(report: dict) -> list[dict]:
+    """Only identity-confirmed sources can drive gallery fetches or assessments."""
+    confirmed = report.get('confirmed_items')
+    if isinstance(confirmed, list):
+        return list(confirmed)
+    # Backward compatibility with old cached reports without a verified flag.
+    return [item for item in (report.get('items') or [])
+            if item.get('verification_status', 'accepted') == 'accepted']
+
+
 def _verify_report(payload: dict, place: dict) -> dict:
     references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
     report = verify_report(payload, place, references,
                            junk_source=_is_junk_source, junk_photo=_is_junk_photo)
     report = _attach_relevance_review(report, payload, place)
-    report['assessment'] = assess_osint_items(report['items'])
+
+    # The old frontend reads only `items` + `total` for its "Источники" tab.
+    # Preserve evidence integrity: probable links are displayed, NOT verified.
+    accepted = [dict(item, verification_status='accepted', verified=True)
+                for item in (report.get('items') or [])]
+    report['confirmed_items'] = accepted
+    report['confirmed_total'] = len(accepted)
+    accepted_keys = {source_key(item.get('url')) for item in accepted}
+    related = []
+    for item in report.get('related_sources') or []:
+        key = source_key(item.get('url'))
+        if not key or key in accepted_keys:
+            continue
+        related.append({
+            'url': item['url'],
+            'title': item.get('title') or 'Потенциальный источник',
+            'snippet': item.get('snippet') or '',
+            'engine': item.get('engine'),
+            'verification_status': 'probable',
+            'verified': False,
+            'verification_reason': item.get('reason') or 'Требуется проверка привязки',
+            'evidence': item.get('evidence') or '',
+        })
+        accepted_keys.add(key)
+    report['items'] = (accepted + related)[:_MAX_RESULTS]
+    report['total'] = len(report['items'])
+    report['displayed_related_total'] = sum(
+        item['verification_status'] == 'probable' for item in report['items'])
+    # Critically: unverified search hits must NOT affect guard/status scoring.
+    report['assessment'] = assess_osint_items(accepted)
     return report
 
 
@@ -2121,7 +2160,7 @@ def get_or_build_osint_report(
         gallery_urls = {photo.get('source_url') for photo in filtered['photos']
                         if photo.get('engine') == 'wikimapia'}
         missing_wikimapia = [
-            link for link in filtered['items']
+            link for link in _verified_items(filtered)
             if is_object_url(str(link.get('url') or ''))
             and link['url'] not in gallery_urls
         ]
@@ -2178,7 +2217,7 @@ def get_or_build_osint_report(
         # lack gallery provenance. Keep failures under a five-minute cooldown.
         yandex_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
                           if photo.get('engine') == 'yandex_maps'}
-        missing_yandex = [item for item in filtered['items']
+        missing_yandex = [item for item in _verified_items(filtered)
                           if source_key(item.get('url')).startswith('yandex_maps:')
                           and source_key(item.get('url')) not in yandex_parents][:2]
         if missing_yandex and time.time() - stored.get('yandex_photos_checked_at', 0) >= 300:

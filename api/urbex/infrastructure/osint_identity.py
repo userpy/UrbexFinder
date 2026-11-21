@@ -1,6 +1,6 @@
 """Deterministic identification of UrbexFinder sources and photo galleries.
 
-v20. Drop-in replacement for urbex.infrastructure.osint_identity.
+v21. Drop-in replacement for urbex.infrastructure.osint_identity.
 
 Contextual name + locality matches are review-only, not verified sources.
 
@@ -18,7 +18,7 @@ from math import asin, cos, isfinite, radians, sin, sqrt
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse
 import re
 
-VERSION = 20
+VERSION = 21
 
 _TYPES = {
     "radar": r"\bрлс\b|\bрадиолокационн[а-я]*\s+станци[а-я]*\b",
@@ -389,7 +389,15 @@ def verify_source(place, source, reference_urls=()) -> Decision:
         conflicts.append("Вместо завода найдена страница лагеря")
     if "housing" in source_types and place_types - {"housing"}:
         conflicts.append("Жилая застройка вместо искомого объекта")
-    if source_types and place_types and not compatible:
+    # A page may call the same technical facility a «полигон» even when
+    # the place card is categorized as a military/sport/other facility.
+    # Keep the strong (acronym + specific locality) match for MANUAL REVIEW.
+    # This never accepts the source, and cannot override hard conflicts above
+    # (housing/camp-vs-factory, different address, region, coordinates).
+    contextual_title_match = bool(contextual_match(place, {"title": title}))
+    ambiguous_test_site = ("test_site" in source_types and contextual_title_match
+                           and not {"housing", "factory", "camp"} & source_types)
+    if source_types and place_types and not compatible and not ambiguous_test_site:
         conflicts.append("Не совпадает тип объекта")
     place_regions = set(re.findall(r"\b([а-я-]+)\s+область\b", normalized(place_address)))
     candidate_regions = set(re.findall(r"\b([а-я-]+)\s+область\b", normalized(candidate_address)))
