@@ -1498,15 +1498,25 @@ def _search_many(
                for category, query in jobs]
     done, pending = wait(futures, timeout=_SEARCH_DEADLINE)
     batches: list[tuple[dict, ...]] = []
+    query_details: list[dict] = []
     success = 0
-    for future in futures:
+    for (category, query), future in zip(jobs, futures, strict=True):
         if future in done:
             batch, ok = future.result()
+            status = 'ok' if ok else 'error'
             success += int(ok)
             batches.append(batch)
         else:
             future.cancel()
-            batches.append(())
+            batch = ()
+            status = 'timeout'
+            batches.append(batch)
+        query_details.append({
+            'category': category,
+            'query': query,
+            'status': status,
+            'results': len(batch),
+        })
     _log.info('OSINT search: %d/%d completed successfully, %d pending at deadline',
               success, len(jobs), len(pending))
     return (batches[:len(queries)], batches[len(queries):], {
@@ -1514,6 +1524,7 @@ def _search_many(
         'successful': success,
         'failed_or_timed_out': len(jobs) - success,
         'pending_at_deadline': len(pending),
+        'queries': query_details,
     })
 
 

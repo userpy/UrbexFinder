@@ -1187,6 +1187,15 @@ def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
     payload = result.json()
     assert payload['place_id'] == place_id
     assert payload['source'] == 'searxng'
+    # Every scheduled SearXNG request is observable, including successful zero-hit searches.
+    search_diag = payload['search_diagnostics']
+    assert search_diag['requested'] == len(payload['queries']) + len(payload['image_queries'])
+    assert len(search_diag['queries']) == search_diag['requested']
+    assert all(detail['status'] == 'ok' for detail in search_diag['queries'])
+    assert all(detail['results'] > 0 for detail in search_diag['queries'])
+    assert [detail['category'] for detail in search_diag['queries']] == (
+        ['general'] * len(payload['queries']) + ['images'] * len(payload['image_queries'])
+    )
     assert payload['cached'] is False
     assert payload['updated_at']
     assert payload['total'] == 1
