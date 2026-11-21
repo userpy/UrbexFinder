@@ -1,7 +1,10 @@
-"""UrbexFinder OSINT report and integrated SearXNG query generator.
+"""UrbexFinder OSINT report + query generation (single replacement file).
 
-Drop-in replacement for the existing urbex.infrastructure OSINT report module.
-No separate osint_query_generator.py is required.
+Requires the project's existing urbex.infrastructure helper modules, SQLAlchemy,
+and httpx. No second *query-generator* module is needed.
+
+v3: bounded concurrent SearXNG calls, cache TTL, safer geographic query parsing,
+source-verified image results, diversified source/image pools and search diagnostics.
 """
 import json
 import logging
@@ -9,6 +12,8 @@ import re
 import threading
 import time
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor, wait
+from datetime import datetime, timezone
 from urllib.parse import unquote, urlparse
 import httpx
 from dataclasses import dataclass
@@ -59,13 +64,14 @@ class OSINTSearchQuery:
 # These are search rewrites, NOT assertions that they are official names.
 _QG_TYPE_PREFIX = re.compile(
     r'^(?:(?:заброшенн\w*|бывш\w*|стар\w*)\s+)*'
-    r'(?:пионерск\w*\s+лагер\w*|детск\w*\s+оздоровительн\w*\s+лагер\w*|'
+    r'(?:пионерлагер\w*|детлагер\w*|дол\s+|пионерск\w*\s+лагер\w*|детск\w*\s+оздоровительн\w*\s+лагер\w*|'
     r'детск\w*\s+лагер\w*|санатори\w*|баз[аыу]\s+отдыха)\s*',
     re.IGNORECASE,
 )
 _QG_ADMIN = re.compile(r'(?:област\w*|район\w*|округ\w*|республик\w*|кра[йя]\w*|федеральн\w*|росси\w*)', re.I)
 _QG_REGION = re.compile(r'(?:[А-ЯЁа-яё\-]+\s+област\w*|[А-ЯЁа-яё\-]+\s+край|республика\s+[А-ЯЁа-яё\-]+|г\.?\s*Москва|\bМосква\b)', re.I)
-_QG_SETTLEMENT_PREFIX = re.compile(r'^(?:(?:деревня|д\.|село|с\.|пос[её]лок|п\.|город|г\.|снт|днт)\s+)', re.I)
+_QG_SETTLEMENT_PREFIX = re.compile(r'^(?:(?:деревня|д\.|село|с\.|пос[её]лок|п\.|город|г\.)\s+)', re.I)
+_QG_NON_SETTLEMENT = re.compile(r'^(?:СНТ|ДНТ|НСТ|ДОЛ|ТСН|ТСЖ|КП|ГСК|СНП|ДПК|ТОС)\b', re.I)
 _QG_STREET = re.compile(r'\b(?:улица|ул\.|шоссе|проспект|переулок|дорога|набережная|дом|строение)\b', re.I)
 _QG_QUOTED_NAME = re.compile(r'[«"]([^»"]{3,65})[»"]')
 _QG_BAD_ALIASES = {'разное', 'без названия', 'неизвестно', 'нет', 'none', 'null'}
@@ -94,20 +100,31 @@ def _qg_explicit_aliases(place: dict) -> list[str]:
         return []
     found = []
     for item in raw[:30]:
-        name = _qg_clean(item if isinstance(item, str) else '', max_len=90)
+        name = _qg_fix_quotes(_qg_clean(item if isinstance(item, str) else '', max_len=90))
         if name and name.casefold() not in _QG_BAD_ALIASES:
             found.append(name)
     return found
 
 
+def _qg_fix_quotes(value: str) -> str:
+    """Remove unbalanced punctuation (from pasted/truncated card names)."""
+    if value.count('«') != value.count('»'):
+        value = value.replace('«', '').replace('»', '')
+    if value.count('"') % 2:
+        value = value.replace('"', '')
+    return value.strip()
+
+
 def _qg_names(place: dict) -> tuple[str, list[str]]:
     primary = _qg_clean(place.get('name'), max_len=110)
+    primary = _qg_fix_quotes(primary)
     aliases = _qg_explicit_aliases(place)
     if primary:
         match = _QG_QUOTED_NAME.search(primary)
         if match:
             aliases.append(match.group(1).strip())
         reduced = _QG_TYPE_PREFIX.sub('', primary).strip(' «»"')
+        reduced = _qg_fix_quotes(reduced)
         if len(reduced) >= 4 and reduced.casefold() != primary.casefold():
             aliases.append(reduced)
     seen = {primary.casefold()}
@@ -129,20 +146,29 @@ def _qg_location(place: dict) -> tuple[str, str]:
     explicit = _qg_clean(place.get('settlement') or place.get('locality') or place.get('city'), max_len=70)
     if explicit:
         return explicit, region
-    # Avoid confusing named objects, roads, postcode, and district with settlement.
-    for part in re.split(r'\s*,\s*', full):
-        part = part.strip(' «»"')
-        part = _QG_SETTLEMENT_PREFIX.sub('', part).strip()
+    # In Nominatim-style addresses the closest settlement is usually the last
+    # usable component before the administrative district/region. The first
+    # component often names the object itself, a patron or a garden association.
+    candidates: list[str] = []
+    for raw in re.split(r'\s*,\s*', full):
+        raw = raw.strip()
+        if not raw or _QG_NON_SETTLEMENT.match(raw):
+            continue
+        # «Холмогоры» as a standalone address component is often a named site,
+        # not a village. A.P. Гайдар is a dedication rather than a settlement.
+        if ((raw.startswith(('«', '"')) and raw.endswith(('»', '"')))
+                or re.match(r'^(?:[А-ЯЁ]\.\s*){1,3}', raw)):
+            continue
+        part = _QG_SETTLEMENT_PREFIX.sub('', raw.strip(' «»"')).strip()
         if (not 3 <= len(part) <= 65 or re.search(r'\d', part) or
                 _QG_ADMIN.search(part) or _QG_STREET.search(part) or
                 part.casefold() == region.casefold() or
                 part.casefold() == str(place.get('name') or '').casefold()):
             continue
-        # Skip obvious catalog/category phrases; prefer explicit settlement field.
         if re.search(r'\b(?:лагерь|санаторий|усадьба|завод|бункер|церковь|храм)\b', part, re.I):
             continue
-        return part, region
-    return '', region
+        candidates.append(part)
+    return (candidates[-1] if candidates else ''), region
 
 
 def _qg_coordinate_string(place: dict) -> str:
@@ -151,7 +177,7 @@ def _qg_coordinate_string(place: dict) -> str:
         lon = float(place['longitude'])
     except (TypeError, KeyError, ValueError):
         return ''
-    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+    if not (-85 <= lat <= 85 and -180 <= lon <= 180):
         return ''
     return f'{lat:.5f}, {lon:.5f}'
 
@@ -258,8 +284,13 @@ def generate_osint_queries(place: dict, *, max_queries: int = _QG_MAX_TEXT_QUERI
 
 
 _log = logging.getLogger(__name__)
-_lock = threading.Lock()
+_lock = threading.Lock()  # protects cache and the shared rate limiter only
 _last_request = 0.0
+_SEARCH_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix='urbex-searxng')
+_SEARCH_DEADLINE = 26.0  # soft retrieval budget; enrichment has its own runtime
+_REQUEST_SPACING = 0.25
+_REPORT_TTL_SECONDS = 7 * 24 * 3600  # the HTTP-facing cache is independent
+
 _MAX_RESULTS = 12
 _MAX_PHOTOS = 12
 # Keep cold reports under the Next.js rewrite proxy budget (~30s).
@@ -291,7 +322,8 @@ _URBEX_SITE_TEXT = (
 _CACHE_SIZE = 256
 # Only successful non-empty answers are cached. Empty answers must not stick forever
 # when engines were temporarily down.
-_search_cache: OrderedDict[tuple[str, str, str, str], tuple[dict, ...]] = OrderedDict()
+_SEARCH_CACHE_TTL_SECONDS = 15 * 60
+_search_cache: OrderedDict[tuple[str, str, str, str], tuple[float, tuple[dict, ...]]] = OrderedDict()
 
 # Image search often returns memes / game screenshots for words like «бомбоубежище».
 _IMAGE_JUNK_HOSTS = (
@@ -1303,18 +1335,25 @@ def _engines_for(category: str) -> str:
 
 
 def _cache_get(key: tuple[str, str, str, str]) -> tuple[dict, ...] | None:
+    now = time.monotonic()
     with _lock:
-        if key not in _search_cache:
+        entry = _search_cache.get(key)
+        if entry is None:
+            return None
+        expires_at, value = entry
+        if expires_at <= now:
+            del _search_cache[key]
             return None
         _search_cache.move_to_end(key)
-        return _search_cache[key]
+        return value
 
 
 def _cache_put(key: tuple[str, str, str, str], value: tuple[dict, ...]) -> None:
+    # Cache positive results only: a transient empty SearXNG response is not evidence.
     if not value:
         return
     with _lock:
-        _search_cache[key] = value
+        _search_cache[key] = (time.monotonic() + _SEARCH_CACHE_TTL_SECONDS, value)
         _search_cache.move_to_end(key)
         while len(_search_cache) > _CACHE_SIZE:
             _search_cache.popitem(last=False)
@@ -1332,30 +1371,34 @@ def _search(url: str, origin: str, query: str, category: str = 'general') -> tup
     if cached is not None:
         return cached
 
-    # SearXNG waits on slow engines, then returns partial JSON — cut too early and we get empty/502.
+    # Reserve a start time while locked; NEVER sleep or perform I/O under this lock.
+    # Allows concurrent searches while limiting bursts against our SearXNG instance.
     timeout = 15.0 if category == 'images' else 12.0
     with _lock:
-        time.sleep(max(0, 0.25 - (time.monotonic() - _last_request)))
-        _last_request = time.monotonic()
-        try:
-            response = httpx.get(
-                url.rstrip('/') + '/search',
-                params={
-                    'q': query,
-                    'format': 'json',
-                    'language': 'ru',
-                    'categories': category,
-                    'engines': _engines_for(category),
-                    'pageno': 1,
-                },
-                headers={'User-Agent': f'UrbexFinder/1.0 ({origin})'},
-                timeout=timeout,
-                follow_redirects=False,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except (httpx.HTTPError, ValueError):
-            raise DomainError('Не удалось получить данные из открытых источников. Повторите попытку позже.', 502)
+        scheduled = max(time.monotonic(), _last_request + _REQUEST_SPACING)
+        _last_request = scheduled
+    pause = scheduled - time.monotonic()
+    if pause > 0:
+        time.sleep(pause)
+    try:
+        response = httpx.get(
+            url.rstrip('/') + '/search',
+            params={
+                'q': query,
+                'format': 'json',
+                'language': 'ru',
+                'categories': category,
+                'engines': _engines_for(category),
+                'pageno': 1,
+            },
+            headers={'User-Agent': f'UrbexFinder/1.0 ({origin})'},
+            timeout=timeout,
+            follow_redirects=False,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise DomainError('Не удалось получить данные из открытых источников. Повторите попытку позже.', 502) from exc
     results = payload.get('results') if isinstance(payload, dict) else None
     if not isinstance(results, list):
         return ()
@@ -1370,6 +1413,50 @@ def _search_soft(url: str, origin: str, query: str, category: str) -> tuple[dict
     except DomainError:
         _log.warning('OSINT %s search failed for %r', category, query)
         return ()
+
+
+def _search_capture(url: str, origin: str, query: str, category: str) -> tuple[tuple[dict, ...], bool]:
+    """Empty successful response is distinct from a failed transport request."""
+    try:
+        return _search(url, origin, query, category), True
+    except DomainError:
+        _log.warning('OSINT %s search failed for %r', category, query)
+        return (), False
+    except Exception:
+        _log.exception('Unexpected OSINT %s search error for %r', category, query)
+        return (), False
+
+
+def _search_many(
+    url: str, origin: str, queries: list[str], image_queries: list[str],
+) -> tuple[list[tuple[dict, ...]], list[tuple[dict, ...]], dict]:
+    """Parallel, limited global worker pool; results stay in original query order.
+
+    This is a soft timeout: pending futures are cancelled if not yet running;
+    running HTTP calls finish at their own request timeouts.
+    """
+    jobs = [('general', q) for q in queries] + [('images', q) for q in image_queries]
+    futures = [_SEARCH_POOL.submit(_search_capture, url, origin, query, category)
+               for category, query in jobs]
+    done, pending = wait(futures, timeout=_SEARCH_DEADLINE)
+    batches: list[tuple[dict, ...]] = []
+    success = 0
+    for future in futures:
+        if future in done:
+            batch, ok = future.result()
+            success += int(ok)
+            batches.append(batch)
+        else:
+            future.cancel()
+            batches.append(())
+    _log.info('OSINT search: %d/%d completed successfully, %d pending at deadline',
+              success, len(jobs), len(pending))
+    return (batches[:len(queries)], batches[len(queries):], {
+        'requested': len(jobs),
+        'successful': success,
+        'failed_or_timed_out': len(jobs) - success,
+        'pending_at_deadline': len(pending),
+    })
 
 
 def _parse_general(results: list, query: str) -> tuple[dict, ...]:
@@ -1520,20 +1607,14 @@ def _build_osint_report(
         raise DomainError('Недостаточно данных места для поиска', 422)
     image_queries = (_image_queries_for(place) or queries[:1])[:_MAX_IMAGE_QUERIES]
 
-    general_batches: list[tuple[dict, ...]] = []
-    for query in queries:
-        # Soft-fail each query: one timed-out engine family must not blank the report.
-        batch = _search_soft(url, origin, query, 'general')
-        general_batches.append(batch)
-        # Do not stop on unverified raw results: the first batch may be all noise.
-        # Query generator already bounds the number of calls to six.
-
-    image_batches = [
-        _search_soft(url, origin, query, 'images') for query in image_queries
-    ]
+    # Search images and text together, keeping a bounded global pool and a soft
+    # deadline. One failed engine must not erase results from another engine.
+    general_batches, image_batches, search_diagnostics = _search_many(
+        url, origin, queries, image_queries,
+    )
 
     references = [link['url'] for link in description_links]
-    photo_candidates = _merge(image_batches, 'image_url', _MAX_PHOTOS)
+    photo_candidates = _merge_round_robin(image_batches, 'image_url', _MAX_PHOTOS * 2)
     diverse_sources = _merge_round_robin(
         general_batches, 'url', _MAX_RESULTS * 3,
     )
@@ -1547,6 +1628,14 @@ def _build_osint_report(
     searched = [item for item in source_candidates
                 if not _is_junk_source(item)
                 and verify_source(place, item, references).status == 'accepted']
+    # Only images whose landing-page identity was VERIFIED can reach the gallery.
+    # Raw search-engine thumbnails alone are not proof of the depicted place.
+    accepted_keys = {source_key(item.get('url')) for item in searched
+                     if item.get('url')}
+    verified_image_photos = [photo for photo in photo_candidates
+                            if photo.get('source_url')
+                            and source_key(photo['source_url']) in accepted_keys
+                            and not _is_junk_photo(photo)]
     # Wikipedia lead photos are used only after their article passes identity
     # checks and Commons reports an open license with attribution.
     searched_photos = wikipedia_photos_for_sources(searched, _MAX_PHOTOS)
@@ -1600,6 +1689,7 @@ def _build_osint_report(
             tuple(site_from_search),
             tuple(curated_photos),
             tuple(searched_photos),
+            tuple(verified_image_photos),
         ],
         'image_url',
         _MAX_PHOTOS,
@@ -1607,18 +1697,10 @@ def _build_osint_report(
     if not merged and photos:
         # Photos already filtered; still re-check promoted landing pages.
         merged = _sources_from_photos(photos)
-    if not merged and not photos:
-        # Distinguishes "SearXNG down" from "nothing relevant found".
-        probe = _search_soft(url, origin, queries[0], 'general')
-        if not probe and not description_links and not photo_candidates and not source_candidates:
-            raise DomainError('Не удалось получить данные из открытых источников. Повторите попытку позже.', 502)
-        if probe:
-            general_batches = [probe]
-            source_candidates = _merge([tuple(source_candidates), probe], 'url', _MAX_RESULTS)
-            merged = _merge(general_batches, 'url', _MAX_RESULTS)
-            merged = _merge([tuple(description_links), tuple(merged)], 'url', _MAX_RESULTS)
-        else:
-            merged = description_links[:_MAX_RESULTS]
+    if not merged and not photos and not search_diagnostics['successful']:
+        # Search outage is different from a valid search with no matching place.
+        # Never promote an unverified raw search result into the report.
+        raise DomainError('Не удалось получить данные из открытых источников. Повторите попытку позже.', 502)
 
     # Curated first, then known urbex catalogs, then the rest of the web.
     def _source_rank(item: dict, *, url_key: str) -> int:
@@ -1654,6 +1736,8 @@ def _build_osint_report(
         'source': 'searxng',
         'source_candidates': source_candidates,
         'photo_candidates': photo_candidates,
+        'search_diagnostics': search_diagnostics,
+        'search_completed_at': time.time(),
         'total': len(merged),
         'items': merged,
         'photos': photos,
@@ -1668,6 +1752,7 @@ def _verify_report(payload: dict, place: dict) -> dict:
                            junk_source=_is_junk_source, junk_photo=_is_junk_photo)
     report['assessment'] = assess_osint_items(report['items'])
     return report
+
 
 def build_osint_report(
     url: str,
@@ -1771,6 +1856,24 @@ def save_osint_report(engine, place_id: int, report: dict) -> dict:
     return _report_for_response(to_store, cached=False, updated_at=row['updated_at'])
 
 
+def _report_is_stale(report: dict, *, now: float | None = None) -> bool:
+    """Use latest full search time rather than DB updated_at from photo refreshes."""
+    now = time.time() if now is None else now
+    stamp = report.get('search_completed_at')
+    if isinstance(stamp, (float, int)):
+        return now - stamp >= _REPORT_TTL_SECONDS
+    updated = report.get('updated_at')
+    if not updated:
+        return True
+    try:
+        dt = datetime.fromisoformat(str(updated).replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return now - dt.timestamp() >= _REPORT_TTL_SECONDS
+    except (TypeError, ValueError, OverflowError):
+        return True
+
+
 def get_or_build_osint_report(
     engine,
     url: str,
@@ -1783,106 +1886,126 @@ def get_or_build_osint_report(
 ) -> dict:
     """Serve a persisted report when present; otherwise build and store it."""
     place_id = int(place['id'])
-    if not refresh:
-        stored = load_osint_report(engine, place_id)
-        if stored is not None:
-            filtered = _refilter_report(stored, place)
-            missing_identity = []
-            for row in filtered.get('verification', {}).get('sources', []):
-                candidate = row.get('candidate') or {}
-                identity = candidate.get('page_identity') or {}
-                if (is_object_url(str(candidate.get('url') or ''))
-                        and (row.get('status') == 'unconfirmed'
-                             or identity.get('latitude') is None
-                             or identity.get('longitude') is None)):
-                    missing_identity.append(candidate)
-            if missing_identity and time.time() - stored.get('wikimapia_identity_checked_at', 0) >= 300:
-                references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
-                recovered_sources = enrich_candidates(place, missing_identity, references)
-                filtered['items'] = recovered_sources + filtered['items']
-                filtered = _refilter_report(filtered, place)
-                filtered['wikimapia_identity_checked_at'] = time.time()
-            gallery_urls = {photo.get('source_url') for photo in filtered['photos']
-                            if photo.get('engine') == 'wikimapia'}
-            missing_wikimapia = [
-                link for link in filtered['items']
-                if is_object_url(str(link.get('url') or ''))
-                and link['url'] not in gallery_urls
-            ]
-            if missing_wikimapia and time.time() - stored.get('wikimapia_checked_at', 0) >= 300:
-                recovered = wikimapia_photos_for_links(missing_wikimapia, _MAX_PHOTOS)
-                filtered['wikimapia_checked_at'] = time.time()
-                filtered['photos'] = _merge(
-                    [tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS,
-                )
-                filtered['photos_total'] = len(filtered['photos'])
-                return save_osint_report(engine, place_id, _verify_report(filtered, place))
-            vk_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
-                          if photo.get('engine') == 'vk'}
-            missing_vk = [link for link in links_from_description(str(place.get('description') or ''))
-                          if is_vk_group_url(link['url']) and source_key(link['url']) not in vk_parents]
-            if missing_vk and time.time() - stored.get('vk_photos_checked_at', 0) >= 300:
-                recovered = vk_photos_for_links(vk_token, missing_vk, _MAX_PHOTOS)
-                filtered['vk_photos_checked_at'] = time.time()
-                filtered['photos'] = _merge([tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS)
-                return save_osint_report(engine, place_id, _verify_report(filtered, place))
-            urban_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
-                             if photo.get('engine') == 'urban3p'}
-            missing_urban = [link for link in links_from_description(str(place.get('description') or ''))
-                             if link.get('category') == 'urban3p'
-                             and source_key(link['url']) not in urban_parents]
-            if missing_urban and time.time() - stored.get('urban3p_photos_checked_at', 0) >= 300:
-                recovered = urban3p_photos_for_links(missing_urban, _MAX_PHOTOS)
-                filtered['urban3p_photos_checked_at'] = time.time()
-                filtered['photos'] = _merge([tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS)
-                return save_osint_report(engine, place_id, _verify_report(filtered, place))
-            # A transient source failure must not freeze an empty gallery forever.
-            # Retry missing description galleries, at most once per five minutes.
-            gallery_sources = {
-                str(photo.get('source_url') or '').rstrip('/')
-                for photo in filtered.get('photos', [])
-                if photo.get('engine') == 'geocache'
-            }
-            missing = [
-                link for link in links_from_description(str(place.get('description') or ''))
-                if (urlparse(link['url']).hostname or '').lower() in {
-                    'geocaching.su', 'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru',
-                } and link['url'].rstrip('/') not in gallery_sources
-            ]
-            if missing and time.time() - stored.get('geocache_photos_checked_at', 0) >= 300:
-                recovered = generic_page_photos_for_links(missing, limit=_MAX_PHOTOS)
-                filtered['geocache_photos_checked_at'] = time.time()
-                filtered['photos'] = _merge(
-                    [tuple(recovered), tuple(filtered.get('photos', []))],
-                    'image_url', _MAX_PHOTOS,
-                )
-                filtered['photos_total'] = len(filtered['photos'])
-                return save_osint_report(engine, place_id, _verify_report(filtered, place))
-            # Re-read confirmed Yandex organizations whose legacy search thumbnails
-            # lack gallery provenance. Keep failures under a five-minute cooldown.
-            yandex_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
-                              if photo.get('engine') == 'yandex_maps'}
-            missing_yandex = [item for item in filtered['items']
-                              if source_key(item.get('url')).startswith('yandex_maps:')
-                              and source_key(item.get('url')) not in yandex_parents][:2]
-            if missing_yandex and time.time() - stored.get('yandex_photos_checked_at', 0) >= 300:
-                recovered = yandex_maps_photos_for_links(missing_yandex, _MAX_PHOTOS)
-                filtered['yandex_photos_checked_at'] = time.time()
-                filtered['photos'] = _merge([tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS)
-                return save_osint_report(engine, place_id, _verify_report(filtered, place))
-            # Persist tightened filters so junk does not return next time.
-            if (
-                filtered.get('verification') != stored.get('verification')
-                or filtered.get('wikimapia_identity_checked_at') != stored.get('wikimapia_identity_checked_at')
-                or filtered.get('items') != stored.get('items')
-                or filtered.get('total') != stored.get('total')
-                or filtered.get('photos_total') != stored.get('photos_total')
-                or filtered.get('photos') != stored.get('photos')
-            ):
-                return save_osint_report(engine, place_id, _verify_report(filtered, place))
-            return filtered
-    report = build_osint_report(
-        url, origin, place, vk_token=vk_token, semantic_url=semantic_url,
-    )
+    stored = load_osint_report(engine, place_id) if not refresh else None
+    # Only use the stored result without searching when the full search is fresh.
+    # Explicit refresh=True always performs a new search.
+    if stored is not None and (not url or not _report_is_stale(stored)):
+        filtered = _refilter_report(stored, place)
+        missing_identity = []
+        for row in filtered.get('verification', {}).get('sources', []):
+            candidate = row.get('candidate') or {}
+            identity = candidate.get('page_identity') or {}
+            if (is_object_url(str(candidate.get('url') or ''))
+                    and (row.get('status') == 'unconfirmed'
+                         or identity.get('latitude') is None
+                         or identity.get('longitude') is None)):
+                missing_identity.append(candidate)
+        if missing_identity and time.time() - stored.get('wikimapia_identity_checked_at', 0) >= 300:
+            references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
+            recovered_sources = enrich_candidates(place, missing_identity, references)
+            filtered['items'] = recovered_sources + filtered['items']
+            filtered = _refilter_report(filtered, place)
+            filtered['wikimapia_identity_checked_at'] = time.time()
+        gallery_urls = {photo.get('source_url') for photo in filtered['photos']
+                        if photo.get('engine') == 'wikimapia'}
+        missing_wikimapia = [
+            link for link in filtered['items']
+            if is_object_url(str(link.get('url') or ''))
+            and link['url'] not in gallery_urls
+        ]
+        if missing_wikimapia and time.time() - stored.get('wikimapia_checked_at', 0) >= 300:
+            recovered = wikimapia_photos_for_links(missing_wikimapia, _MAX_PHOTOS)
+            filtered['wikimapia_checked_at'] = time.time()
+            filtered['photos'] = _merge(
+                [tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS,
+            )
+            filtered['photos_total'] = len(filtered['photos'])
+            return save_osint_report(engine, place_id, _verify_report(filtered, place))
+        vk_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
+                      if photo.get('engine') == 'vk'}
+        missing_vk = [link for link in links_from_description(str(place.get('description') or ''))
+                      if is_vk_group_url(link['url']) and source_key(link['url']) not in vk_parents]
+        if missing_vk and time.time() - stored.get('vk_photos_checked_at', 0) >= 300:
+            recovered = vk_photos_for_links(vk_token, missing_vk, _MAX_PHOTOS)
+            filtered['vk_photos_checked_at'] = time.time()
+            filtered['photos'] = _merge([tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS)
+            return save_osint_report(engine, place_id, _verify_report(filtered, place))
+        urban_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
+                         if photo.get('engine') == 'urban3p'}
+        missing_urban = [link for link in links_from_description(str(place.get('description') or ''))
+                         if link.get('category') == 'urban3p'
+                         and source_key(link['url']) not in urban_parents]
+        if missing_urban and time.time() - stored.get('urban3p_photos_checked_at', 0) >= 300:
+            recovered = urban3p_photos_for_links(missing_urban, _MAX_PHOTOS)
+            filtered['urban3p_photos_checked_at'] = time.time()
+            filtered['photos'] = _merge([tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS)
+            return save_osint_report(engine, place_id, _verify_report(filtered, place))
+        # A transient source failure must not freeze an empty gallery forever.
+        # Retry missing description galleries, at most once per five minutes.
+        gallery_sources = {
+            str(photo.get('source_url') or '').rstrip('/')
+            for photo in filtered.get('photos', [])
+            if photo.get('engine') == 'geocache'
+        }
+        missing = [
+            link for link in links_from_description(str(place.get('description') or ''))
+            if (urlparse(link['url']).hostname or '').lower() in {
+                'geocaching.su', 'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru',
+            } and link['url'].rstrip('/') not in gallery_sources
+        ]
+        if missing and time.time() - stored.get('geocache_photos_checked_at', 0) >= 300:
+            recovered = generic_page_photos_for_links(missing, limit=_MAX_PHOTOS)
+            filtered['geocache_photos_checked_at'] = time.time()
+            filtered['photos'] = _merge(
+                [tuple(recovered), tuple(filtered.get('photos', []))],
+                'image_url', _MAX_PHOTOS,
+            )
+            filtered['photos_total'] = len(filtered['photos'])
+            return save_osint_report(engine, place_id, _verify_report(filtered, place))
+        # Re-read confirmed Yandex organizations whose legacy search thumbnails
+        # lack gallery provenance. Keep failures under a five-minute cooldown.
+        yandex_parents = {source_key(photo.get('source_url')) for photo in filtered['photos']
+                          if photo.get('engine') == 'yandex_maps'}
+        missing_yandex = [item for item in filtered['items']
+                          if source_key(item.get('url')).startswith('yandex_maps:')
+                          and source_key(item.get('url')) not in yandex_parents][:2]
+        if missing_yandex and time.time() - stored.get('yandex_photos_checked_at', 0) >= 300:
+            recovered = yandex_maps_photos_for_links(missing_yandex, _MAX_PHOTOS)
+            filtered['yandex_photos_checked_at'] = time.time()
+            filtered['photos'] = _merge([tuple(recovered), tuple(filtered['photos'])], 'image_url', _MAX_PHOTOS)
+            return save_osint_report(engine, place_id, _verify_report(filtered, place))
+        # Persist tightened filters so junk does not return next time.
+        if (
+            filtered.get('verification') != stored.get('verification')
+            or filtered.get('wikimapia_identity_checked_at') != stored.get('wikimapia_identity_checked_at')
+            or filtered.get('items') != stored.get('items')
+            or filtered.get('total') != stored.get('total')
+            or filtered.get('photos_total') != stored.get('photos_total')
+            or filtered.get('photos') != stored.get('photos')
+        ):
+            return save_osint_report(engine, place_id, _verify_report(filtered, place))
+        return filtered
+    try:
+        report = build_osint_report(
+            url, origin, place, vk_token=vk_token, semantic_url=semantic_url,
+        )
+    except DomainError as exc:
+        # Stale-while-error: do not blank out a previously verified report on a
+        # temporary SearXNG failure. Caller can display stale=True explicitly.
+        status = (getattr(exc, 'status_code', None)
+                  or getattr(exc, 'status', None)
+                  or getattr(exc, 'code', None))
+        if stored is not None and status in (502, 503):
+            fallback = _refilter_report(stored, place)
+            fallback['stale'] = True
+            return fallback
+        raise
+    if (stored is not None and not report.get('items') and not report.get('photos')
+            and (stored.get('items') or stored.get('photos'))):
+        # A successful but empty index lookup should not silently erase an older
+        # verified dossier. Keep it explicitly stale until someone refreshes it
+        # with fresh evidence or confirms the old sources are gone.
+        fallback = _refilter_report(stored, place)
+        fallback['stale'] = True
+        return fallback
     return save_osint_report(engine, place_id, report)
-    
