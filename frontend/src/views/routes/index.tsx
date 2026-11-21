@@ -842,20 +842,6 @@ export function RoutesView() {
                 </Button>
               </div>
             )}
-            {shareUrl && (
-              <div className="route-share-link" style={{ marginTop: 12 }}>
-                <label htmlFor="route-share-url">Ссылка на маршрут</label>
-                <input
-                  id="route-share-url"
-                  ref={shareLinkInput}
-                  type="text"
-                  readOnly
-                  value={shareUrl}
-                  onFocus={(event) => event.currentTarget.select()}
-                  style={{ width: "100%", marginTop: 8, marginBottom: 12 }}
-                />
-              </div>
-            )}
           </fieldset>
           {shareCopied && (
             <p className="success-toast" role="status">
