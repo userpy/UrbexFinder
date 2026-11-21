@@ -1,4 +1,8 @@
-"""OSINT report built from SearXNG (XNG) search results for a place card."""
+"""UrbexFinder OSINT report and integrated SearXNG query generator.
+
+Drop-in replacement for the existing urbex.infrastructure OSINT report module.
+No separate osint_query_generator.py is required.
+"""
 import json
 import logging
 import re
@@ -7,6 +11,8 @@ import time
 from collections import OrderedDict
 from urllib.parse import unquote, urlparse
 import httpx
+from dataclasses import dataclass
+from typing import Literal
 from sqlalchemy import text
 from urbex.domain.rules import DomainError
 from urbex.infrastructure.osint_identity import verify_report, verify_source, source_key
@@ -28,6 +34,229 @@ from urbex.infrastructure.osint_description import (
     is_vk_group_url,
 )
 
+
+# ---------------------------------------------------------------------------
+# Integrated UrbexFinder query generator (single-file replacement).
+# Query variants are search hypotheses, not confirmed alternative place names.
+# Existing imports below this block remain the same as the original report.
+# ---------------------------------------------------------------------------
+OSINTQueryStrategy = Literal['exact', 'local', 'alias', 'site', 'coordinates', 'fallback', 'images']
+
+_QG_SITES: tuple[str, ...] = (
+    'urban3p.ru', 'swalker.ru', 'caves.ru', 'planetadorog.ru',
+    'urbexstalker.com', 'wikimapia.org', 'geocaching.su', 'geocaching.ru',
+)
+_QG_MAX_QUERY_LENGTH = 200
+_QG_MAX_TEXT_QUERIES = 6
+_QG_MAX_IMAGE_QUERIES = 3
+
+@dataclass(frozen=True)
+class OSINTSearchQuery:
+    strategy: OSINTQueryStrategy
+    query: str
+    priority: int
+
+# These are search rewrites, NOT assertions that they are official names.
+_QG_TYPE_PREFIX = re.compile(
+    r'^(?:(?:заброшенн\w*|бывш\w*|стар\w*)\s+)*'
+    r'(?:пионерск\w*\s+лагер\w*|детск\w*\s+оздоровительн\w*\s+лагер\w*|'
+    r'детск\w*\s+лагер\w*|санатори\w*|баз[аыу]\s+отдыха)\s*',
+    re.IGNORECASE,
+)
+_QG_ADMIN = re.compile(r'(?:област\w*|район\w*|округ\w*|республик\w*|кра[йя]\w*|федеральн\w*|росси\w*)', re.I)
+_QG_REGION = re.compile(r'(?:[А-ЯЁа-яё\-]+\s+област\w*|[А-ЯЁа-яё\-]+\s+край|республика\s+[А-ЯЁа-яё\-]+|г\.?\s*Москва|\bМосква\b)', re.I)
+_QG_SETTLEMENT_PREFIX = re.compile(r'^(?:(?:деревня|д\.|село|с\.|пос[её]лок|п\.|город|г\.|снт|днт)\s+)', re.I)
+_QG_STREET = re.compile(r'\b(?:улица|ул\.|шоссе|проспект|переулок|дорога|набережная|дом|строение)\b', re.I)
+_QG_QUOTED_NAME = re.compile(r'[«"]([^»"]{3,65})[»"]')
+_QG_BAD_ALIASES = {'разное', 'без названия', 'неизвестно', 'нет', 'none', 'null'}
+_QG_NEGATIVE_IMAGES = ('-pinterest', '-roblox', '-minecraft', '-avito', '-cian', '-wallpaper')
+
+
+def _qg_clean(value: object, *, max_len: int = 120) -> str:
+    if value is None:
+        return ''
+    value = re.sub(r'\s+', ' ', str(value)).strip()
+    # Do not allow precomposed SearXNG operators from untrusted place metadata.
+    value = re.sub(r'(?i)\b(?:site|intitle|inurl|filetype):', '', value)
+    value = value.replace('(', ' ').replace(')', ' ').replace('|', ' ')
+    return value[:max_len].strip()
+
+
+def _qg_explicit_aliases(place: dict) -> list[str]:
+    raw = place.get('aliases') or place.get('alternative_names') or place.get('alternate_names') or []
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            raw = parsed if isinstance(parsed, list) else re.split(r'[;\n]+', raw)
+        except (TypeError, ValueError):
+            raw = re.split(r'[;\n]+', raw)
+    if not isinstance(raw, (list, tuple)):
+        return []
+    found = []
+    for item in raw[:30]:
+        name = _qg_clean(item if isinstance(item, str) else '', max_len=90)
+        if name and name.casefold() not in _QG_BAD_ALIASES:
+            found.append(name)
+    return found
+
+
+def _qg_names(place: dict) -> tuple[str, list[str]]:
+    primary = _qg_clean(place.get('name'), max_len=110)
+    aliases = _qg_explicit_aliases(place)
+    if primary:
+        match = _QG_QUOTED_NAME.search(primary)
+        if match:
+            aliases.append(match.group(1).strip())
+        reduced = _QG_TYPE_PREFIX.sub('', primary).strip(' «»"')
+        if len(reduced) >= 4 and reduced.casefold() != primary.casefold():
+            aliases.append(reduced)
+    seen = {primary.casefold()}
+    unique = []
+    for alias in aliases:
+        if alias.casefold() not in seen:
+            seen.add(alias.casefold())
+            unique.append(alias)
+    return primary, unique
+
+
+def _qg_location(place: dict) -> tuple[str, str]:
+    region = _qg_clean(place.get('region'), max_len=90)
+    full = _qg_clean(place.get('full_address'), max_len=500)
+    if not region:
+        m = _QG_REGION.search(full)
+        if m:
+            region = m.group(0)
+    explicit = _qg_clean(place.get('settlement') or place.get('locality') or place.get('city'), max_len=70)
+    if explicit:
+        return explicit, region
+    # Avoid confusing named objects, roads, postcode, and district with settlement.
+    for part in re.split(r'\s*,\s*', full):
+        part = part.strip(' «»"')
+        part = _QG_SETTLEMENT_PREFIX.sub('', part).strip()
+        if (not 3 <= len(part) <= 65 or re.search(r'\d', part) or
+                _QG_ADMIN.search(part) or _QG_STREET.search(part) or
+                part.casefold() == region.casefold() or
+                part.casefold() == str(place.get('name') or '').casefold()):
+            continue
+        # Skip obvious catalog/category phrases; prefer explicit settlement field.
+        if re.search(r'\b(?:лагерь|санаторий|усадьба|завод|бункер|церковь|храм)\b', part, re.I):
+            continue
+        return part, region
+    return '', region
+
+
+def _qg_coordinate_string(place: dict) -> str:
+    try:
+        lat = float(place['latitude'])
+        lon = float(place['longitude'])
+    except (TypeError, KeyError, ValueError):
+        return ''
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return ''
+    return f'{lat:.5f}, {lon:.5f}'
+
+
+def _qg_compose(*parts: str, limit: int = _QG_MAX_QUERY_LENGTH) -> str:
+    """Add only whole terms; never truncate a search operator mid-expression."""
+    words = []
+    length = 0
+    for raw in parts:
+        term = _qg_clean(raw, max_len=160) if not raw.startswith('site:') else raw
+        if not term:
+            continue
+        new_length = length + len(term) + (1 if words else 0)
+        if new_length > limit:
+            continue
+        words.append(term)
+        length = new_length
+    return ' '.join(words)
+
+
+def generate_osint_queries(place: dict, *, max_queries: int = _QG_MAX_TEXT_QUERIES,
+                     image: bool = False) -> list[OSINTSearchQuery]:
+    """Return prioritized *diverse* queries. Defaults work with SearXNG JSON API."""
+    if max_queries <= 0:
+        return []
+    name, aliases = _qg_names(place)
+    settlement, region = _qg_location(place)
+    coords = _qg_coordinate_string(place)
+    location = _qg_compose(settlement, region) if settlement.casefold() != region.casefold() else region
+    candidates: list[OSINTSearchQuery] = []
+
+    def add(strategy: OSINTQueryStrategy, priority: int, *parts: str) -> None:
+        q = _qg_compose(*parts)
+        if q:
+            candidates.append(OSINTSearchQuery(strategy, q, priority))
+
+    if image:
+        if name:
+            add('images', 100, name, settlement, 'фото')
+            for alias in aliases[:2]:
+                add('images', 90, alias, location, 'фото')
+            add('images', 85, name, region, 'фото')
+            if coords:
+                add('images', 65, name, coords, 'фото')
+            for site in _QG_SITES[:2]:
+                add('images', 70, name, f'site:{site}', 'фото')
+        elif coords:
+            add('images', 70, coords, 'фото')
+        elif location:
+            add('images', 50, location, 'фото')
+        # Postfilter junk hosts as well: engine support for negative terms varies.
+        enriched = []
+        for item in candidates:
+            suffix = []
+            for negative in _QG_NEGATIVE_IMAGES:
+                if len(item.query) + sum(len(x) + 1 for x in suffix) + len(negative) + 1 <= _QG_MAX_QUERY_LENGTH:
+                    suffix.append(negative)
+            enriched.append(OSINTSearchQuery(item.strategy, ' '.join([item.query] + suffix), item.priority))
+        candidates = enriched
+    else:
+        if name:
+            add('exact', 110, name, settlement or region)
+            for site in _QG_SITES:
+                add('site', 100, name, f'site:{site}')
+            for alias in aliases[:5]:
+                add('alias', 95, alias, settlement or region)
+            if settlement and region:
+                add('local', 90, name, location)
+            if coords:
+                add('coordinates', 75, name, coords)
+                add('coordinates', 67, coords)
+            add('fallback', 30, name)
+        else:
+            if coords:
+                add('coordinates', 80, coords)
+            if location:
+                add('local', 60, location)
+
+    # OSINTQueryStrategy quotas keep all first N from becoming an arbitrary domain-only batch.
+    # Exact, site, alias, local, coordinates, fallback.
+    order = (['images'] if image else
+             ['exact', 'site', 'alias', 'local', 'coordinates', 'site', 'alias', 'fallback'])
+    by_strategy: dict[str, list[OSINTSearchQuery]] = {}
+    seen: set[str] = set()
+    for item in candidates:
+        key = item.query.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        by_strategy.setdefault(item.strategy, []).append(item)
+    for bucket in by_strategy.values():
+        bucket.sort(key=lambda row: -row.priority)
+    chosen: list[OSINTSearchQuery] = []
+    for strategy in order:
+        bucket = by_strategy.get(strategy, [])
+        if bucket and len(chosen) < max_queries:
+            chosen.append(bucket.pop(0))
+    remaining = sorted((x for bucket in by_strategy.values() for x in bucket),
+                       key=lambda row: -row.priority)
+    chosen.extend(remaining[:max(0, max_queries - len(chosen))])
+    return chosen[:max_queries]
+
+
+
+
 _log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _last_request = 0.0
@@ -35,7 +264,7 @@ _MAX_RESULTS = 12
 _MAX_PHOTOS = 12
 # Keep cold reports under the Next.js rewrite proxy budget (~30s).
 # One slot is reserved for urbex site: queries (Urban3P, Swalker, …).
-_MAX_QUERIES = 3
+_MAX_QUERIES = 6
 _MAX_IMAGE_QUERIES = 3
 # Prefer these RU urbex catalogs over generic web noise.
 _URBEX_SITE_DOMAINS = (
@@ -389,43 +618,25 @@ def _urbex_site_query(place: dict) -> str:
     return f'{subject[:160]} {_URBEX_SITE_QUERY}'
 
 
+def _query_generator_place(place: dict) -> dict:
+    """Build query metadata, preserving any richer name from the old logic."""
+    query_place = dict(place)
+    enriched_name = _search_name(place)
+    raw_name = str(place.get('name') or '').strip()
+    if enriched_name and enriched_name != raw_name:
+        aliases = _qg_explicit_aliases(place)
+        if raw_name:
+            aliases.insert(0, raw_name)
+        query_place['aliases'] = aliases
+        query_place['name'] = enriched_name
+    return query_place
+
+
 def _queries_for(place: dict) -> list[str]:
-    """Build SearXNG queries: urbex sites, then name+settlement/region, then coords."""
-    name = _search_name(place)
-    location = _search_location(place)
-    settlement = _settlement_label(place)
-    coords = _coords(place)
-
-    queries: list[str] = []
-    # Bias toward Urban3P / Swalker / Caves / Планета дорог / UrbexStalker.
-    site_query = _urbex_site_query(place)
-    if site_query:
-        queries.append(site_query)
-    # Settlement/region before bare name — «Атлант» alone pulls Sochi camps.
-    if name and location and location.casefold() != name.casefold():
-        queries.append(f'{name} {location}'[:200])
-    elif name and settlement:
-        queries.append(f'{name} {settlement}'[:200])
-    elif name:
-        queries.append(name[:200])
-    if coords:
-        latitude, longitude = coords
-        point = f'{latitude:.5f}, {longitude:.5f}'
-        queries.append((f'{name} {point}' if name else point)[:200])
-    if location and not name:
-        queries.append(location[:200])
-
-    seen: set[str] = set()
-    unique: list[str] = []
-    for query in queries:
-        key = query.casefold()
-        if not query or key in seen:
-            continue
-        seen.add(key)
-        unique.append(query)
-        if len(unique) >= _MAX_QUERIES:
-            break
-    return unique
+    """Generate diverse text queries without external generator imports."""
+    return [item.query for item in generate_osint_queries(
+        _query_generator_place(place), max_queries=_MAX_QUERIES,
+    )]
 
 
 def _short_location(place: dict) -> str:
@@ -447,57 +658,10 @@ def _unit_numbers(text: str) -> set[str]:
 
 
 def _image_queries_for(place: dict) -> list[str]:
-    """Image queries: prefer settlement/region+coords; avoid bare generic names."""
-    name = _search_name(place)
-    location = _search_location(place)
-    coords = _coords(place)
-    distinctive = _distinctive_tokens(name)
-    # Steer engines away from memes, games and classifieds.
-    negative = (
-        ' -tass -риа -новости -агентство -музей'
-        ' -backrooms -roblox -minecraft -wallpaper -pinterest'
-        ' -avito -cian -продам -недострой'
-    )
-    if _is_military_place_name(name):
-        # Keep short military negatives first — query strings are capped at 200 chars.
-        negative = (
-            ' -с-400 -с-300 -с-500 -пво -алмаз-антей -триумф -бжрк -музей'
-            + negative
-        )
-    queries: list[str] = []
-    # Push image engines toward RU urbex catalogs first.
-    if name and location and (distinctive or coords):
-        queries.append(
-            f'{name} {location} {_URBEX_SITE_TEXT} фото{negative}'[:200]
-        )
-        queries.append(f'{name} {location} фото{negative}'[:200])
-    elif name and distinctive:
-        queries.append(f'{name} {_URBEX_SITE_TEXT} фото{negative}'[:200])
-        queries.append(f'{name} фото{negative}'[:200])
-    if coords:
-        latitude, longitude = coords
-        point = f'{latitude:.5f}, {longitude:.5f}'
-        if name:
-            queries.append(f'{name} {point}{negative}'[:200])
-        elif location:
-            queries.append(f'{location} {point} фото{negative}'[:200])
-        else:
-            queries.append(f'{point}{negative}'[:200])
-    # Last resort for distinctive names without coords/region.
-    if not queries and name and distinctive:
-        queries.append(f'{name} {_URBEX_SITE_TEXT} фото{negative}'[:200])
-        queries.append(f'{name} фото{negative}'[:200])
-    seen: set[str] = set()
-    unique: list[str] = []
-    for query in queries:
-        key = query.casefold()
-        if not query or key in seen:
-            continue
-        seen.add(key)
-        unique.append(query)
-        if len(unique) >= _MAX_IMAGE_QUERIES:
-            break
-    return unique
+    """Generate length-safe image queries without external generator imports."""
+    return [item.query for item in generate_osint_queries(
+        _query_generator_place(place), max_queries=_MAX_IMAGE_QUERIES, image=True,
+    )]
 
 
 def _significant_tokens(text: str) -> set[str]:
@@ -1361,8 +1525,8 @@ def _build_osint_report(
         # Soft-fail each query: one timed-out engine family must not blank the report.
         batch = _search_soft(url, origin, query, 'general')
         general_batches.append(batch)
-        if sum(len(rows) for rows in general_batches) >= _MAX_RESULTS:
-            break
+        # Do not stop on unverified raw results: the first batch may be all noise.
+        # Query generator already bounds the number of calls to six.
 
     image_batches = [
         _search_soft(url, origin, query, 'images') for query in image_queries
@@ -1370,9 +1534,12 @@ def _build_osint_report(
 
     references = [link['url'] for link in description_links]
     photo_candidates = _merge(image_batches, 'image_url', _MAX_PHOTOS)
+    diverse_sources = _merge_round_robin(
+        general_batches, 'url', _MAX_RESULTS * 3,
+    )
     candidate_pool = _merge_round_robin(
-        [_merge(general_batches, 'url', _MAX_RESULTS), _sources_from_photos(photo_candidates)],
-        'url', _MAX_RESULTS * 2,
+        [diverse_sources, _sources_from_photos(photo_candidates)],
+        'url', _MAX_RESULTS * 3,
     )
     candidate_pool = rank_candidates(semantic_url, place, candidate_pool)
     source_candidates = enrich_candidates(place, candidate_pool, references)
@@ -1501,7 +1668,6 @@ def _verify_report(payload: dict, place: dict) -> dict:
                            junk_source=_is_junk_source, junk_photo=_is_junk_photo)
     report['assessment'] = assess_osint_items(report['items'])
     return report
-
 
 def build_osint_report(
     url: str,
@@ -1719,3 +1885,4 @@ def get_or_build_osint_report(
         url, origin, place, vk_token=vk_token, semantic_url=semantic_url,
     )
     return save_osint_report(engine, place_id, report)
+    
