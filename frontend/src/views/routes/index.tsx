@@ -255,6 +255,9 @@ export function RoutesView() {
         : await downloadRouteGpx(route.name, points);
 
       switch (result.status) {
+        case "telegram-accepted":
+          setMessage(`Экспорт ${format.toUpperCase()}: Telegram принял запрос на скачивание`);
+          break;
         case "saved":
           setMessage(`Экспорт ${format.toUpperCase()}: файл сохранён`);
           break;
