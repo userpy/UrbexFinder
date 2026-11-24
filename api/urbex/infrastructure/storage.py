@@ -37,8 +37,8 @@ class S3Storage:
                                    aws_secret_access_key=config.s3_secret_key, region_name='us-east-1',
                                    config=Config(connect_timeout=3, read_timeout=10, retries={'max_attempts': 1}))
 
-    def put(self, key, data):
-        self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType='image/jpeg')
+    def put(self, key, data, *, content_type='image/jpeg'):
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
 
     def exists(self, key):
         from botocore.exceptions import ClientError

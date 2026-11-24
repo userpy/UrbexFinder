@@ -5,6 +5,7 @@ from urbex.infrastructure.search import ElasticSearch
 from urbex.infrastructure.geocoding import reverse_address, check_description_region
 from urbex.infrastructure.osint import get_or_build_osint_report, load_osint_report
 from urbex.infrastructure.source_photos import source_photos
+from urbex.infrastructure.source_gallery_cache import SourceGalleryCache
 from urbex.infrastructure.wikimapia import gallery_source_links
 from urbex.infrastructure.external_images import ExternalImages
 from urbex.infrastructure.urban3p_media import fetch_image
@@ -42,6 +43,7 @@ def create_app(config=None, storage=None):
         try:
             yield
         finally:
+            await asyncio.to_thread(app.state.source_gallery_cache.close)
             await asyncio.to_thread(app.state.external_images.close)
             if task:
                 task.cancel()
@@ -54,10 +56,6 @@ def create_app(config=None, storage=None):
     app.state.prepare_route_share = lambda user_id, route, url: prepare_route_share(config.telegram_bot_token, user_id, route, url)
     app.state.reverse_address = lambda latitude, longitude: reverse_address(config.geocoder_url, config.origin, latitude, longitude)
     app.state.engine = create_engine(config.database_url, pool_pre_ping=True)
-    app.state.source_photos = lambda place: app.state.external_images.photos(gallery_source_links(source_photos(
-        place, load_osint_report(app.state.engine, place['id']), vk_token=config.vk_access_token,
-        search_url=config.searxng_url, origin=config.origin,
-    ), place))
     app.state.urban3p_image = fetch_image
     def osint_report(place, refresh=False):
         report = cache_report(get_or_build_osint_report(
@@ -73,6 +71,17 @@ def create_app(config=None, storage=None):
     app.state.search = ElasticSearch(config, app.state.engine)
     app.state.storage = storage or S3Storage(config)
     app.state.external_images = ExternalImages(app.state.storage)
+    app.state.source_gallery_cache = SourceGalleryCache(
+        app.state.storage,
+        lambda place, report: source_photos(
+            place, report, vk_token=config.vk_access_token,
+            search_url=config.searxng_url, origin=config.origin,
+        ),
+        scope=(config.searxng_url, config.origin, bool(config.vk_access_token)),
+    )
+    app.state.source_photos = lambda place: app.state.external_images.photos(gallery_source_links(
+        app.state.source_gallery_cache.photos(place, load_osint_report(app.state.engine, place['id'])), place,
+    ))
 
     def cache_report(report, place):
         photos = app.state.external_images.photos(gallery_source_links(report.get('photos', []), place))
