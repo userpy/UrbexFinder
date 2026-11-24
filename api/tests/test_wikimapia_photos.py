@@ -1,3 +1,5 @@
+import pytest
+
 from urbex.infrastructure import osint, osint_description as description
 from urbex.infrastructure.wikimapia import gallery_urls, photo_url
 
@@ -13,6 +15,46 @@ def test_gallery_uses_only_photo_host_and_best_available_size():
         'https://photos.wikimapia.org/p/00/08/50/63/09_1280.jpg',
     ]
     assert photo_url('https://photos.wikimapia.org/p/logo.jpg') is None
+
+
+def test_gallery_source_opens_selected_object_on_map_without_changing_provenance():
+    from copy import deepcopy
+    from urllib.parse import parse_qs, urlparse
+    from urbex.infrastructure.wikimapia import gallery_source_links
+    from urbex.infrastructure.osint_identity import source_key
+    source = 'https://wikimapia.org/1912109/ru/'
+    photo = {'source_url': source, 'image_url': 'https://photos.wikimapia.org/p/00/00/75/53/57_big.jpg',
+             'query': source, 'page_identity': {
+                 'source_key': source_key(source), 'title': 'РТЦ (С-25) «Сочельник»',
+                 'latitude': 56.14487995, 'longitude': 37.4071168,
+             }}
+    place = {'latitude': 56.145, 'longitude': 37.4074, 'description': 'Описание'}
+    before = deepcopy((photo, place))
+    result = gallery_source_links([photo], place)[0]
+    link = urlparse(result['source_url'])
+    assert link.scheme == 'https' and link.netloc == 'wikimapia.org' and link.path == '/'
+    assert parse_qs(link.fragment) == {
+        'lang': ['en'], 'lat': ['56.145000'], 'lon': ['37.407400'], 'z': ['13'],
+        'm': ['w'], 'show': ['/1912109/ru/РТЦ-(С-25)-«Сочельник»'],
+    }
+    assert source_key(result['source_url']) == source_key(source)
+    assert result['original_source_url'] == result['query'] == source
+    assert result['image_url'] == photo['image_url']
+    assert (photo, place) == before
+    assert gallery_source_links([result], place) == [result]
+
+
+def test_gallery_map_link_uses_only_same_object_metadata():
+    from urbex.infrastructure.wikimapia import gallery_source_links
+    photo = {'source_url': 'https://wikimapia.org/123/ru/', 'page_identity': {
+        'source_key': 'wikimapia.org:999', 'latitude': 56, 'longitude': 37, 'title': 'Wrong place',
+    }}
+    assert gallery_source_links([photo], {}) == [photo]
+    photo['page_identity']['source_key'] = 'wikimapia.org:123'
+    result = gallery_source_links([photo], {})[0]
+    assert 'lat=56.000000&lon=37.000000' in result['source_url']
+    other = {'source_url': 'https://urban3p.ru/object123'}
+    assert gallery_source_links([other], {'latitude': 56, 'longitude': 37}) == [other]
 
 
 def test_wikimapia_map_share_url_resolves_to_object_link():
@@ -36,6 +78,74 @@ def test_wikimapia_map_share_url_resolves_to_object_link():
     }
     report = verify_report({'items': links, 'photos': []}, place, [links[0]['url']])
     assert [row['url'] for row in report['items']] == [links[0]['url']]
+
+
+@pytest.mark.parametrize('shown, expected', [
+    ('/1802949/Former-Starting-Positions-S-25-SA-1-Guild-/photo/1087688', '/1802949'),
+    ('/1802949/en/Former-Starting-Positions-S-25-SA-1-Guild/photo/1087688', '/1802949/en'),
+    ('/1802949/ru/Бывшие-стартовые-позиции/photo/1087688', '/1802949/ru'),
+    ('/1802949/photo/1087688', '/1802949'),
+    ('/1802949/ru/', '/1802949/ru'),
+])
+def test_map_photo_share_resolves_to_same_object(shown, expected):
+    from urbex.infrastructure.osint_identity import source_key
+    from urbex.infrastructure.wikimapia import object_url
+    shared = 'https://wikimapia.org/#lang=en&lat=56.144976&lon=37.407417&show=' + shown
+    url = 'https://wikimapia.org' + expected
+    assert object_url(shared) == url
+    assert source_key(shared) == source_key(url) == 'wikimapia.org:1802949'
+    assert description.links_from_description(shared)[0]['url'] == url
+    assert description.links_from_description(shared)[0]['category'] == 'wikimapia'
+
+
+@pytest.mark.parametrize('url', [
+    'https://wikimapia.org.evil.test/#show=/1802949/photo/1087688',
+    'https://user:password@wikimapia.org/#show=/1802949/photo/1087688',
+    'https://wikimapia.org:1234/#show=/1802949/photo/1087688',
+    'https://wikimapia.org/#show=//evil.test/1802949',
+    'https://wikimapia.org/#show=/1802949/photo/not-a-photo-id',
+])
+def test_invalid_map_photo_shares_are_not_object_links(url):
+    from urbex.infrastructure.wikimapia import object_url
+    assert object_url(url) is None
+
+
+def test_fetch_map_photo_share_requests_object_page(monkeypatch):
+    import httpx
+    from urbex.infrastructure.wikimapia import fetch_html
+    shared = ('https://wikimapia.org/#lang=en&lat=56.144976&lon=37.407417'
+              '&show=/1802949/Former-Starting-Positions-S-25-SA-1-Guild-/photo/1087688')
+    html = '<title>Former Starting Positions</title>' + ' ' * 500
+    requests = []
+    def respond(request):
+        requests.append(str(request.url))
+        return httpx.Response(200, text=html)
+    original = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(
+        transport=httpx.MockTransport(respond),
+        **{key: value for key, value in kwargs.items() if key != 'transport'},
+    ))
+    assert fetch_html(shared) == html
+    assert requests == ['https://wikimapia.org/1802949']
+
+
+def test_map_viewport_does_not_override_distant_object_coordinates():
+    from urbex.infrastructure.osint_identity import source_key, verify_report
+    shared = ('https://wikimapia.org/#lat=56.145&lon=37.4074'
+              '&show=/1802949/Former-Starting-Positions-S-25-SA-1-Guild-/photo/1087688')
+    place = {'name': 'Полузаброшенный узел связи у РТЦ С-25',
+             'description': shared, 'latitude': 56.145, 'longitude': 37.4074}
+    link = description.links_from_description(shared)[0]
+    identity = {'source_key': source_key(link['url']),
+                'title': 'Former Starting Positions S-25 "SA-1 Guild"',
+                'latitude': 56.165555, 'longitude': 37.3962831}
+    photo = {'engine': 'wikimapia', 'source_url': link['url'], 'query': shared,
+             'page_identity': identity,
+             'image_url': 'https://photos.wikimapia.org/p/00/01/08/76/88_big.jpg'}
+    result = verify_report({'items': [dict(link, page_identity=identity)],
+                            'photos': [photo]}, place, [shared])
+    assert result['items'] == []
+    assert result['photos'] == []
 
 
 def test_object_gallery_has_wikimapia_source(monkeypatch):
@@ -314,3 +424,43 @@ def test_gallery_prefers_full_size_big_links_over_75_pixel_thumbnails():
     assert gallery_urls('''<a href="http://photos.wikimapia.org/p/00/00/55/48/42_big.jpg">
         <img src="http://photos.wikimapia.org/p/00/00/55/48/42_75.jpg"></a>''',
         'https://wikimapia.org/3787319') == ['https://photos.wikimapia.org/p/00/00/55/48/42_big.jpg']
+
+
+def test_gallery_preserves_actual_thumbnail_for_each_original(monkeypatch):
+    original = 'https://photos.wikimapia.org/p/00/00/75/53/57_big.jpg'
+    thumbnail = original.replace('_big', '_75')
+    monkeypatch.setattr(description, '_fetch_generic_html', lambda _: f'''
+        <a href="{original}"><img src="{thumbnail}"></a>
+        <img src="https://photos.wikimapia.org/p/00/00/75/53/60_75.jpg">''')
+    photos = description.wikimapia_photos_for_links([{'url': 'https://wikimapia.org/123/ru/'}])
+    assert photos[0]['image_url'] == original
+    assert photos[0]['thumbnail_url'] == thumbnail
+    assert photos[1]['image_url'] == photos[1]['thumbnail_url']
+
+
+def test_broken_translation_recovers_same_objects_english_metadata(monkeypatch):
+    from urbex.infrastructure import wikimapia
+    broken = '<title></title>Информация недоступна (ошибка RK n.22)'
+    english = '<h1>Former camp</h1><meta property="place:location:latitude" content="55.6">'
+    calls = []
+    monkeypatch.setattr(wikimapia, '_fetch_html',
+                        lambda url: calls.append(url) or (english if '/en/' in url else broken))
+    assert wikimapia.fetch_html('https://wikimapia.org/123/ru/camp') == english
+    assert calls == ['https://wikimapia.org/123/ru/camp', 'https://wikimapia.org/123/en/']
+
+
+def test_translation_failure_preserves_original_gallery_and_does_not_loop(monkeypatch):
+    from urbex.infrastructure import wikimapia
+    broken = 'Информация недоступна (ошибка RK n.22)'
+    calls = []
+    monkeypatch.setattr(wikimapia, '_fetch_html', lambda url: calls.append(url) or broken)
+    assert wikimapia.fetch_html('https://wikimapia.org/123/en/') == broken
+    assert calls == ['https://wikimapia.org/123/en/']
+
+
+def test_wikimapia_gallery_does_not_truncate_at_generic_six_photo_limit(monkeypatch):
+    images = [f'https://photos.wikimapia.org/p/00/01/08/76/{n:02}_big.jpg' for n in range(7)]
+    monkeypatch.setattr(description, '_fetch_generic_html',
+                        lambda _: ''.join(f'<img src="{url}">' for url in images))
+    photos = description.wikimapia_photos_for_links([{'url': 'https://wikimapia.org/123/ru/'}])
+    assert [photo['image_url'] for photo in photos] == images

@@ -5,6 +5,7 @@ from urbex.infrastructure.search import ElasticSearch
 from urbex.infrastructure.geocoding import reverse_address, check_description_region
 from urbex.infrastructure.osint import get_or_build_osint_report, load_osint_report
 from urbex.infrastructure.source_photos import source_photos
+from urbex.infrastructure.wikimapia import gallery_source_links
 from urbex.infrastructure.external_images import ExternalImages
 from urbex.infrastructure.urban3p_media import fetch_image
 from urbex.infrastructure.telegram import send_route, prepare_route_share
@@ -53,16 +54,16 @@ def create_app(config=None, storage=None):
     app.state.prepare_route_share = lambda user_id, route, url: prepare_route_share(config.telegram_bot_token, user_id, route, url)
     app.state.reverse_address = lambda latitude, longitude: reverse_address(config.geocoder_url, config.origin, latitude, longitude)
     app.state.engine = create_engine(config.database_url, pool_pre_ping=True)
-    app.state.source_photos = lambda place: app.state.external_images.photos(source_photos(
+    app.state.source_photos = lambda place: app.state.external_images.photos(gallery_source_links(source_photos(
         place, load_osint_report(app.state.engine, place['id']), vk_token=config.vk_access_token,
         search_url=config.searxng_url, origin=config.origin,
-    ))
+    ), place))
     app.state.urban3p_image = fetch_image
     def osint_report(place, refresh=False):
         report = cache_report(get_or_build_osint_report(
             app.state.engine, config.searxng_url, config.origin, place,
             vk_token=config.vk_access_token, semantic_url=config.semantic_url, refresh=refresh,
-        ))
+        ), place)
         report.setdefault('verification', {})['location'] = check_description_region(
             place, app.state.reverse_address,
         )
@@ -73,8 +74,8 @@ def create_app(config=None, storage=None):
     app.state.storage = storage or S3Storage(config)
     app.state.external_images = ExternalImages(app.state.storage)
 
-    def cache_report(report):
-        photos = app.state.external_images.photos(report.get('photos', []))
+    def cache_report(report, place):
+        photos = app.state.external_images.photos(gallery_source_links(report.get('photos', []), place))
         return dict(report, photos=photos, photos_total=len(photos))
 
     app.state.request_context = request_context

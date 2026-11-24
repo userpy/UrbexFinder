@@ -47,9 +47,13 @@ def download(url):
         url = parsed._replace(scheme='https').geturl()
     try:
         return _download_image(url)
-    except (httpx.HTTPError, ValueError, DomainError):
+    except (httpx.HTTPError, ValueError, DomainError) as exc:
         parsed = urlparse(url)
         host = parsed.hostname or ''
+        # Wikimapia intermittently times out during TCP/TLS setup. Retry once
+        # before leaving the photo unavailable until the cache cooldown ends.
+        if host == 'photos.wikimapia.org' and isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            return _download_image(url)
         if host != 'urban3p.ru' and not host.endswith('.urban3p.ru'):
             raise
         mirror = parsed._replace(netloc=host.removesuffix('.ru') + '.com').geturl()
@@ -62,7 +66,8 @@ def _download_image(url):
     headers = {'User-Agent': 'UrbexFinder/1.0 (open-source photo cache)'}
     if urlparse(url).hostname == 'upload.wikimedia.org':
         headers['Referer'] = 'https://commons.wikimedia.org/'
-    with httpx.Client(timeout=httpx.Timeout(8, connect=3), follow_redirects=False,
+    connect_timeout = 8 if urlparse(url).hostname == 'photos.wikimapia.org' else 3
+    with httpx.Client(timeout=httpx.Timeout(8, connect=connect_timeout), follow_redirects=False,
                       headers=headers) as client:
         with client.stream('GET', url) as response:
             response.raise_for_status()
@@ -125,12 +130,24 @@ class ExternalImages:
             if not supported(url):
                 continue
             digest = sha256(url.encode()).hexdigest()
+            thumbnail = photo.get('thumbnail_url')
+            thumbnail_digest = digest
+            # Cache actual Wikimapia previews independently. A missing original
+            # must neither hide the preview nor replace the stored original.
+            if thumbnail != url and supported(thumbnail):
+                from .wikimapia import photo_url
+                full, small = photo_url(url), photo_url(thumbnail)
+                if (full and small and re.sub(r'_(?:\d+|big)(?=\.jpg$)', '', full)
+                        == re.sub(r'_(?:\d+|big)(?=\.jpg$)', '', small)):
+                    thumbnail_digest = sha256(thumbnail.encode()).hexdigest()
             with self.lock:
+                if thumbnail_digest != digest:
+                    self.schedule(thumbnail_digest, thumbnail)
                 self.schedule(digest, url)
             output.append(dict(photo, original_image_url=url,
                                original_thumbnail_url=photo.get('thumbnail_url'),
                                image_url=f'/api/source-images/{digest}',
-                               thumbnail_url=f'/api/source-images/{digest}'))
+                               thumbnail_url=f'/api/source-images/{thumbnail_digest}'))
         return output
 
     def content(self, digest):

@@ -1,5 +1,55 @@
 import { test, expect } from '@playwright/test';
 
+test('Wikimapia preview stays visible while original fails and upgrades when it recovers', async ({ page }) => {
+  const full = '/api/source-images/' + 'b'.repeat(64);
+  const thumb = '/api/source-images/' + 'c'.repeat(64);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+  let recovered = false;
+  let originalRequests = 0;
+  let previewRequests = 0;
+  let externalImages = 0;
+  page.on('request', request => {
+    if (request.resourceType() === 'image' && new URL(request.url()).hostname !== 'localhost') externalImages++;
+  });
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === full) {
+      originalRequests++;
+      return recovered ? route.fulfill({ contentType: 'image/png', body: png })
+        : route.fulfill({ status: 503, body: 'Original unavailable' });
+    }
+    if (path === thumb) {
+      previewRequests++;
+      return previewRequests === 1 ? route.fulfill({ status: 503, body: 'Preview pending' })
+        : route.fulfill({ contentType: 'image/png', body: png });
+    }
+    if (path === '/api/places/1') return route.fulfill({ json: {
+      id: 1, name: 'РТЦ С-25', latitude: 56.145, longitude: 37.4074,
+      description: '', category_id: 1, status: 'published',
+    } });
+    if (path === '/api/places/1/source-photos') return route.fulfill({ json: {
+      items: [{ image_url: full, thumbnail_url: thumb, title: 'Фото',
+        source_url: 'https://wikimapia.org/#show=/123/ru' }], total: 1,
+    } });
+    if (path === '/api/auth/me') return route.fulfill({ json: { user: null, csrf: null } });
+    if (path === '/api/map') return route.fulfill({ json: { type: 'FeatureCollection', features: [] } });
+    return route.fulfill({ json: { items: [], total: 0 } });
+  });
+  await page.goto('/?place=1');
+  const preview = page.locator(`.gallery-stage img[src^="${thumb}"]`);
+  const original = page.locator(`.gallery-stage img[src^="${full}"]`);
+  await expect(preview).toBeVisible({ timeout: 12000 });
+  await expect(original).not.toBeVisible();
+  await expect(page.locator('.stored-image-preview-label')).toHaveText('Миниатюра');
+  expect(previewRequests).toBeGreaterThanOrEqual(2);
+  expect(originalRequests).toBeGreaterThanOrEqual(1);
+  recovered = true;
+  await expect(original).toBeVisible({ timeout: 12000 });
+  await expect(preview).toHaveCount(0);
+  await expect(page.locator('.stored-image-preview-label')).toHaveCount(0);
+  expect(externalImages).toBe(0);
+});
+
 test('source image waits for storage, retries locally and never requests origin', async ({ page }) => {
   const digest = 'a'.repeat(64);
   let requests = 0;

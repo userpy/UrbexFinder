@@ -9,6 +9,24 @@ from urbex.infrastructure import source_photos as sources
 from urbex.presentation.http import router, context
 
 
+@pytest.mark.parametrize('report', [None, {'photos': []}])
+def test_explicit_wikimapia_photos_load_without_search_or_object_metadata(monkeypatch, report):
+    image = 'https://photos.wikimapia.org/p/00/01/08/76/88_big.jpg'
+    monkeypatch.setattr(sources, 'discover_photos', lambda *a: pytest.fail('Unexpected search'))
+    monkeypatch.setattr(sources, 'wikimapia_photos_for_links',
+                        lambda *a: pytest.fail('Direct image fetched as a page'))
+    place = {'name': 'Узел связи', 'latitude': 56.145, 'longitude': 37.4074,
+             'description': f'Описание. [Фото Wikimapia]({image})'}
+    photos = sources.source_photos(place, report, search_url='http://search')
+    assert len(photos) == 1
+    assert photos[0]['image_url'] == image
+    assert photos[0]['source_url'] == image
+    assert photos[0]['attribution'] == 'Wikimapia'
+    monkeypatch.undo()
+    assert sources.source_photos({'description': image.replace(
+        'photos.wikimapia.org', 'photos.wikimapia.org.evil.test')}) == []
+
+
 def test_linked_cache_gallery_is_cached_without_search(monkeypatch):
     sources._cache.clear()
     photo = {'image_url': 'https://geocaching.su/photos/areas/123.jpg'}

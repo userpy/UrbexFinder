@@ -1,18 +1,28 @@
 """Wikimapia photo links and object galleries (never map tiles or UI images)."""
 from html.parser import HTMLParser
 import re
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
 
 
 def object_url(url: str) -> str | None:
     parsed = urlparse(url)
     if parsed.scheme not in {'http', 'https'} or parsed.hostname not in {'wikimapia.org', 'www.wikimapia.org'}:
         return None
+    try:
+        if parsed.username or parsed.password or parsed.port not in {None, 80, 443}:
+            return None
+    except ValueError:
+        return None
     match = re.match(r'^/(\d+)(?:/|$)', parsed.path)
     if match:
         return url
     shown = parse_qs(parsed.fragment).get('show', [''])[0]
-    match = re.fullmatch(r'/(\d+)(?:/([a-z]{2}))?/?', shown, re.I)
+    # Map shares can include a translated slug and an open gallery photo.
+    # Only the object ID and explicit language belong in the page request.
+    match = re.fullmatch(
+        r'/(\d+)(?:/([a-z]{2})(?=/|$))?(?:/(?!photo(?:/|$))[^/?#]+)?'
+        r'(?:/photo/\d+)?/?', shown, re.I,
+    )
     if not match:
         return None
     language = f'/{match[2]}' if match[2] else ''
@@ -32,7 +42,40 @@ def is_object_url(url: str) -> bool:
     return object_url(url) is not None
 
 
+def gallery_source_links(photos: list[dict], place: dict) -> list[dict]:
+    """Present object sources as map links after verification and extraction."""
+    from .osint_identity import coordinates, source_key
+    output = []
+    for photo in photos:
+        source = str(photo.get('source_url') or '')
+        target = object_url(source)
+        identity = photo.get('page_identity') or {}
+        if identity.get('source_key') != source_key(source):
+            identity = {}
+        point = coordinates(place) or coordinates(identity)
+        if not target or not point:
+            output.append(photo)
+            continue
+        parts = urlparse(target).path.strip('/').split('/')
+        language = parts[1] if len(parts) > 1 and re.fullmatch('[a-z]{2}', parts[1]) else 'ru'
+        shown = f'/{parts[0]}/{language}'
+        title = str(identity.get('title') or '').strip()
+        if title:
+            shown += '/' + re.sub(r'[\s/?#&=]+', '-', title[:300])
+        fragment = urlencode({
+            'lang': 'en', 'lat': f'{point[0]:.6f}', 'lon': f'{point[1]:.6f}',
+            'z': 13, 'm': 'w', 'show': shown,
+        }, safe='/', quote_via=quote)
+        output.append(dict(photo, original_source_url=photo.get('original_source_url') or source,
+                           source_url='https://wikimapia.org/#' + fragment))
+    return output
+
+
 def gallery_urls(html: str, page_url: str) -> list[str]:
+    return [photo['image_url'] for photo in gallery_images(html, page_url)]
+
+
+def gallery_images(html: str, page_url: str) -> list[dict]:
     class Gallery(HTMLParser):
         def __init__(self):
             super().__init__()
@@ -50,26 +93,46 @@ def gallery_urls(html: str, page_url: str) -> list[str]:
                 identity = re.sub(r'_(?:\d+|big)(?=\.jpg$)', '', url)
                 size = re.search(r'_(\d+)\.jpg$', url)
                 rank = 10000 if url.endswith('_big.jpg') else int(size[1]) if size else 0
-                if identity not in self.photos or rank > self.photos[identity][0]:
-                    self.photos[identity] = (rank, url)
+                self.photos.setdefault(identity, {})[url] = rank
 
     parser = Gallery()
     parser.feed(html)
-    return [url for _, url in parser.photos.values()]
+    result = []
+    for variants in parser.photos.values():
+        full = max(variants, key=variants.get)
+        thumbnail = min(variants, key=variants.get)
+        result.append({'image_url': full, 'thumbnail_url': thumbnail})
+    return result
 
 
 def direct_photos(links: list[dict]) -> list[dict]:
     return [dict(title='Фото объекта · Wikimapia', image_url=image,
                  thumbnail_url=image, source_url=link['url'], engine='wikimapia',
-                 score=12.0, query=link['url'])
+                 attribution='Wikimapia', score=12.0, query=link['url'])
             for link in links if (image := photo_url(str(link.get('url') or '')))]
 
 
 def fetch_html(url: str) -> str:
+    """Recover a broken translation from the same object's English page."""
+    target = object_url(url)
+    if not target:
+        return ''
+    html = _fetch_html(target)
+    if re.search(r'ошибка\s+RK\s+n\.22', html, re.I):
+        parts = urlparse(target).path.strip('/').split('/')
+        if len(parts) < 2 or parts[1] != 'en':
+            fallback = _fetch_html(f'https://wikimapia.org/{parts[0]}/en/')
+            if fallback and not re.search(r'ошибка\s+RK\s+n\.22', fallback, re.I):
+                return fallback
+    return html
+
+
+def _fetch_html(url: str) -> str:
     """Handle Wikimapia's session-cookie refresh without executing page scripts."""
     import httpx
     from time import monotonic
-    if not is_object_url(url):
+    url = object_url(url)
+    if not url:
         return ''
     original = urlparse(url)
     try:

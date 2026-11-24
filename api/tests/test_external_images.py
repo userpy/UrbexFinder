@@ -67,6 +67,58 @@ def test_restart_reads_s3_without_redownloading():
         cache.close()
 
 
+def test_wikimapia_preview_is_available_when_original_fails_and_original_can_recover():
+    full = 'https://photos.wikimapia.org/p/00/00/75/53/57_big.jpg'
+    thumb = full.replace('_big', '_75')
+    photo = {'image_url': full, 'thumbnail_url': thumb, 'source_url': 'https://wikimapia.org/123/ru/'}
+    storage = Storage()
+    def fetch(url):
+        if url == full:
+            raise httpx.ConnectTimeout('Original unavailable')
+        assert url == thumb
+        return b'preview'
+    cache = ExternalImages(storage, fetch)
+    try:
+        result = cache.photos([photo])[0]
+        assert result['image_url'] != result['thumbnail_url']
+        assert result['original_thumbnail_url'] == thumb
+        assert result['source_url'] == photo['source_url']
+        thumb_digest = result['thumbnail_url'].rsplit('/', 1)[-1]
+        full_digest = result['image_url'].rsplit('/', 1)[-1]
+        assert cache.content(thumb_digest) == b'preview'
+        with pytest.raises(DomainError) as exc:
+            cache.content(full_digest)
+        assert exc.value.status == 503
+        assert not storage.exists(cache.key(full_digest))
+    finally:
+        cache.close()
+    restarted = ExternalImages(storage, lambda url: b'original' if url == full else pytest.fail('Preview re-fetched'))
+    try:
+        assert restarted.photos([photo])[0]['image_url'] == result['image_url']
+        assert restarted.content(full_digest) == b'original'
+        assert restarted.content(thumb_digest) == b'preview'
+    finally:
+        restarted.close()
+
+
+@pytest.mark.parametrize('thumb', [
+    'https://photos.wikimapia.org/p/00/00/75/53/58_75.jpg',
+    'https://photos.wikimapia.org.evil.test/p/00/00/75/53/57_75.jpg',
+    'https://geocaching.su/photos/areas/123.jpg',
+])
+def test_wikimapia_preview_cannot_use_another_photo_or_origin(thumb):
+    full = 'https://photos.wikimapia.org/p/00/00/75/53/57_big.jpg'
+    fetched = []
+    cache = ExternalImages(Storage(), lambda url: fetched.append(url) or b'original')
+    try:
+        result = cache.photos([{'image_url': full, 'thumbnail_url': thumb}])[0]
+        assert result['thumbnail_url'] == result['image_url']
+        assert cache.content(result['image_url'].rsplit('/', 1)[-1]) == b'original'
+        assert fetched == [full]
+    finally:
+        cache.close()
+
+
 def test_failure_falls_back_and_retries_after_cooldown():
     storage = Storage()
     def fail(url):
@@ -256,3 +308,28 @@ def test_podmoskovnye_legacy_image_download_uses_https(monkeypatch):
     url = 'http://podmoskovnye.ru/images/stories/photos/2_podmoskov/bogorodskoe/bogorodskoe.jpg'
     assert download(url).startswith(b'\xff\xd8\xff')
     assert calls == [url.replace('http:', 'https:')]
+
+
+@pytest.mark.parametrize('failure', ['transient', 'persistent', '404'])
+def test_wikimapia_retries_connection_failure_once(monkeypatch, failure):
+    image = BytesIO()
+    Image.new('RGB', (4, 4)).save(image, format='PNG')
+    calls = []
+    url = 'https://photos.wikimapia.org/p/00/01/08/76/88_big.jpg'
+    def respond(request):
+        calls.append(str(request.url))
+        assert request.extensions['timeout']['connect'] == 8
+        if failure == '404':
+            return httpx.Response(404)
+        if failure == 'persistent' or len(calls) == 1:
+            raise httpx.ConnectTimeout('TLS handshake timed out')
+        return httpx.Response(200, content=image.getvalue())
+    original = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(
+        transport=httpx.MockTransport(respond), **kwargs))
+    if failure == 'transient':
+        assert download(url).startswith(b'\xff\xd8\xff')
+    else:
+        with pytest.raises(httpx.HTTPError):
+            download(url)
+    assert calls == [url] * (1 if failure == '404' else 2)

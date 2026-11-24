@@ -519,6 +519,7 @@ body {
 .osint-verification{border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px}.osint-verification summary{cursor:pointer;color:var(--muted)}.osint-verification[open] summary{margin-bottom:10px}.osint-result-list .osint-verification-reason{color:#a9c8b8}
 
 .stored-image-status { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.stored-image-preview-label { position: absolute; bottom: 12px; left: 12px; padding: 4px 8px; border-radius: 4px; background: #10161bcc; color: white; font-size: 12px; }
 
 .gallery-thumbnails > button { position: relative; }
 @media (max-width: 760px) {

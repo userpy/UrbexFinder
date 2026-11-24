@@ -8,6 +8,7 @@ import re
 from urbex.domain.rules import DomainError
 from .osint_identity import verify_report, source_key, diverse_photos
 from .wikimapia_discovery import discover_photos
+from .wikimapia import direct_photos
 from .osint_description import (
     links_from_description,
     generic_page_photos_for_links,
@@ -22,7 +23,8 @@ _lock = Lock()
 
 def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: str = '',
                   search_url: str = '', origin: str = '') -> list[dict]:
-    links = [link for link in links_from_description(str(place.get('description') or ''))
+    description_links = links_from_description(str(place.get('description') or ''))
+    links = [link for link in description_links
              if (urlparse(link['url']).hostname or '').lower() in {
                  'geocaching.su', 'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru',
                  'podmoskovnye.ru', 'www.podmoskovnye.ru',
@@ -30,12 +32,12 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
                  'urban3p.ru', 'www.urban3p.ru', 'urban3p.com', 'www.urban3p.com',
                  'wikimapia.org', 'www.wikimapia.org',
              }][:4]
-    references = [link['url'] for link in links_from_description(str(place.get('description') or ''))]
-    checked_photos = []
+    references = [link['url'] for link in description_links]
+    checked_photos = direct_photos(description_links)
     checked_items = []
     if saved_report:
         checked = verify_report(saved_report, place, references)
-        checked_photos = checked['photos']
+        checked_photos = checked['photos'] + checked_photos
         checked_items = checked['items']
         seen_sources = {source_key(link['url']) for link in links}
         for source in checked_items:

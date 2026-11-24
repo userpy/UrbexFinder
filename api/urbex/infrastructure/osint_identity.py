@@ -83,9 +83,9 @@ def source_key(url) -> str:
         if host == "wikimapia.org":
             if m := re.match(r"^/(\d+)(?:/|$)", path):
                 return f"wikimapia.org:{m[1]}"
-            frag = dict(parse_qsl(p.fragment)).get("show", "")
-            if m := re.fullmatch(r"/(\d+)(?:/[a-z]{2})?", frag, re.I):
-                return f"wikimapia.org:{m[1]}"
+            from .wikimapia import object_url
+            if target := object_url(str(url)):
+                return f"wikimapia.org:{urlparse(target).path.split('/')[1]}"
         if host in {"urban3p.ru", "urban3p.com"}:
             if m := re.match(r"^/blogs/(\d+)(?:/|$)", path):
                 return f"urban3p.ru:blog:{m[1]}"
@@ -431,6 +431,11 @@ def verify_source(place, source, reference_urls=()) -> Decision:
     # contradictory primary evidence already handled above.
     if key in reference_keys:
         return Decision("accepted", ("Исходная ссылка или тот же идентификатор объекта",), ("reference",))
+
+    if (metres is not None and metres <= 100 and exact_place_title(place_name, title)
+            and _is_dedicated_catalog_object(key)):
+        return Decision("accepted", ("Совпали полное название и координаты объекта",),
+                        ("name", "coordinates"))
 
     cues = name_cues(place_name)
     same_name = words_present(cues, title)

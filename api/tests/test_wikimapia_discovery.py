@@ -28,8 +28,9 @@ def photo(url=URL, **identity):
 
 
 @pytest.fixture(autouse=True)
-def reset_cache():
+def reset_cache(monkeypatch):
     discovery._cache.clear()
+    monkeypatch.setattr(discovery, 'nearby_places', lambda place: [])
     yield
     discovery._cache.clear()
 
@@ -106,10 +107,11 @@ def test_transient_search_or_gallery_failure_retries_after_short_cooldown(monkey
         with pytest.raises(DomainError) as exc:
             discovery.discover_photos(PLACE, 'http://search', '')
         assert exc.value.status == 502
-    assert calls == [1]
+    attempts = len(discovery._search_queries(PLACE))
+    assert calls == [1] * attempts
     now[0] += 31
     assert discovery.discover_photos(PLACE, 'http://search', '') == [photo()]
-    assert calls == [1, 1]
+    assert calls == [1] * (attempts + 1)
 
 
 def test_cached_photos_are_not_reused_after_coordinates_change(monkeypatch):
@@ -124,3 +126,98 @@ def test_no_search_without_configuration_name_or_coordinates(monkeypatch):
     assert discovery.discover_photos(PLACE, '', '') == []
     assert discovery.discover_photos(dict(PLACE, name=''), 'http://search', '') == []
     assert discovery.discover_photos(dict(PLACE, latitude=None), 'http://search', '') == []
+
+
+def test_fallback_search_uses_name_and_coordinates_without_changing_description(monkeypatch):
+    searches = []
+    def search(url, origin, query):
+        searches.append(query)
+        return [] if len(searches) == 1 else [{'url': URL, 'title': 'Сатурн…'}]
+    monkeypatch.setattr(discovery, '_search', search)
+    fetched = []
+    monkeypatch.setattr(discovery, 'wikimapia_photos_for_links',
+                        lambda links, limit: fetched.extend(links) or [photo()])
+    place = deepcopy(PLACE)
+    assert source_photos(place, search_url='http://search') == [photo()]
+    assert place == PLACE
+    assert len(searches) == 2
+    assert '55.65639 38.13306' in searches[1]
+    assert len(fetched) == 1
+
+
+def test_search_title_need_not_contain_every_word_when_page_confirms_identity(monkeypatch):
+    monkeypatch.setattr(discovery, '_search', lambda *a: [{'url': URL, 'title': '- Wikimapia'}])
+    monkeypatch.setattr(discovery, 'wikimapia_photos_for_links', lambda *a: [photo()])
+    assert discovery.discover_photos(PLACE, 'http://search', '') == [photo()]
+
+
+def test_simplified_name_is_verified_against_page_and_coordinates(monkeypatch):
+    place = dict(PLACE, name='Полузаброшенный узел связи', category='разное')
+    image = photo(title='Узел связи')
+    queries = []
+    def search(url, origin, query):
+        queries.append(query)
+        return [] if 'Полузаброшенный' in query else [{'url': URL, 'title': 'Узел связи'}]
+    monkeypatch.setattr(discovery, '_search', search)
+    monkeypatch.setattr(discovery, 'wikimapia_photos_for_links', lambda *a: [image])
+    assert discovery.discover_photos(place, 'http://search', '') == [image]
+    assert any('узел связи' in q and 'Полузаброшенный' not in q for q in queries)
+
+
+def test_failed_search_does_not_prevent_successful_fallback(monkeypatch):
+    calls = []
+    def search(*args):
+        calls.append(args)
+        if len(calls) == 1:
+            raise DomainError('Temporarily unavailable', 502)
+        return [{'url': URL, 'title': PLACE['name']}]
+    monkeypatch.setattr(discovery, '_search', search)
+    monkeypatch.setattr(discovery, 'wikimapia_photos_for_links', lambda *a: [photo()])
+    assert discovery.discover_photos(PLACE, 'http://search', '') == [photo()]
+    assert len(calls) == 2
+
+
+def test_page_fetches_are_bounded_across_fallback_queries(monkeypatch):
+    calls = []
+    def search(*args):
+        return [{'url': f'https://wikimapia.org/{i}', 'title': PLACE['name']}
+                for i in range(100, 200)]
+    def fetch(links, limit):
+        calls.append(links[0]['url'])
+        return [photo(links[0]['url'], latitude=54, longitude=30)]
+    monkeypatch.setattr(discovery, '_search', search)
+    monkeypatch.setattr(discovery, 'wikimapia_photos_for_links', fetch)
+    assert discovery.discover_photos(PLACE, 'http://search', '') == []
+    assert len(calls) <= 8
+    assert len(calls) == len(set(calls))
+
+
+@pytest.mark.parametrize('search_url', ['', 'http://search'])
+def test_map_finds_gallery_by_name_and_coordinates_when_page_metadata_is_broken(monkeypatch, search_url):
+    place = dict(PLACE, name='Полузаброшенный узел связи у РТЦ С-25', category='разное')
+    title = 'Заброшенный радиотехнический центр зенитного ракетного комплекса С-25'
+    row = dict(photo()['page_identity'], url=URL, title=title)
+    broken = photo(title=' ', latitude=None, longitude=None)
+    monkeypatch.setattr(discovery, 'nearby_places', lambda p: [row])
+    monkeypatch.setattr(discovery, '_search', lambda *a: pytest.fail('Map match needs no web search'))
+    monkeypatch.setattr(discovery, 'wikimapia_photos_for_links', lambda *a: [broken])
+    original = deepcopy(place)
+    result = source_photos(place, search_url=search_url)
+    assert place == original
+    assert len(result) == 1
+    assert result[0]['image_url'] == broken['image_url']
+    assert result[0]['page_identity']['title'] == title
+    assert result[0]['match_method'] == 'name_coordinates'
+
+
+@pytest.mark.parametrize('changes', [
+    {'latitude': 54, 'longitude': 30}, {'title': 'Завод «Сатурн»'},
+    {'latitude': 54, 'longitude': None},
+    {'source_key': 'wikimapia.org:999'},
+])
+def test_map_metadata_never_overwrites_conflicting_page_evidence(monkeypatch, changes):
+    row = dict(photo()['page_identity'], url=URL)
+    monkeypatch.setattr(discovery, 'nearby_places', lambda p: [row])
+    monkeypatch.setattr(discovery, '_search', lambda *a: [])
+    monkeypatch.setattr(discovery, 'wikimapia_photos_for_links', lambda *a: [photo(**changes)])
+    assert discovery.discover_photos(PLACE, 'http://search', '') == []

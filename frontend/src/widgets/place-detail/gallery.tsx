@@ -15,6 +15,7 @@ import { PlacePhoto } from "./telegram-photo";
 
 export type SourcePhoto = {
   image_url: string;
+  thumbnail_url?: string;
   source_url: string;
   title: string;
   attribution?: string;
@@ -39,8 +40,9 @@ export function sourcePhotoLabel(photo: SourcePhoto): string {
   return "Внешний источник";
 }
 
-export function SourceImage({ photo, alt }: { photo: SourcePhoto; alt: string }) {
-  return <StoredImage src={photo.image_url} alt={alt} sourceName={sourcePhotoLabel(photo)} />;
+export function SourceImage({ photo, alt, thumbnail = false }: { photo: SourcePhoto; alt: string; thumbnail?: boolean }) {
+  return <StoredImage src={thumbnail ? photo.thumbnail_url || photo.image_url : photo.image_url}
+    previewSrc={thumbnail ? undefined : photo.thumbnail_url} alt={alt} sourceName={sourcePhotoLabel(photo)} />;
 }
 
 export function PhotoGallery({
@@ -185,7 +187,7 @@ export function PhotoGallery({
               onClick={() => setSelected(i)}
             >
               {"image_url" in item ? (
-                <SourceImage photo={item} alt="" />
+                <SourceImage photo={item} alt="" thumbnail />
               ) : (
                 <PlacePhoto key={item.id} id={item.id} alt="" compact />
               )}

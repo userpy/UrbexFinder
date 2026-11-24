@@ -13,6 +13,7 @@ from .page_parser import parse_page
 from .wikimapia import (
     direct_photos,
     gallery_urls,
+    gallery_images as wikimapia_gallery_images,
     is_object_url,
     object_url as wikimapia_object_url,
     fetch_html as fetch_wikimapia_html,
@@ -2152,9 +2153,12 @@ def generic_page_photos_for_links(
         engine = _generic_engine_for(url)
         page_identity, primary_scope, gallery_images = parse_page(html, url, source_key)
         page_identity = enrich_wikimapia_identity(page_identity, html, url)
+        thumbnails = ({photo['image_url']: photo['thumbnail_url']
+                       for photo in wikimapia_gallery_images(html, url)} if engine == 'wikimapia' else {})
         page_count = 0
+        page_limit = limit if engine == 'wikimapia' else _MAX_GENERIC_PER_PAGE
         for image in _extract_generic_image_urls(html, url, parsed_gallery=(primary_scope, gallery_images)):
-            if len(photos) >= limit or page_count >= _MAX_GENERIC_PER_PAGE:
+            if len(photos) >= limit or page_count >= page_limit:
                 break
             key = image.rstrip('/').casefold()
             if key in seen:
@@ -2163,7 +2167,7 @@ def generic_page_photos_for_links(
             photos.append({
                 'title': title,
                 'image_url': image,
-                'thumbnail_url': image,
+                'thumbnail_url': thumbnails.get(image, image),
                 'source_url': url[:2000],
                 'engine': engine,
                 'gallery_scope': 'primary' if primary_scope else 'unknown',
