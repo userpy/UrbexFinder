@@ -2,18 +2,20 @@
 import logging
 
 import httpx
+from .osint_profile import build_place_profile
 
 _log = logging.getLogger(__name__)
 _MAX_CANDIDATES = 32
 
 
 def _place_text(place: dict) -> str:
+    profile = build_place_profile(place)
     parts = (
-        place.get('name'),
-        place.get('category_name') or place.get('category'),
-        place.get('full_address'),
-        place.get('region'),
-        place.get('description'),
+        profile.name,
+        *profile.aliases,
+        profile.category,
+        profile.location_text,
+        profile.description,
     )
     return '\n'.join(str(part).strip() for part in parts if part)[:1500]
 

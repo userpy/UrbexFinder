@@ -1,6 +1,6 @@
 """Deterministic identification of UrbexFinder sources and photo galleries.
 
-v21. Drop-in replacement for urbex.infrastructure.osint_identity.
+v23. Drop-in replacement for urbex.infrastructure.osint_identity.
 
 Contextual name + locality matches are review-only, not verified sources.
 
@@ -14,40 +14,17 @@ Safety principles:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import asin, cos, isfinite, radians, sin, sqrt
+from math import asin, cos, radians, sin, sqrt
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse
 import re
 
-VERSION = 21
+from .osint_profile import (
+    PlaceProfile, build_place_profile, normalized, _words, kinds, name_cues,
+    words_present, address_parts, locality_cues, settlement_cues, coordinates,
+    radio_center_numbers, institution_codes as _institution_codes,
+)
 
-_TYPES = {
-    "radar": r"\bрлс\b|\bрадиолокационн[а-я]*\s+станци[а-я]*\b",
-    "radio_center": r"\b(?:радиоцентр[а-я]*|пдрц)\b",
-    "shelter": r"\b(?:убежищ|бомбоубежищ|бункер)[а-я]*\b",
-    "manor": r"\bусад(?:ьб|еб)[а-я]*\b",
-    "housing": r"\bтаунхаус[а-я]*\b|\bкоттеджн[а-я]*\s+посел[а-я]*\b|\bжил[а-я]*\s+(?:комплекс|квартал)[а-я]*\b|\bжк\b",
-    "camp": r"\b(?:п\s*/\s*л|пионерлагер[а-я]*|пионерск[а-я]*\s+лагер[а-я]*|детск[а-я]*\s+лагер[а-я]*|детск[а-я]*\s+оздоровительн[а-я]*\s+город(?:ок|ка|ке|ку|ком)|лагер[а-я]*)\b",
-    "airport": r"\b(?:аэродром[а-я]*|аэропорт[а-я]*|aerodrome|airport|airfield)\b",
-    "factory": r"\b(?:завод|фабрик|комбинат)[а-я]*\b",
-    "church": r"\b(?:церков|церкв|храм|собор|часовн)[а-я]*\b",
-    "school": r"\b(?:школ|училищ|спту|пту)[а-я]*\b",
-    "kindergarten": r"\bдетск[а-я]*\s+сад[а-я]*\b",
-    "military": r"\b(?:воинск|войсков)[а-я]*\s+част[а-я]*\b",
-    "test_site": r"\bполигон[а-я]*\b",
-    "hospital": r"\b(?:больниц|госпитал|санатори)[а-я]*\b",
-    # A missing hotel type made «Трудовые резервы» look unrelated to its card.
-    "hotel": r"\b(?:гостиниц|отел|хостел)[а-я]*\b|\bhotel\b",
-    "sport": r"\b(?:спортивн[а-я]*\s+комплекс|стадион[а-я]*|спорткомплекс[а-я]*|спортшкол[а-я]*|бассейн[а-я]*)\b",
-}
-
-_GENERIC = set("""
-заброшенный заброшенная заброшенное заброшенные заброшен заброшено заброшка
-бывший бывшая бывшее бывшие старый старая старое новый новая летний детский
-пионерский оздоровительный стандартное подземное корпуса корпус территория
-территории новой гражданской обороны го ру ru en фото фотографии объект место
-на в и у имени им города город городской район районы область края россия рф
-строение здание здания сооружение бывшего бывшей недействующий официальный
-""".split())
+VERSION = 23
 
 # Names common to many sites must not be accepted without a precise cue.
 _COMMON_NAMES = set("""
@@ -55,19 +32,6 @@ _COMMON_NAMES = set("""
 сокол маяк родина победа восток лесной огонек сосновый спартак динамо
 елочки елки солнышко искра звездочка звезда лесная лесное простор надежда
 """.split())
-
-_GEO_ADMIN_NOISE = {"россия", "рф", "центральный", "городской", "муниципальный", "московская", "область", "край"}
-_STREET = r"(?:улица|ул\.|проспект|пр-т|переулок|пер\.|шоссе|набережная|аллея|проезд)"
-_HOUSE = r"\d+[а-яa-z]?(?:[/\-]\d+[а-яa-z]?)?(?:\s*(?:к(?:орпус)?\.?|стр\.?)\s*\d+)?"
-
-
-def normalized(value) -> str:
-    return re.sub(r"\s+", " ", str(value or "").casefold().replace("ё", "е")).strip()
-
-
-def _words(value) -> list[str]:
-    return re.findall(r"[а-яa-z0-9]+", normalized(value))
-
 
 def source_key(url) -> str:
     """Canonicalize documented object URLs, avoiding arbitrary path lowercasing."""
@@ -110,32 +74,6 @@ def source_key(url) -> str:
         return ""
 
 
-def kinds(value) -> set[str]:
-    value = normalized(value)
-    return {kind for kind, pattern in _TYPES.items() if re.search(pattern, value)}
-
-
-def radio_center_numbers(value) -> set[str]:
-    text = normalized(value)
-    patterns = (
-        r"\bрадиоцентр[а-я]*\s*(?:№|номер)?\s*(\d+)\b",
-        r"\b(\d+)\s*(?:-?(?:й|ый|ой))?\s+радиоцентр[а-я]*\b",
-    )
-    return {num for pattern in patterns for num in re.findall(pattern, text)}
-
-
-def name_cues(name) -> set[str]:
-    text = normalized(re.sub(r"\((?:ru|en)\)", "", str(name or ""), flags=re.I))
-    for pattern in _TYPES.values():
-        text = re.sub(pattern, " ", text)
-    return {word for word in _words(text) if len(word) >= 3 and word not in _GENERIC}
-
-
-def words_present(cues, text) -> bool:
-    words = set(_words(text))
-    return bool(cues) and set(cues) <= words
-
-
 def exact_place_title(name, title) -> bool:
     name = normalized(name)
     title = normalized(title)
@@ -154,46 +92,6 @@ def _title_has_name_phrase(name: str, title: str) -> bool:
     # Preserve order and adjacency; do not match independent words in a directory.
     n = len(place_words)
     return any(title_words[i:i + n] == place_words for i in range(len(title_words) - n + 1))
-
-
-def address_parts(text) -> tuple[str, str]:
-    value = normalized(text)
-    leading = re.search(rf"(?:^|[,;])\s*({_HOUSE})\s*[,;]\s*([^,;]+?)\s+{_STREET}(?=\s|[,;]|$)", value)
-    if leading:
-        return leading[2].strip(), re.sub(r"\s+", "", leading[1])
-    match = re.search(rf"(?:^|[,;])\s*{_STREET}\s+([^,;]+)", value)
-    if not match:
-        match = re.search(rf"(?:^|[,;])\s*([^,;]+?)\s+{_STREET}(?=\s|[,;]|$)", value)
-    if not match:
-        return "", ""
-    street = match[1].strip()
-    # Handle «улица Ленина, дом 5» and «улица Ленина, 5».
-    next_piece = re.split(r"[,;]", value[match.end():].lstrip(" ,;"), maxsplit=1)[0]
-    number = re.match(rf"(?:(?:дом|д\.)\s*)?({_HOUSE})(?=\s|$)", next_piece)
-    return street, re.sub(r"\s+", "", number[1]) if number else ""
-
-
-def locality_cues(text) -> set[str]:
-    value = normalized(text)
-    result = set()
-    for pattern in (
-        r"\b(?:городской|муниципальный)\s+округ\s+([а-я-]+)",
-        r"\b(?:деревня|село|поселок|город|г\.|д\.)\s+([а-я-]+)",
-        r"\b([а-я-]+)\s+(?:район|муниципальный округ|городской округ|область)\b",
-    ):
-        result.update(re.findall(pattern, value))
-    return result - _GEO_ADMIN_NOISE - {"москва"}
-
-
-def settlement_cues(address) -> set[str]:
-    value = normalized(address)
-    result = set(re.findall(r"\b(?:город|г\.|деревня|село|поселок)\s+([а-я-]+)", value))
-    result.update(re.findall(r"\b(?:микрорайон|мкр\.)\s+([а-я-]+)", value))
-    result.update(piece.strip() for piece in value.split(",")
-                  if re.fullmatch(r"[а-я-]+", piece.strip()) and piece.strip() not in _GEO_ADMIN_NOISE)
-    # СНТ/ДНТ names alone are not independent settlement evidence.
-    return result
-
 
 
 # A relevant search hit is not necessarily a *verified* object.  A distinctive
@@ -273,18 +171,6 @@ def contextual_match(place: dict, source: dict) -> tuple[str, ...]:
     return (f"Название: {matched_name}", f"Населённый пункт: {matched_locality}")
 
 
-def coordinates(data):
-    try:
-        lat, lon = float(data["latitude"]), float(data["longitude"])
-        if isfinite(lat) and isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180:
-            if abs(lat) < 1e-9 and abs(lon) < 1e-9:
-                return None
-            return lat, lon
-    except (KeyError, TypeError, ValueError):
-        pass
-    return None
-
-
 def distance(a, b) -> float:
     la, lo, lb, lob = map(radians, (*a, *b))
     return 6371000 * 2 * asin(min(1, sqrt(sin((lb - la)/2)**2 + cos(la)*cos(lb)*sin((lob - lo)/2)**2)))
@@ -299,11 +185,6 @@ class Decision:
     def json(self) -> dict:
         return {"status": self.status, "reasons": list(self.reasons),
                 "evidence": list(self.evidence), "version": VERSION}
-
-
-def _institution_codes(name: str) -> list[tuple[str, str]]:
-    return [(a.casefold(), b) for a, b in re.findall(
-        r"\b([А-ЯЁA-Z]{2,10})\s*(?:[-–—№]\s*|\s+)(\d+)\b", str(name or ""))]
 
 
 def _candidate_codes(text: str, acronym: str) -> set[str]:
@@ -333,12 +214,13 @@ def _is_vk_group_url(url: str) -> bool:
         return bool(re.search(r"/(?:club|public)\d+(?:$|[?#])", str(url)))
 
 
-def verify_source(place, source, reference_urls=()) -> Decision:
+def verify_source(place, source, reference_urls=(), *, profile: PlaceProfile | None = None) -> Decision:
     """Classify candidate as accepted / rejected / unconfirmed.
 
     The v20 rules preserve the v17 *multiword* name behavior,
     regardless of category, with no site-specific title whitelist.
     """
+    profile = profile or build_place_profile(place, reference_urls=reference_urls)
     key = source_key(source.get("url") or source.get("source_url"))
     if not key:
         return Decision("rejected", ("Некорректная ссылка источника",))
@@ -346,7 +228,7 @@ def verify_source(place, source, reference_urls=()) -> Decision:
     if any(host == excluded or host.endswith("." + excluded)
            for excluded in _CONTEXT_EXCLUDED_HOSTS):
         return Decision("rejected", ("Торговая площадка не является подтверждением объекта",))
-    reference_keys = {source_key(url) for url in reference_urls} - {""}
+    reference_keys = {source_key(url) for url in (*profile.reference_urls, *reference_urls)} - {""}
     if key in reference_keys and key.startswith(("urban3p.ru:", "podmoskovnye.ru:")):
         return Decision("accepted", ("Прямая ссылка на объект из описания",), ("reference",))
     if key in reference_keys and _is_vk_group_url(source.get("url") or source.get("source_url") or ""):
@@ -356,33 +238,29 @@ def verify_source(place, source, reference_urls=()) -> Decision:
     if not isinstance(primary, dict) or primary.get("source_key") != key:
         primary = {}  # Don't trust page metadata attached to another URL.
 
-    place_name = str(place.get("name") or "")
+    place_name = profile.name
     title = str(primary.get("title") or source.get("title") or "")
     text = " ".join(str(x or "") for x in (title, primary.get("text"), source.get("snippet")))
-    # Description can mention nearby unrelated buildings; use it only as a fallback.
-    place_types = kinds(" ".join(str(place.get(k) or "")
-                                  for k in ("name", "category_name", "category")))
-    if not place_types:
-        place_types = kinds(str(place.get("description") or "")[:300])
+    place_types = profile.object_types
     source_types = kinds(title)
     if not source_types and primary.get("type"):
         source_types = kinds(primary["type"])
     compatible = _source_type_is_compatible(place_types, source_types)
-    place_address = str(place.get("full_address") or place.get("region") or "")
+    place_address = profile.location_text
     candidate_address = str(primary.get("address") or title)
-    street, house = address_parts(place_address)
+    street, house = profile.street, profile.house
     candidate_street, candidate_house = address_parts(candidate_address)
-    a, b = coordinates(place), coordinates(primary)
+    a, b = profile.point, coordinates(primary)
     metres = distance(a, b) if a and b else None
 
-    place_radio_numbers = radio_center_numbers(place_name)
+    place_radio_numbers = profile.radio_numbers
     radio_match = ("radio_center" in place_types and "radio_center" in source_types
                    and bool(place_radio_numbers & radio_center_numbers(text)))
     conflicts: list[str] = []
     # An owner may be named in the place card: "лагерь завода Слава"
     # identifies a camp, not the factory named "Слава".
-    primary_camp = "camp" in kinds(place_name)
-    primary_factory = "factory" in kinds(place_name) and not primary_camp
+    primary_camp = "camp" in profile.name_types
+    primary_factory = "factory" in profile.name_types and not primary_camp
     if primary_camp and "factory" in source_types and "camp" not in source_types:
         conflicts.append("Вместо лагеря найдена страница завода")
     if primary_factory and "camp" in source_types and "factory" not in source_types:
@@ -417,7 +295,7 @@ def verify_source(place, source, reference_urls=()) -> Decision:
     if metres is not None and metres > 1500 and not radio_match:
         conflicts.append("Координаты источника дальше 1,5 км от объекта")
 
-    codes = _institution_codes(place_name)
+    codes = profile.codes
     numbered_match = bool(codes)
     for code, num in codes:
         found = _candidate_codes(text, code)
@@ -432,6 +310,9 @@ def verify_source(place, source, reference_urls=()) -> Decision:
     if key in reference_keys:
         return Decision("accepted", ("Исходная ссылка или тот же идентификатор объекта",), ("reference",))
 
+    # Card aliases can match the source name, but never replace the primary
+    # object's number, type, address or coordinates in the conflict checks.
+    place_name = profile.matching_name(title)
     if (metres is not None and metres <= 100 and exact_place_title(place_name, title)
             and _is_dedicated_catalog_object(key)):
         return Decision("accepted", ("Совпали полное название и координаты объекта",),
@@ -441,8 +322,8 @@ def verify_source(place, source, reference_urls=()) -> Decision:
     same_name = words_present(cues, title)
     phrase_match = _title_has_name_phrase(place_name, title)
     same_core_name = same_name and len(cues) >= 2
-    fine_local = locality_cues(place_address)
-    settlements = settlement_cues(place_address)
+    fine_local = profile.districts
+    settlements = profile.localities
     same_settlement = bool(settlements) and any(words_present({sett},
                     candidate_address + " " + str(primary.get("locality") or "")) for sett in settlements)
 
@@ -610,6 +491,8 @@ def diverse_photos(photos: list[dict], limit: int = 12) -> list[dict]:
 def verify_report(report, place, reference_urls, *, junk_source=lambda item: False,
                   junk_photo=lambda item: False):
     """Recalculate source and photo decisions from all available candidate evidence."""
+    profile = build_place_profile(place, reference_urls=reference_urls)
+    reference_urls = profile.reference_urls
     output = dict(report)
     prior = report.get("verification") or {}
     sources = list(report.get("items") or []) + list(report.get("source_candidates") or [])
@@ -654,7 +537,7 @@ def verify_report(report, place, reference_urls, *, junk_source=lambda item: Fal
     accepted = []
     related = []
     for key, item in list(unique.items())[:60]:
-        decision = verify_source(place, item, reference_urls)
+        decision = verify_source(place, item, profile=profile)
         if junk_source(item) and "reference" not in decision.evidence:
             decision = Decision("rejected", ("Общая страница, служебный материал или неподходящий источник",))
         decisions[key] = decision

@@ -6,7 +6,8 @@ from time import monotonic
 import re
 
 from urbex.domain.rules import DomainError
-from .osint import _search, _search_location
+from .osint import _search
+from .osint_profile import build_place_profile, search_text
 from .osint_description import wikimapia_photos_for_links
 from .osint_identity import (
     coordinates, distance, kinds, name_cues, source_key, verify_report, verify_source, normalized,
@@ -27,12 +28,10 @@ _STATE_WORDS = re.compile(
 
 
 def discover_photos(place: dict, search_url: str, origin: str) -> list[dict]:
-    if not str(place.get('name') or '').strip() or not coordinates(place):
+    profile = build_place_profile(place)
+    if not profile.name or not profile.point:
         return []
-    key = (search_url, origin, *(str(place.get(field) or '') for field in (
-        'name', 'description', 'latitude', 'longitude', 'full_address', 'region',
-        'category', 'category_name',
-    )))
+    key = (search_url, origin, profile)
     with _requests[hash(key) % len(_requests)]:
         with _lock:
             cached = _cache.get(key)
@@ -59,9 +58,10 @@ def _remember(key, photos, ttl):
 
 
 def _search_queries(place):
-    name = str(place['name']).strip()
+    profile = build_place_profile(place)
+    name = profile.search_name
     compact = re.sub(r'\s+', ' ', _STATE_WORDS.sub('', name)).strip()
-    location = _search_location(place)
+    location = ' '.join(dict.fromkeys(part for part in (profile.settlement, profile.region) if part))
     # An imported address may contain only an administrative district, without
     # a settlement. Keep that useful local cue in the fallback search.
     district = re.search(
@@ -70,8 +70,10 @@ def _search_queries(place):
     )
     local = district[1] if district else location
     suffix = re.split(r'\s+(?:у|возле|рядом\s+с)\s+', compact, flags=re.I)[-1]
-    lat, lon = coordinates(place)
-    subjects = [f'{name[:180]} {location}', f'{compact[:180]} {local}',
+    lat, lon = profile.point
+    subjects = [f'{name[:180]} {location}',
+                *(f'{search_text(alias, max_len=180)} {location}' for alias in profile.aliases[:2]),
+                f'{compact[:180]} {local}',
                 f'{suffix[:180]} {local}', f'{compact[:150]} {lat:.5f} {lon:.5f}']
     return list(dict.fromkeys(' '.join(s.split()) + ' site:wikimapia.org' for s in subjects))
 
@@ -79,9 +81,10 @@ def _search_queries(place):
 def _candidate_rank(row, place):
     # Search titles are often truncated or empty; rank them, never treat them
     # as authoritative identity or require every word before opening the page.
-    cues = name_cues(_STATE_WORDS.sub('', str(place['name'])))
+    profile = build_place_profile(place)
     title = set(re.findall(r'[а-яa-z0-9]+', normalized(row.get('title'))))
-    return len(cues & title)
+    return max((len(name_cues(_STATE_WORDS.sub('', name)) & title)
+                for name in profile.identity_names), default=0)
 
 
 def _map_name_matches(place, identity):

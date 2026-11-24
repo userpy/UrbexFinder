@@ -7,7 +7,8 @@ from threading import Lock
 from time import monotonic
 from urllib.parse import quote, unquote, urlparse
 import httpx
-from .osint_identity import extract_page_identity, source_key, verify_source, name_cues, words_present
+from .osint_identity import extract_page_identity, source_key, verify_source
+from .osint_profile import build_place_profile
 
 _HOSTS = {'wikimapia.org', 'geocaching.su', 'urban3p.ru', 'urban3p.com',
           'swalker.ru', 'podmoskovnye.ru', 'planetadorog.ru',
@@ -198,6 +199,7 @@ def wikipedia_photos_for_sources(sources, limit=12):
 
 
 def enrich_candidates(place, candidates, reference_urls):
+    profile = build_place_profile(place, reference_urls=reference_urls)
     rows = [dict(row) for row in candidates]
     from .wikimapia import is_object_url
     pending = []
@@ -210,13 +212,13 @@ def enrich_candidates(place, candidates, reference_urls):
             is_object_url(url)
             and (identity.get('latitude') is None or identity.get('longitude') is None)
         )
-        if verify_source(place, row, reference_urls).status == 'unconfirmed' or missing_coordinates:
+        if verify_source(place, row, profile=profile).status == 'unconfirmed' or missing_coordinates:
             pending.append(row)
     def priority(row):
         score = row.get('reranker_score')
         if isinstance(score, (int, float)):
-            return (0, -score, not words_present(name_cues(place.get('name')), row.get('title', '')))
-        return (1, 0, not words_present(name_cues(place.get('name')), row.get('title', '')))
+            return (0, -score, not profile.matches_name(row.get('title', '')))
+        return (1, 0, not profile.matches_name(row.get('title', '')))
 
     pending.sort(key=priority)
     pending = pending[:4]

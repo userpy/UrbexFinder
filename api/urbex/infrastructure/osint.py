@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Literal
 from sqlalchemy import text
 from urbex.domain.rules import DomainError
+from urbex.infrastructure.osint_profile import build_place_profile, search_text as _qg_clean
 from urbex.infrastructure.osint_identity import verify_report, verify_source, source_key
 from urbex.infrastructure.osint_evidence import enrich_candidates, wikipedia_photos_for_sources
 from urbex.infrastructure.semantic_ranking import rank_candidates
@@ -75,125 +76,21 @@ class OSINTSearchQuery:
     query: str
     priority: int
 
-# These are search rewrites, NOT assertions that they are official names.
-_QG_TYPE_PREFIX = re.compile(
-    r'^(?:(?:заброшенн\w*|бывш\w*|стар\w*)\s+)*'
-    r'(?:пионерлагер\w*|детлагер\w*|дол\s+|пионерск\w*\s+лагер\w*|детск\w*\s+оздоровительн\w*\s+лагер\w*|'
-    r'детск\w*\s+лагер\w*|санатори\w*|баз[аыу]\s+отдыха)\s*',
-    re.IGNORECASE,
-)
-_QG_ADMIN = re.compile(r'(?:област\w*|район\w*|округ\w*|республик\w*|кра[йя]\w*|федеральн\w*|росси\w*)', re.I)
-_QG_REGION = re.compile(r'(?:[А-ЯЁа-яё\-]+\s+област\w*|[А-ЯЁа-яё\-]+\s+край|республика\s+[А-ЯЁа-яё\-]+|г\.?\s*Москва|\bМосква\b)', re.I)
-_QG_SETTLEMENT_PREFIX = re.compile(r'^(?:(?:деревня|д\.|село|с\.|пос[её]лок|п\.|город|г\.)\s+)', re.I)
-_QG_NON_SETTLEMENT = re.compile(r'^(?:СНТ|ДНТ|НСТ|ДОЛ|ТСН|ТСЖ|КП|ГСК|СНП|ДПК|ТОС)\b', re.I)
-_QG_STREET = re.compile(r'\b(?:улица|ул\.|шоссе|проспект|переулок|дорога|набережная|дом|строение)\b', re.I)
-_QG_QUOTED_NAME = re.compile(r'[«"]([^»"]{3,65})[»"]')
-_QG_BAD_ALIASES = {'разное', 'без названия', 'неизвестно', 'нет', 'none', 'null'}
 _QG_NEGATIVE_IMAGES = ('-pinterest', '-roblox', '-minecraft', '-avito', '-cian', '-wallpaper')
 
 
-def _qg_clean(value: object, *, max_len: int = 120) -> str:
-    if value is None:
-        return ''
-    value = re.sub(r'\s+', ' ', str(value)).strip()
-    # Do not allow precomposed SearXNG operators from untrusted place metadata.
-    value = re.sub(r'(?i)\b(?:site|intitle|inurl|filetype):', '', value)
-    value = value.replace('(', ' ').replace(')', ' ').replace('|', ' ')
-    return value[:max_len].strip()
-
-
-def _qg_explicit_aliases(place: dict) -> list[str]:
-    raw = place.get('aliases') or place.get('alternative_names') or place.get('alternate_names') or []
-    if isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-            raw = parsed if isinstance(parsed, list) else re.split(r'[;\n]+', raw)
-        except (TypeError, ValueError):
-            raw = re.split(r'[;\n]+', raw)
-    if not isinstance(raw, (list, tuple)):
-        return []
-    found = []
-    for item in raw[:30]:
-        name = _qg_fix_quotes(_qg_clean(item if isinstance(item, str) else '', max_len=90))
-        if name and name.casefold() not in _QG_BAD_ALIASES:
-            found.append(name)
-    return found
-
-
-def _qg_fix_quotes(value: str) -> str:
-    """Remove unbalanced punctuation (from pasted/truncated card names)."""
-    if value.count('«') != value.count('»'):
-        value = value.replace('«', '').replace('»', '')
-    if value.count('"') % 2:
-        value = value.replace('"', '')
-    return value.strip()
-
-
 def _qg_names(place: dict) -> tuple[str, list[str]]:
-    primary = _qg_clean(place.get('name'), max_len=110)
-    primary = _qg_fix_quotes(primary)
-    aliases = _qg_explicit_aliases(place)
-    if primary:
-        match = _QG_QUOTED_NAME.search(primary)
-        if match:
-            aliases.append(match.group(1).strip())
-        reduced = _QG_TYPE_PREFIX.sub('', primary).strip(' «»"')
-        reduced = _qg_fix_quotes(reduced)
-        if len(reduced) >= 4 and reduced.casefold() != primary.casefold():
-            aliases.append(reduced)
-    seen = {primary.casefold()}
-    unique = []
-    for alias in aliases:
-        if alias.casefold() not in seen:
-            seen.add(alias.casefold())
-            unique.append(alias)
-    return primary, unique
+    profile = build_place_profile(place)
+    return profile.search_name, list(profile.search_aliases)
 
 
 def _qg_location(place: dict) -> tuple[str, str]:
-    region = _qg_clean(place.get('region'), max_len=90)
-    full = _qg_clean(place.get('full_address'), max_len=500)
-    if not region:
-        m = _QG_REGION.search(full)
-        if m:
-            region = m.group(0)
-    explicit = _qg_clean(place.get('settlement') or place.get('locality') or place.get('city'), max_len=70)
-    if explicit:
-        return explicit, region
-    # In Nominatim-style addresses the closest settlement is usually the last
-    # usable component before the administrative district/region. The first
-    # component often names the object itself, a patron or a garden association.
-    candidates: list[str] = []
-    for raw in re.split(r'\s*,\s*', full):
-        raw = raw.strip()
-        if not raw or _QG_NON_SETTLEMENT.match(raw):
-            continue
-        # «Холмогоры» as a standalone address component is often a named site,
-        # not a village. A.P. Гайдар is a dedication rather than a settlement.
-        if ((raw.startswith(('«', '"')) and raw.endswith(('»', '"')))
-                or re.match(r'^(?:[А-ЯЁ]\.\s*){1,3}', raw)):
-            continue
-        part = _QG_SETTLEMENT_PREFIX.sub('', raw.strip(' «»"')).strip()
-        if (not 3 <= len(part) <= 65 or re.search(r'\d', part) or
-                _QG_ADMIN.search(part) or _QG_STREET.search(part) or
-                part.casefold() == region.casefold() or
-                part.casefold() == str(place.get('name') or '').casefold()):
-            continue
-        if re.search(r'\b(?:лагерь|санаторий|усадьба|завод|бункер|церковь|храм)\b', part, re.I):
-            continue
-        candidates.append(part)
-    return (candidates[-1] if candidates else ''), region
+    profile = build_place_profile(place)
+    return profile.settlement, profile.region
 
 
 def _qg_coordinate_string(place: dict) -> str:
-    try:
-        lat = float(place['latitude'])
-        lon = float(place['longitude'])
-    except (TypeError, KeyError, ValueError):
-        return ''
-    if not (-85 <= lat <= 85 and -180 <= lon <= 180):
-        return ''
-    return f'{lat:.5f}, {lon:.5f}'
+    return build_place_profile(place).coordinate_query
 
 
 def _qg_compose(*parts: str, limit: int = _QG_MAX_QUERY_LENGTH) -> str:
@@ -248,9 +145,10 @@ def generate_osint_queries(place: dict, *, max_queries: int = _QG_MAX_TEXT_QUERI
     """Return prioritized *diverse* queries. Defaults work with SearXNG JSON API."""
     if max_queries <= 0:
         return []
-    name, aliases = _qg_names(place)
-    settlement, region = _qg_location(place)
-    coords = _qg_coordinate_string(place)
+    profile = build_place_profile(place)
+    name, aliases = profile.search_name, profile.search_aliases
+    settlement, region = profile.settlement, profile.region
+    coords = profile.coordinate_query
     location = _qg_compose(settlement, region) if settlement.casefold() != region.casefold() else region
     candidates: list[OSINTSearchQuery] = []
 
@@ -686,15 +584,7 @@ def _search_location(place: dict) -> str:
 
 
 def _search_name(place: dict) -> str:
-    from html import unescape
-    from .osint_identity import kinds, name_cues, words_present
-    name = str(place.get('name') or '').strip()
-    description = unescape(re.sub(r'<[^>]+>', ' ', str(place.get('description') or '')))
-    opening = re.split(r'[.!?\n]', description, maxsplit=1)[0].strip()
-    if (name and not kinds(name) and kinds(opening) and len(opening) <= 160
-            and words_present(name_cues(name), opening)):
-        return opening
-    return name
+    return build_place_profile(place).search_name
 
 
 def _urbex_site_query(place: dict) -> str:
@@ -708,24 +598,10 @@ def _urbex_site_query(place: dict) -> str:
     return f'{subject[:160]} {_URBEX_SITE_QUERY}'
 
 
-def _query_generator_place(place: dict) -> dict:
-    """Build query metadata, preserving any richer name from the old logic."""
-    query_place = dict(place)
-    enriched_name = _search_name(place)
-    raw_name = str(place.get('name') or '').strip()
-    if enriched_name and enriched_name != raw_name:
-        aliases = _qg_explicit_aliases(place)
-        if raw_name:
-            aliases.insert(0, raw_name)
-        query_place['aliases'] = aliases
-        query_place['name'] = enriched_name
-    return query_place
-
-
 def _queries_for(place: dict) -> list[str]:
     """Generate diverse text queries without external generator imports."""
     return [item.query for item in generate_osint_queries(
-        _query_generator_place(place), max_queries=_MAX_QUERIES,
+        place, max_queries=_MAX_QUERIES,
     )]
 
 
@@ -750,7 +626,7 @@ def _unit_numbers(text: str) -> set[str]:
 def _image_queries_for(place: dict) -> list[str]:
     """Generate length-safe image queries without external generator imports."""
     return [item.query for item in generate_osint_queries(
-        _query_generator_place(place), max_queries=_MAX_IMAGE_QUERIES, image=True,
+        place, max_queries=_MAX_IMAGE_QUERIES, image=True,
     )]
 
 

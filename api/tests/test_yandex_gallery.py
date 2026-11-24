@@ -1,4 +1,5 @@
 import json
+import pytest
 from urbex.infrastructure import osint, osint_description as description
 from urbex.infrastructure.osint_identity import source_key
 from urbex.infrastructure.yandex_gallery import org_gallery
@@ -7,6 +8,72 @@ URL = 'https://yandex.com/maps/org/aleksin_bor/110927843327/'
 IMAGE = 'https://avatars.mds.yandex.net/get-altay/123/2a000001abc/%s'
 PLACE = {'id': 189, 'name': 'Санаторий "Алексин Бор"',
          'region': 'Тульская область', 'latitude': 54.55188, 'longitude': 37.137548}
+
+TESLA_PLACE = {
+    'id': 7, 'name': 'Катушки Тесла',
+    'latitude': 55.924186, 'longitude': 36.819986,
+    'full_address': 'Почтовая улица, Истра, муниципальный округ Истра, Московская область',
+}
+TESLA_URL = 'https://yandex.com/maps/org/tesla_towers/65066224914/'
+
+
+@pytest.fixture
+def tesla_photos(monkeypatch):
+    # Organization metadata observed on Maps; its pin is ~99 m from the card.
+    data = {'stack': [{'results': {'items': [{
+        'id': '65066224914', 'title': 'Башни Тесла',
+        'address': 'Московская область, муниципальный округ Истра',
+        'coordinates': [36.818533, 55.923832],
+        'categories': [{'name': 'Достопримечательность'}],
+        'photos': {'items': [{'urlTemplate': IMAGE}]},
+    }]}}]}
+    page = '<script class="state-view">' + json.dumps(data) + '</script>'
+    monkeypatch.setattr(description, '_fetch_ymaps_html', lambda url: page)
+    return description.yandex_maps_photos_for_links([{'url': TESLA_URL}])
+
+
+def test_tesla_towers_gallery_matches_coils_and_recovers_cached_rejections(monkeypatch, tesla_photos):
+    from urbex.infrastructure import source_photos
+
+    stored = {
+        'photos': [], 'items': [], 'photos_total': 0, 'total': 0,
+        'verification': {'version': 21, 'sources': [], 'photos': [{
+            'candidate': photo, 'status': 'unconfirmed',
+            'reasons': ['Недостаточно данных для привязки к конкретному объекту'],
+        } for photo in tesla_photos]},
+    }
+    monkeypatch.setattr(osint, 'load_osint_report', lambda *a: stored)
+    saved = []
+    monkeypatch.setattr(osint, 'save_osint_report', lambda engine, id, report: saved.append(report) or report)
+    monkeypatch.setattr(osint, 'yandex_maps_photos_for_links',
+                        lambda *a: pytest.fail('Cached gallery should not need a new fetch'))
+    monkeypatch.setattr(source_photos, 'discover_photos', lambda *a: [])
+
+    fresh = osint._refilter_report({'photos': tesla_photos}, TESLA_PLACE)
+    assert fresh['photos'] == tesla_photos
+    result = osint.get_or_build_osint_report(None, '', '', TESLA_PLACE)
+    assert result['photos'] == tesla_photos
+    assert result['photos_total'] == 1
+    assert saved and saved[0]['photos'] == tesla_photos
+    assert source_photos.source_photos(TESLA_PLACE, stored) == tesla_photos
+
+
+@pytest.mark.parametrize('changes', [
+    {'latitude': None},
+    {'latitude': 55.926},  # Nearby, but outside the existing 100 m identity threshold.
+    {'latitude': 56.0},
+    {'full_address': 'Тверская область'},
+    {'name': 'Музей Николы Тесла'},
+])
+def test_tesla_alias_does_not_override_missing_coordinates_or_conflicts(tesla_photos, changes):
+    report = osint._refilter_report({'photos': tesla_photos}, dict(TESLA_PLACE, **changes))
+    assert report['photos'] == []
+
+
+def test_tesla_alias_requires_coordinates_from_its_own_source(tesla_photos):
+    photo = tesla_photos[0]
+    photo['page_identity']['source_key'] = 'yandex_maps:999'
+    assert osint._refilter_report({'photos': [photo]}, TESLA_PLACE)['photos'] == []
 
 
 def html(oid='110927843327'):

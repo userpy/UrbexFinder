@@ -9,6 +9,7 @@ from .vk_album import parse_vk_album
 from .yandex_gallery import org_gallery
 from .osint_identity import source_key
 from .osint_identity import primary_gallery
+from .osint_profile import build_place_profile
 from .page_parser import parse_page
 from .wikimapia import (
     direct_photos,
@@ -1217,12 +1218,11 @@ def yandex_maps_photos_for_place(
     """Resolve org near place coords by name and soft-scrape its Maps gallery."""
     if limit <= 0:
         return []
-    name = str(place.get('name') or '').strip()
-    try:
-        lat = float(place.get('latitude'))
-        lon = float(place.get('longitude'))
-    except (TypeError, ValueError):
+    profile = build_place_profile(place)
+    name = profile.search_name
+    if not profile.point:
         return []
+    lat, lon = profile.point
     if not name or not _ymaps_name_tokens(name):
         return []
     query = urlencode({
@@ -1241,7 +1241,7 @@ def yandex_maps_photos_for_place(
     slug, oid = org
     title = _ymaps_search_result_title(html, oid) or _ymaps_title_from_html(html)
     org_label = title or slug.replace('_', ' ')
-    if not _ymaps_names_match(name, org_label):
+    if not any(_ymaps_names_match(value, org_label) for value in (name, *profile.identity_names)):
         return []
     # Drop famous namesakes in other cities (Казань vs «Казанской» church in Ryazan).
     address_blob = ' '.join(
