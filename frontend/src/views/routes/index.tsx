@@ -16,7 +16,7 @@ import {
 import Link from "next/link";
 import { StatusPicker } from "./status-picker";
 import { downloadRouteGpx, downloadRouteKml } from "./export";
-import { useSession } from "@/entities/session";
+import { telegramLaunch, useSession } from "@/entities/session";
 import { Place } from "@/entities/place";
 import { api, body, Page } from "@/shared/api";
 import { PlaceDetail } from "@/widgets/place-detail";
@@ -276,9 +276,14 @@ export function RoutesView() {
         return;
       }
 
-      // Вызываем сразу по нажатию: системному меню нужен пользовательский жест.
+      const { platform } = telegramLaunch(window);
+      const isTelegramDesktop = ["tdesktop", "macos", "unigram"].includes(platform);
+
+      // Desktop сразу открывает выбор получателя в Telegram.
+      // На телефонах сохраняем системное меню для отправки в другие приложения.
       const data = { title: route.name, text: route.name, url: shareUrl };
       if (
+        !isTelegramDesktop &&
         typeof navigator.share === "function" &&
         (!navigator.canShare || navigator.canShare(data))
       ) {
@@ -291,7 +296,7 @@ export function RoutesView() {
         }
       }
 
-      // В клиентах без системного меню открываем выбор чата в Telegram.
+      // Выбор чата в Desktop и резервный вариант для остальных клиентов.
       const url = new URL("https://t.me/share/url");
       url.searchParams.set("url", shareUrl);
       url.searchParams.set("text", route.name);

@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { telegramLaunch } from "./telegram";
+export { telegramLaunch } from "./telegram";
 import { api, body, setCsrf } from "@/shared/api";
 
 export type User = {
