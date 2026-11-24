@@ -522,7 +522,7 @@ body {
 
 .gallery-thumbnails > button { position: relative; }
 @media (max-width: 760px) {
-  .osint-dialog .osint-dialog-panel { padding-top: 42px; }
+  .osint-dialog .osint-dialog-panel { padding-top: 64px; }
 }
 
 .place-fullscreen { overflow: hidden; outline: none; }

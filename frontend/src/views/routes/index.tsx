@@ -11,7 +11,6 @@ import {
   ChevronUp,
   ListRestart,
   Share2,
-  Send,
   Download,
 } from "lucide-react";
 import Link from "next/link";
@@ -39,7 +38,7 @@ type Route = {
   items?: (Stop & { place: Place | null })[];
 };
 export function RoutesView() {
-  const { user, loading } = useSession();
+  const { user, loading, isMiniApp } = useSession();
   const [routes, setRoutes] = useState<Route[]>([]),
     [route, setRoute] = useState<Route | null>(null);
   const [error, setError] = useState(""),
@@ -64,6 +63,8 @@ export function RoutesView() {
   const exportDialog = useRef<HTMLDialogElement>(null);
   const exportTextArea = useRef<HTMLTextAreaElement>(null);
   const [exportCopyStatus, setExportCopyStatus] = useState("");
+  const [sharing, setSharing] = useState(false);
+  const [manualShare, setManualShare] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [shareLinkLoading, setShareLinkLoading] = useState(false);
@@ -71,6 +72,9 @@ export function RoutesView() {
   const [shareRetry, setShareRetry] = useState(0);
   const shareLinkInput = useRef<HTMLInputElement>(null);
   const shareNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (manualShare) shareLinkInput.current?.select();
+  }, [manualShare]);
   useEffect(
     () => () => {
       if (shareNoticeTimer.current) clearTimeout(shareNoticeTimer.current);
@@ -106,6 +110,7 @@ export function RoutesView() {
     let active = true;
     setShareUrl("");
     setShareCopied(false);
+    setManualShare(false);
     setShareLinkLoading(true);
     setShareLinkError("");
 
@@ -258,6 +263,52 @@ export function RoutesView() {
       ];
     });
   }
+  async function shareRoute() {
+    if (!shareUrl || !route || sharing) return;
+    setSharing(true);
+    setError("");
+    setMessage("");
+    setShareCopied(false);
+    setManualShare(false);
+    try {
+      if (!isMiniApp) {
+        await copyShareLink();
+        return;
+      }
+
+      // Вызываем сразу по нажатию: системному меню нужен пользовательский жест.
+      const data = { title: route.name, text: route.name, url: shareUrl };
+      if (
+        typeof navigator.share === "function" &&
+        (!navigator.canShare || navigator.canShare(data))
+      ) {
+        try {
+          await navigator.share(data);
+          return;
+        } catch (error) {
+          // Закрытие меню пользователем не должно открывать другое меню.
+          if (error instanceof DOMException && error.name === "AbortError") return;
+        }
+      }
+
+      // В клиентах без системного меню открываем выбор чата в Telegram.
+      const url = new URL("https://t.me/share/url");
+      url.searchParams.set("url", shareUrl);
+      url.searchParams.set("text", route.name);
+      const tg = (window as Window & {
+        Telegram?: { WebApp?: { openTelegramLink?: (url: string) => void } };
+      }).Telegram?.WebApp;
+      if (tg?.openTelegramLink) tg.openTelegramLink(url.href);
+      else window.location.assign(url.href);
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Не удалось открыть меню отправки",
+      );
+      setManualShare(true);
+    } finally {
+      setSharing(false);
+    }
+  }
   async function copyShareLink() {
     if (!shareUrl) return;
 
@@ -273,8 +324,12 @@ export function RoutesView() {
     }
 
     if (!copied) {
-      const input = shareLinkInput.current;
-      if (input) {
+      const input = document.createElement("textarea");
+      input.value = shareUrl;
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.appendChild(input);
+      try {
         input.focus();
         input.select();
         input.setSelectionRange(0, shareUrl.length);
@@ -283,6 +338,8 @@ export function RoutesView() {
         } catch {
           copied = false;
         }
+      } finally {
+        input.remove();
       }
     }
 
@@ -292,7 +349,10 @@ export function RoutesView() {
       if (shareNoticeTimer.current) clearTimeout(shareNoticeTimer.current);
       shareNoticeTimer.current = setTimeout(() => setShareCopied(false), 2500);
     } else {
-      setMessage("Telegram ограничил копирование. Выделите ссылку и скопируйте вручную.");
+      setManualShare(true);
+      setMessage(
+        "Не удалось скопировать ссылку. Выделите её и скопируйте вручную.",
+      );
     }
   }
   async function handleExport(format: "kml" | "gpx") {
@@ -768,46 +828,15 @@ export function RoutesView() {
             >
               <Button
                 variant="outline"
-                onClick={async () => {
-                  if (!route) return;
-                  setBusy(true);
-                  setError("");
-                  setMessage("");
-                  try {
-                    await api(`/itineraries/${route.id}`, {
-                      method: "PUT",
-                      body: body({
-                        name: route.name,
-                        trip_date: route.trip_date,
-                        notes: route.notes,
-                        stops: route.stops,
-                        version: route.version,
-                      }),
-                    });
-                    setRoute(await api<Route>(`/itineraries/${route.id}`));
-                    setRevision((value) => value + 1);
-                    await api(`/itineraries/${route.id}/telegram`, {
-                      method: "POST",
-                    });
-                    setMessage("Маршрут отправлен в Telegram");
-                  } catch (error) {
-                    setError((error as Error).message);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-                disabled={!route.name.trim()}
-              >
-                <Send size={16} /> В Telegram
-              </Button>
-              <Button
-                variant="outline"
                 type="button"
-                onClick={() => void copyShareLink()}
-                disabled={!route.name.trim() || !shareUrl || shareLinkLoading}
+                onClick={() => void shareRoute()}
+                aria-label="Поделиться маршрутом"
+                disabled={
+                  !route.name.trim() || !shareUrl || shareLinkLoading || sharing
+                }
               >
                 <Share2 size={16} aria-hidden="true" />
-                Скопировать ссылку
+                {isMiniApp ? "Поделиться" : "Скопировать ссылку"}
               </Button>
               <Button
                 variant="outline"
@@ -828,6 +857,20 @@ export function RoutesView() {
                 Скачать GPX
               </Button>
             </div>
+            {manualShare && shareUrl && (
+              <label
+                className="route-share-link"
+                style={{ display: "block", marginTop: 12 }}
+              >
+                Ссылка на маршрут
+                <input
+                  ref={shareLinkInput}
+                  value={shareUrl}
+                  readOnly
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+              </label>
+            )}
             {shareLinkError && (
               <div className="route-share-link" style={{ marginTop: 12 }}>
                 <p role="alert" className="notice">
