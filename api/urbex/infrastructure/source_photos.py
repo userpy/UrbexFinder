@@ -7,6 +7,7 @@ import re
 
 from urbex.domain.rules import DomainError
 from .osint_identity import verify_report, source_key, diverse_photos
+from .wikimapia_discovery import discover_photos
 from .osint_description import (
     links_from_description,
     generic_page_photos_for_links,
@@ -19,7 +20,8 @@ _cache = OrderedDict()
 _lock = Lock()
 
 
-def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: str = '') -> list[dict]:
+def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: str = '',
+                  search_url: str = '', origin: str = '') -> list[dict]:
     links = [link for link in links_from_description(str(place.get('description') or ''))
              if (urlparse(link['url']).hostname or '').lower() in {
                  'geocaching.su', 'www.geocaching.su', 'geocaching.ru', 'www.geocaching.ru',
@@ -50,7 +52,7 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
             links.append(link)
             seen_sources.add(key)
     if not links:
-        return diverse_photos(checked_photos)
+        return diverse_photos(checked_photos or discover_photos(place, search_url, origin))
     # Reuse only photos whose source and gallery membership pass verification.
     source_urls = {link['url'].rstrip('/') for link in links}
     podmoskovnye = {source_key(link['url']) for link in links
