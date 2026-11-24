@@ -381,6 +381,18 @@ def send_itinerary_telegram(id: int, request: Request, ctx: Ctx):
     return {'ok': True}
 
 
+@router.post('/itineraries/{id}/share-message')
+def prepare_itinerary_share(id: int, request: Request, ctx: Ctx):
+    actor = signed(ctx)
+    route = ctx[0].itineraries.detail(actor, id)
+    user = ctx[0].repo.get('users', actor.id)
+    if not user.get('telegram_id'):
+        raise DomainError('Для отправки маршрута войдите через Telegram.', 400)
+    token = ctx[0].itineraries.share(actor, id)['token']
+    url = f"{request.app.state.config.origin.rstrip('/')}/routes/share?token={token}"
+    return request.app.state.prepare_route_share(user['telegram_id'], route, url)
+
+
 @router.delete('/admin/places/{id}')
 def delete_place(id: int, ctx: Ctx):
     ctx[0].moderation.moderate(signed(ctx), 'places', id, 'rejected', 'Удалено модератором')

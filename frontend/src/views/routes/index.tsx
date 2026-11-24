@@ -12,10 +12,12 @@ import {
   ListRestart,
   Share2,
   Download,
+  Copy,
 } from "lucide-react";
 import Link from "next/link";
 import { StatusPicker } from "./status-picker";
 import { downloadRouteGpx, downloadRouteKml } from "./export";
+import { openTelegramShare, sharePreparedMessage, telegramShareApp } from "./share";
 import { telegramLaunch, useSession } from "@/entities/session";
 import { Place } from "@/entities/place";
 import { api, body, Page } from "@/shared/api";
@@ -279,6 +281,19 @@ export function RoutesView() {
       const { platform } = telegramLaunch(window);
       const isTelegramDesktop = ["tdesktop", "macos", "unigram"].includes(platform);
 
+      const tg = telegramShareApp();
+      if (isTelegramDesktop && tg?.isVersionAtLeast?.("8.0") && tg.shareMessage) {
+        const { id } = await api<{ id: string }>(`/itineraries/${route.id}/share-message`, {
+          method: "POST",
+          signal: AbortSignal.timeout(20_000),
+        });
+        const sent = await sharePreparedMessage(tg, id);
+        if (sent) setMessage("Маршрут отправлен");
+        // false also includes cancellation: do not open another share dialog.
+        else setManualShare(true);
+        return;
+      }
+
       // Desktop сразу открывает выбор получателя в Telegram.
       // На телефонах сохраняем системное меню для отправки в другие приложения.
       const data = { title: route.name, text: route.name, url: shareUrl };
@@ -297,14 +312,9 @@ export function RoutesView() {
       }
 
       // Выбор чата в Desktop и резервный вариант для остальных клиентов.
-      const url = new URL("https://t.me/share/url");
-      url.searchParams.set("url", shareUrl);
-      url.searchParams.set("text", route.name);
-      const tg = (window as Window & {
-        Telegram?: { WebApp?: { openTelegramLink?: (url: string) => void } };
-      }).Telegram?.WebApp;
-      if (tg?.openTelegramLink) tg.openTelegramLink(url.href);
-      else window.location.assign(url.href);
+      openTelegramShare(shareUrl, route.name);
+      // Link opening has no result callback; keep the URL accessible.
+      setManualShare(true);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Не удалось открыть меню отправки",
@@ -316,6 +326,10 @@ export function RoutesView() {
   }
   async function copyShareLink() {
     if (!shareUrl) return;
+    setError("");
+    setMessage("");
+    setShareCopied(false);
+    setManualShare(false);
 
     let copied = false;
     try {
@@ -843,6 +857,17 @@ export function RoutesView() {
                 <Share2 size={16} aria-hidden="true" />
                 {isMiniApp ? "Поделиться" : "Скопировать ссылку"}
               </Button>
+              {isMiniApp && (
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => void copyShareLink()}
+                  disabled={!shareUrl || shareLinkLoading}
+                >
+                  <Copy size={16} aria-hidden="true" />
+                  Скопировать ссылку
+                </Button>
+              )}
               <Button
                 variant="outline"
                 type="button"

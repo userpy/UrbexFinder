@@ -7,7 +7,7 @@ from urbex.infrastructure.osint import get_or_build_osint_report, load_osint_rep
 from urbex.infrastructure.source_photos import source_photos
 from urbex.infrastructure.external_images import ExternalImages
 from urbex.infrastructure.urban3p_media import fetch_image
-from urbex.infrastructure.telegram import send_route
+from urbex.infrastructure.telegram import send_route, prepare_route_share
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine
@@ -50,6 +50,7 @@ def create_app(config=None, storage=None):
     app = FastAPI(title='UrbexFinder API', version='0.1.0', lifespan=lifespan)
     app.state.config = config
     app.state.send_route = lambda chat_id, route: send_route(config.telegram_bot_token, chat_id, route)
+    app.state.prepare_route_share = lambda user_id, route, url: prepare_route_share(config.telegram_bot_token, user_id, route, url)
     app.state.reverse_address = lambda latitude, longitude: reverse_address(config.geocoder_url, config.origin, latitude, longitude)
     app.state.engine = create_engine(config.database_url, pool_pre_ping=True)
     app.state.source_photos = lambda place: app.state.external_images.photos(source_photos(

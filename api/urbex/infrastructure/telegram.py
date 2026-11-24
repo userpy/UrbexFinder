@@ -121,3 +121,36 @@ def send_route(token, chat_id, route):
         else:
             detail = 'Не удалось отправить маршрут в Telegram. Попробуйте позже.'
         raise DomainError(detail, 502) from None
+
+
+def prepare_route_share(token, user_id, route, url):
+    """Prepare a message; only the user's Mini App confirmation sends it."""
+    if not token:
+        raise DomainError('Отправка в Telegram временно недоступна', 503)
+    try:
+        with httpx.Client(timeout=15, follow_redirects=False) as client:
+            response = client.post(
+                f'https://api.telegram.org/bot{token}/savePreparedInlineMessage',
+                json={
+                    'user_id': user_id,
+                    'result': {
+                        'type': 'article', 'id': f"route-{route['id']}",
+                        'title': route['name'],
+                        'input_message_content': {
+                            'message_text': f"{route['name']}\n{url}",
+                        },
+                    },
+                    'allow_user_chats': True, 'allow_bot_chats': True,
+                    'allow_group_chats': True, 'allow_channel_chats': True,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not payload.get('ok'):
+                raise ValueError('Preparation failed')
+            result = payload['result']
+            if not isinstance(result['id'], str) or not result['id']:
+                raise ValueError('Invalid prepared message')
+            return {'id': result['id']}
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        raise DomainError('Не удалось подготовить сообщение Telegram. Скопируйте ссылку на маршрут.', 502) from None
