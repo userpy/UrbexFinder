@@ -593,6 +593,7 @@ export function Explorer({ initialPlaceId }: { initialPlaceId?: string }) {
           key={selected.id}
           place={selected}
           fullscreen={sharedPlace}
+          collapseOnClose
           onClose={() => {
             const url = new URL(window.location.href);
             url.searchParams.delete("place");

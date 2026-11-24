@@ -473,9 +473,14 @@ export function RoutesView() {
       {message && (
         <p
           role="status"
-          className={message === "Сохранено" ? "success-toast" : undefined}
+          className={
+            message === "Сохранено" || message.startsWith("Экспорт ")
+              ? "success-toast"
+              : undefined
+          }
         >
           {message === "Сохранено" && <FileCheck size={22} aria-hidden="true" />}
+          {message.startsWith("Экспорт ") && <Download size={22} aria-hidden="true" />}
           {message}
         </p>
       )}

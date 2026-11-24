@@ -37,10 +37,12 @@ export function PlaceDetail({
   place,
   onClose,
   fullscreen = false,
+  collapseOnClose = false,
 }: {
   place: Place;
   onClose: () => void;
   fullscreen?: boolean;
+  collapseOnClose?: boolean;
 }) {
   const { user } = useSession();
   const staff = !!user && ["admin", "moderator"].includes(user.role);
@@ -84,6 +86,10 @@ export function PlaceDetail({
   } | null>(null);
   const added = membership?.id === place.id && membership.added;
   const [expanded, setExpanded] = useState(fullscreen);
+  function closeFullscreen() {
+    if (collapseOnClose) setExpanded(false);
+    else onClose();
+  }
   const dialog = useRef<HTMLDialogElement>(null);
   const expandButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useCallback(() => expandButton.current?.focus(), []);
@@ -177,9 +183,7 @@ export function PlaceDetail({
         {expanded ? (
           <button
             className="detail-expand"
-            onClick={() => {
-              setExpanded(false);
-            }}
+            onClick={closeFullscreen}
           >
             <X size={19} />
             Закрыть
@@ -543,7 +547,7 @@ export function PlaceDetail({
           aria-label={place.name}
           onCancel={(event) => {
             event.preventDefault();
-            setExpanded(false);
+            closeFullscreen();
           }}
         >
           {content}
