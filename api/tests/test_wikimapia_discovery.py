@@ -221,3 +221,65 @@ def test_map_metadata_never_overwrites_conflicting_page_evidence(monkeypatch, ch
     monkeypatch.setattr(discovery, '_search', lambda *a: [])
     monkeypatch.setattr(discovery, 'wikimapia_photos_for_links', lambda *a: [photo(**changes)])
     assert discovery.discover_photos(PLACE, 'http://search', '') == []
+
+
+MIRNY = dict(PLACE, name='Территория бывшего пионерского лагеря «Мирный» от завода «Красный богатырь»',
+             latitude=55.741111, longitude=36.131389)
+MIRNY_URL = 'https://wikimapia.org/12083779/ru/'
+MIRNY_IDENTITY = dict(source_key='wikimapia.org:12083779', title='Детский лагерь отдыха «Мирный»',
+                      latitude=55.7412301, longitude=36.1314796)
+
+
+@pytest.mark.parametrize('broken_metadata', [False, True])
+def test_map_matches_camp_name_without_requiring_former_owner(monkeypatch, broken_metadata):
+    row = dict(MIRNY_IDENTITY, url=MIRNY_URL)
+    image = photo(MIRNY_URL, **MIRNY_IDENTITY)
+    if broken_metadata:
+        image['page_identity'] = {'source_key': row['source_key']}
+    monkeypatch.setattr(discovery, 'nearby_places', lambda p: [row])
+    monkeypatch.setattr(discovery, '_search', lambda *a: pytest.fail('Matched map object needs no search'))
+    monkeypatch.setattr(discovery, 'wikimapia_photos_for_links', lambda *a: [image])
+    place = deepcopy(MIRNY)
+    result = source_photos(place, search_url='http://search')
+    assert len(result) == 1
+    assert result[0]['source_url'] == MIRNY_URL
+    assert result[0]['match_method'] == 'name_coordinates'
+    assert place == MIRNY
+
+
+@pytest.mark.parametrize('changes', [
+    {'title': 'Детский лагерь «Красный богатырь»'},
+    {'title': 'Детский лагерь «Дружба»'},
+    {'title': 'Завод «Мирный»'},
+    {'title': 'Жилой комплекс «Мирный»'},
+    {'title': 'Дом начальника лагеря'},
+    {'latitude': 55.743},  # Namesake outside the 100 m search radius.
+    {'latitude': None},
+    {'address': 'Рыбушкино, Тульская область'},
+])
+def test_camp_short_name_never_overrides_identity_conflicts(changes):
+    row = dict(MIRNY_IDENTITY, url=MIRNY_URL, **changes)
+    assert not discovery._map_name_matches(MIRNY, row)
+
+
+def test_childrens_health_town_is_matched_as_camp_by_name_and_coordinates(monkeypatch):
+    place = dict(PLACE, name='Пионерский лагерь "Шошинский"', latitude=56.439019, longitude=35.560865)
+    url = 'https://wikimapia.org/24186472/ru/'
+    identity = dict(source_key=discovery.source_key(url),
+                    title='Детский оздоровительный городок «Шошинский»',
+                    latitude=56.4388737, longitude=35.5611132)
+    image = photo(url, **identity)
+    monkeypatch.setattr(discovery, 'nearby_places', lambda p: [dict(identity, url=url)])
+    monkeypatch.setattr(discovery, 'wikimapia_photos_for_links', lambda *a: [image])
+    monkeypatch.setattr(discovery, '_search', lambda *a: pytest.fail('Map already identified camp'))
+    assert discovery.discover_photos(place, 'http://search', '')[0]['source_url'] == url
+
+
+@pytest.mark.parametrize('title', ['Жилой городок «Шошинский»', 'Военный городок «Шошинский»',
+                                  'Детский игровой городок «Шошинский»',
+                                  'Детский оздоровительный городок «Другой»'])
+def test_other_town_types_or_names_do_not_match_camp(title):
+    place = dict(PLACE, name='Пионерский лагерь "Шошинский"', latitude=56.439019, longitude=35.560865)
+    identity = dict(url=URL, source_key=discovery.source_key(URL), title=title,
+                    latitude=56.4388737, longitude=35.5611132)
+    assert not discovery._map_name_matches(place, identity)

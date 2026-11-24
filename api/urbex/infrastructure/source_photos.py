@@ -23,6 +23,29 @@ _lock = Lock()
 
 def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: str = '',
                   search_url: str = '', origin: str = '') -> list[dict]:
+    failure = None
+    try:
+        photos = _linked_photos(place, saved_report, vk_token=vk_token)
+    except DomainError as exc:
+        photos, failure = [], exc
+    if any(photo.get('engine') == 'wikimapia' for photo in photos):
+        return photos
+    # A populated VK/Urban3P gallery must not suppress automatic Wikimapia
+    # discovery. Keep working sources visible if the additional source fails.
+    try:
+        discovered = discover_photos(place, search_url, origin)
+    except DomainError:
+        if not photos:
+            if failure:
+                raise failure
+            raise
+        discovered = []
+    if not photos and not discovered and failure:
+        raise failure
+    return diverse_photos(photos + discovered)
+
+
+def _linked_photos(place: dict, saved_report: dict | None = None, *, vk_token: str = '') -> list[dict]:
     description_links = links_from_description(str(place.get('description') or ''))
     links = [link for link in description_links
              if (urlparse(link['url']).hostname or '').lower() in {
@@ -54,7 +77,7 @@ def source_photos(place: dict, saved_report: dict | None = None, *, vk_token: st
             links.append(link)
             seen_sources.add(key)
     if not links:
-        return diverse_photos(checked_photos or discover_photos(place, search_url, origin))
+        return diverse_photos(checked_photos)
     # Reuse only photos whose source and gallery membership pass verification.
     source_urls = {link['url'].rstrip('/') for link in links}
     podmoskovnye = {source_key(link['url']) for link in links

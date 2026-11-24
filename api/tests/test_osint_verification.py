@@ -573,6 +573,7 @@ def test_source_photos_loads_vk_urban3p_and_wikimapia_links(monkeypatch):
 
 def test_incomplete_source_photo_cache_retries_missing_gallery(monkeypatch):
     from urbex.infrastructure import source_photos as galleries
+    monkeypatch.setattr(galleries, 'discover_photos', lambda *a: [])
 
     links = (
         'https://vk.com/album-97053640_272983075',

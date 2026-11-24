@@ -9,7 +9,7 @@ from urbex.domain.rules import DomainError
 from .osint import _search, _search_location
 from .osint_description import wikimapia_photos_for_links
 from .osint_identity import (
-    coordinates, distance, name_cues, source_key, verify_report, verify_source, normalized,
+    coordinates, distance, kinds, name_cues, source_key, verify_report, verify_source, normalized,
 )
 from .wikimapia import object_url
 from .wikimapia_map import nearby_places
@@ -85,8 +85,26 @@ def _candidate_rank(row, place):
 
 
 def _map_name_matches(place, identity):
-    if verify_source(place, {'url': identity['url'], 'page_identity': identity}).status == 'accepted':
+    source = {'url': identity['url'], 'page_identity': identity}
+    decision = verify_source(place, source)
+    if decision.status == 'accepted':
         return True
+    if decision.status == 'rejected':
+        return False
+    # Imported camp titles can include a former owner after the camp's name.
+    # Match the quoted camp name, never a quoted factory name or a nearby
+    # building. Retain the full-title conflict checks above and the 100 m gate.
+    point, candidate_point = coordinates(place), coordinates(identity)
+    if (point and candidate_point and distance(point, candidate_point) <= 100
+            and 'camp' in kinds(identity['title'])):
+        camp = re.search(
+            r'\b(?:лагер[а-я]*|пионерлагер[а-я]*)\s+(?:отдыха\s+)?[«"„“]([^»"“”]+)[»"“”]',
+            str(place['name']), re.I,
+        )
+        if camp and name_cues(camp[1]):
+            named_camp = dict(place, name=f'Лагерь «{camp[1]}»')
+            if verify_source(named_camp, source).status == 'accepted':
+                return True
     def tokens(value):
         value = normalized(_STATE_WORDS.sub('', str(value)))
         value = re.sub(r'\bртц\b', 'радиотехнический центр', value)

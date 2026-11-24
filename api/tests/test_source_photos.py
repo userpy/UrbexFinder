@@ -9,6 +9,11 @@ from urbex.infrastructure import source_photos as sources
 from urbex.presentation.http import router, context
 
 
+@pytest.fixture(autouse=True)
+def isolated_discovery(monkeypatch):
+    monkeypatch.setattr(sources, 'discover_photos', lambda *a: [])
+
+
 @pytest.mark.parametrize('report', [None, {'photos': []}])
 def test_explicit_wikimapia_photos_load_without_search_or_object_metadata(monkeypatch, report):
     image = 'https://photos.wikimapia.org/p/00/01/08/76/88_big.jpg'
@@ -258,3 +263,43 @@ def test_verified_search_galleries_share_budget_with_description_photos():
     assert len(result) == 12
     assert result[1] == other
     assert wrong not in result
+
+
+@pytest.mark.parametrize('saved', [False, True])
+def test_other_galleries_do_not_suppress_wikimapia_discovery(monkeypatch, saved):
+    sources._cache.clear()
+    url = 'https://vk.com/album-42_123'
+    place = {'name': 'Пионерский лагерь "Шошинский"', 'description': url,
+             'latitude': 56.439019, 'longitude': 35.560865}
+    vk = [dict(engine='vk', source_url=url, query=url,
+               image_url=f'https://sun9.userapi.com/{i}.jpg') for i in range(12)]
+    wiki = [dict(engine='wikimapia', source_url='https://wikimapia.org/24186472/ru/',
+                 image_url=f'https://photos.wikimapia.org/p/00/02/46/51/{i}_big.jpg') for i in range(5)]
+    calls = []
+    monkeypatch.setattr(sources, 'vk_photos_for_links', lambda *a: vk)
+    monkeypatch.setattr(sources, 'discover_photos', lambda *a: calls.append(a) or wiki)
+    for _ in range(2):  # Both freshly fetched and cached linked galleries.
+        result = sources.source_photos(place, {'photos': vk} if saved else None)
+        assert len(result) == 12
+        assert all(p in result for p in wiki)
+        assert any(p in result for p in vk)
+        assert place['description'] == url
+    assert len(calls) == 2
+
+
+def test_wikimapia_failure_preserves_working_linked_gallery(monkeypatch):
+    sources._cache.clear()
+    photo = {'image_url': 'https://geocaching.su/photos/areas/123.jpg'}
+    monkeypatch.setattr(sources, 'generic_page_photos_for_links', lambda *a, **k: [photo])
+    def unavailable(*a):
+        raise DomainError('Wikimapia unavailable', 502)
+    monkeypatch.setattr(sources, 'discover_photos', unavailable)
+    assert sources.source_photos({'description': 'https://geocaching.su/cache/18398'}) == [photo]
+
+
+def test_wikimapia_can_recover_gallery_when_linked_source_fails(monkeypatch):
+    sources._cache.clear()
+    photo = {'engine': 'wikimapia', 'image_url': 'https://photos.wikimapia.org/p/00/02/46/51/54_big.jpg'}
+    monkeypatch.setattr(sources, 'generic_page_photos_for_links', lambda *a, **k: [])
+    monkeypatch.setattr(sources, 'discover_photos', lambda *a: [photo])
+    assert sources.source_photos({'description': 'https://geocaching.su/cache/18398'}) == [photo]

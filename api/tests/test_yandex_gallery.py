@@ -64,6 +64,7 @@ def test_missing_cached_yandex_gallery_recovers_with_cooldown(monkeypatch):
 
 def test_confirmed_maps_gallery_is_available_on_place_card(monkeypatch):
     from urbex.infrastructure import source_photos
+    monkeypatch.setattr(source_photos, 'discover_photos', lambda *a: [])
     monkeypatch.setattr(description, '_fetch_ymaps_html', lambda url: html())
     photos = description.yandex_maps_photos_for_links([{'url': URL}])
     assert source_photos.source_photos(PLACE, {'photos': photos}) == photos
