@@ -24,6 +24,103 @@ const itinerary = {
   trip_date: null,
 };
 
+for (const close of ["button", "escape"] as const) {
+  for (const reportFails of [false, true]) {
+    test(`closing ${reportFails ? "failed" : "cached"} report by ${close} does not reload sources`, async ({ page }) => {
+      let sourceRequests = 0;
+      await page.route("**/api/places/42/source-photos", (route) => {
+        sourceRequests++;
+        return route.fulfill({ json: { items: [] } });
+      });
+      await page.route("**/api/places/42/osint-report", (route) => route.fulfill(
+        reportFails
+          ? { status: 502, json: { detail: "Отчёт недоступен" } }
+          : { json: { items: [], total: 0, cached: true } },
+      ));
+      await page.goto("/?place=42");
+      await expect.poll(() => sourceRequests).toBe(1);
+      // Reopening a saved or failed report must not trigger gallery requests either.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await page.getByRole("button", { name: "Подробный отчёт", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Обновить отчёт" })).toBeVisible();
+        if (close === "button") await page.getByRole("button", { name: "Закрыть отчёт" }).click();
+        else await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog", { name: "Подробный отчёт" })).toHaveCount(0);
+        await page.evaluate(() => new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }));
+        expect(sourceRequests).toBe(1);
+      }
+    });
+  }
+
+  for (const refreshFails of [false, true]) {
+    test(`report closed by ${close} keeps photos during ${refreshFails ? "failed" : "successful"} refresh`, async ({ page }) => {
+      const sourcePhotos = ["a", "b", "c"].map((digest) => ({
+        image_url: `/api/source-images/${digest.repeat(64)}`,
+        source_url: "https://example.com/place",
+        title: "Фото места",
+      }));
+      let requests = 0;
+      let releaseRefresh!: () => void;
+      const pendingRefresh = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+      await page.route("**/api/places/42/osint-report*", (route) => route.fulfill({
+        json: {
+          items: [], total: 0,
+          cached: close === "escape" && !new URL(route.request().url()).searchParams.has("refresh"),
+        },
+      }));
+      await page.route("**/api/places/42/source-photos", async (route) => {
+        requests++;
+        if (requests > 1) {
+          await pendingRefresh;
+          if (refreshFails) return route.fulfill({ status: 502, json: { detail: "Источник недоступен" } });
+        }
+        return route.fulfill({ json: { items: sourcePhotos.slice(0, requests === 1 ? 2 : 3) } });
+      });
+      await page.route("**/api/source-images/**", (route) => route.fulfill({
+        contentType: "image/png",
+        body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64"),
+      }));
+      await page.goto("/?place=42");
+      await expect(page.locator(".gallery-total")).toHaveText("2 фото");
+      await page.getByRole("button", { name: "Фото 2", exact: true }).click();
+      const image = page.locator(".gallery-stage img");
+      await expect(image).toBeVisible();
+      const originalImage = await image.elementHandle();
+      await page.getByRole("button", { name: "Подробный отчёт", exact: true }).click();
+      await expect(page.getByRole("dialog", { name: "Подробный отчёт" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Обновить отчёт" })).toBeVisible();
+      if (close === "escape") {
+        const reportResponse = page.waitForResponse("**/api/places/42/osint-report?refresh=1");
+        await page.getByRole("button", { name: "Обновить отчёт" }).click();
+        await (await reportResponse).finished();
+        await expect(page.getByRole("button", { name: "Обновить отчёт" })).toBeVisible();
+      }
+      if (close === "button") await page.getByRole("button", { name: "Закрыть отчёт" }).click();
+      else await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog", { name: "Подробный отчёт" })).toHaveCount(0);
+      await expect.poll(() => requests).toBe(2);
+      const refreshResponse = page.waitForResponse("**/api/places/42/source-photos");
+      try {
+        await expect(page.locator(".gallery-total")).toHaveText("2 фото");
+        await expect(image).toBeVisible();
+        expect(await originalImage!.evaluate((node) => node.isConnected)).toBe(true);
+      } finally {
+        releaseRefresh();
+      }
+      await (await refreshResponse).finished();
+      await page.evaluate(() => new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }));
+      await expect(page.locator(".gallery-total")).toHaveText(refreshFails ? "2 фото" : "3 фото");
+      await expect(page.locator(".gallery-count")).toHaveText(refreshFails ? "2 / 2" : "2 / 3");
+      await expect(image).toBeVisible();
+      expect(await originalImage!.evaluate((node) => node.isConnected)).toBe(true);
+    });
+  }
+}
+
 test.beforeEach(async ({ page }) => {
   await page.route("https://telegram.org/js/telegram-web-app.js", (route) =>
     route.fulfill({ body: "" }),

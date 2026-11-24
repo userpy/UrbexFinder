@@ -118,7 +118,12 @@ export function PlaceDetail({
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function load(attempt = 0) {
-      setSourceGallery({ placeId: place.id, photos: [], status: "Загружаем фото источника…" });
+      // Refresh in place so closing the report does not unmount loaded images.
+      setSourceGallery((current) => ({
+        placeId: place.id,
+        photos: current?.placeId === place.id ? current.photos : [],
+        status: "Загружаем фото источника…",
+      }));
       try {
         const data = await api<{ items: SourcePhoto[] }>(`/places/${place.id}/source-photos`, { signal: abort.signal });
         if (!abort.signal.aborted) {
@@ -127,7 +132,11 @@ export function PlaceDetail({
       } catch {
         if (abort.signal.aborted) return;
         const retry = attempt < 2;
-        setSourceGallery({ placeId: place.id, photos: [], status: "Фото источника временно недоступны" });
+        setSourceGallery((current) => ({
+          placeId: place.id,
+          photos: current?.placeId === place.id ? current.photos : [],
+          status: "Фото источника временно недоступны",
+        }));
         // The API caches temporary source failures for 30 seconds.
         if (retry) timer = setTimeout(() => { void load(attempt + 1); }, 31_000);
       }
@@ -377,7 +386,7 @@ export function PlaceDetail({
                     <Share2 size={14} aria-hidden="true" />
                     Поделиться
                   </button>
-                  <OsintReportTrigger placeId={place.id} onClose={() => setGalleryRevision((value) => value + 1)} />
+                  <OsintReportTrigger placeId={place.id} onUpdated={() => setGalleryRevision((value) => value + 1)} />
                   {shareNotice && (
                     <span
                       className={

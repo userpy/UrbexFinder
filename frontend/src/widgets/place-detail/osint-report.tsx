@@ -415,7 +415,7 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
   web: "Web",
 };
 
-export function OsintReportTrigger({ placeId, onClose }: { placeId: number; onClose?: () => void }) {
+export function OsintReportTrigger({ placeId, onUpdated }: { placeId: number; onUpdated?: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -431,7 +431,10 @@ export function OsintReportTrigger({ placeId, onClose }: { placeId: number; onCl
       </button>
       {open &&
         createPortal(
-          <OsintReportDialog placeId={placeId} onClose={() => { setOpen(false); onClose?.(); }} />,
+          <OsintReportDialog key={placeId} placeId={placeId} onClose={(updated) => {
+            setOpen(false);
+            if (updated) onUpdated?.();
+          }} />,
           document.body,
         )}
     </>
@@ -486,15 +489,27 @@ function OsintReportDialog({
   onClose,
 }: {
   placeId: number;
-  onClose: () => void;
+  onClose: (updated: boolean) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const reportUpdated = useRef(false);
+  function close() {
+    onClose(reportUpdated.current);
+  }
   const [report, setReport] = useState<OsintReport | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const [tab, setTab] = useState<TabId>("sources");
   const [failedPhotos, setFailedPhotos] = useState<Set<string>>(new Set());
+  function refreshReport() {
+    setBusy(true);
+    setError("");
+    setReport(null);
+    setFailedPhotos(new Set());
+    setTab("sources");
+    setReload((n) => n + 1);
+  }
 
   useEffect(() => {
     const node = dialog.current;
@@ -507,11 +522,6 @@ function OsintReportDialog({
 
   useEffect(() => {
     const abort = new AbortController();
-    setBusy(true);
-    setError("");
-    setReport(null);
-    setFailedPhotos(new Set());
-    setTab("sources");
     const path =
       reload > 0
         ? `/places/${placeId}/osint-report?refresh=1`
@@ -520,7 +530,10 @@ function OsintReportDialog({
       signal: abort.signal,
     })
       .then((data) => {
-        if (!abort.signal.aborted) setReport(data);
+        if (!abort.signal.aborted) {
+          if (data.cached === false || reload > 0) reportUpdated.current = true;
+          setReport(data);
+        }
       })
       .catch((err) => {
         if (!abort.signal.aborted) setError((err as Error).message);
@@ -551,10 +564,10 @@ function OsintReportDialog({
       onCancel={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        onClose();
+        close();
       }}
       onClick={(event) => {
-        if (event.target === dialog.current) onClose();
+        if (event.target === dialog.current) close();
       }}
     >
       <div
@@ -578,12 +591,12 @@ function OsintReportDialog({
                 className="osint-retry"
                 aria-label="Обновить отчёт"
                 title="Обновить отчёт"
-                onClick={() => setReload((n) => n + 1)}
+                onClick={refreshReport}
               >
                 <RefreshCw size={14} aria-hidden="true" />
               </button>
             )}
-            <button type="button" aria-label="Закрыть отчёт" onClick={onClose}>
+            <button type="button" aria-label="Закрыть отчёт" onClick={close}>
               <X size={18} />
             </button>
           </div>
@@ -601,7 +614,7 @@ function OsintReportDialog({
             <button
               type="button"
               className="osint-retry"
-              onClick={() => setReload((n) => n + 1)}
+              onClick={refreshReport}
             >
               <RefreshCw size={14} aria-hidden="true" />
               Повторить
