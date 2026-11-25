@@ -26,7 +26,7 @@ def test_category_icons_create_edit_and_permissions(client, admin, moderator):
 
 def test_all_category_icons_can_be_saved(admin):
     from typing import get_args
-    from urbex.presentation.schemas import CategoryInput
+    from presentation.schemas import CategoryInput
     icons = get_args(get_args(CategoryInput.model_fields['icon'].annotation)[0])
     assert len(icons) == 30
     assert 'architecture' in icons

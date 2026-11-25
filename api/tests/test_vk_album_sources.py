@@ -1,5 +1,6 @@
-from urbex.infrastructure import osint, osint_description as description
-from urbex.infrastructure.osint_assess import assess_osint_items
+from infrastructure.osint import service as osint
+from infrastructure.osint import osint_description as description
+from infrastructure.osint.osint_assess import assess_osint_items
 
 
 def test_album_fetch_does_not_expand_to_group_or_wall(monkeypatch):
@@ -60,13 +61,13 @@ def test_public_album_html_photos_and_text_are_scoped(monkeypatch):
     assert report['photos'] == photos
     assert report['items'][0]['title'] == 'Сельская школа 07.05.22'
     assert report['assessment']['condition']['level'] == 'demolished'
-    from urbex.infrastructure.vk_album import parse_vk_album
+    from infrastructure.osint.vk_album import parse_vk_album
     assert parse_vk_album(html, 'https://vk.com/album-97053640_999')['photos'] == []
     assert parse_vk_album('<title>Войдите в VK</title>', url)['title'] == ''
 
 
 def test_description_group_is_exact_match_despite_identity_conflicts():
-    from urbex.infrastructure.osint_identity import verify_source
+    from infrastructure.osint.osint_identity import verify_source
     place = {'name': 'Завод', 'full_address': 'Московская область'}
     group = {'url': 'https://vk.com/club42', 'title': 'Школа, Тверская область', 'engine': 'vk'}
     assert verify_source(place, group, ['https://m.vk.ru/public42']).status == 'accepted'
@@ -90,7 +91,7 @@ def test_named_description_group_survives_fresh_report_without_vk_access(monkeyp
 
 
 def test_group_reference_does_not_automatically_confirm_wall_posts():
-    from urbex.infrastructure.osint_identity import verify_source
+    from infrastructure.osint.osint_identity import verify_source
     post = {'url': 'https://vk.com/wall-42_123', 'title': 'Школа'}
     assert verify_source({'name': 'Завод'}, post, ['https://vk.com/club42']).status == 'rejected'
 

@@ -4,10 +4,12 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from urbex.infrastructure import osint, osint_description, osint_evidence
-from urbex.infrastructure.osint_identity import source_key, verify_source
-from urbex.infrastructure.osint_profile import build_place_profile
-from urbex.infrastructure.semantic_ranking import _place_text
+from infrastructure.osint import service as osint
+from infrastructure.osint import osint_description
+from infrastructure.osint import osint_evidence
+from infrastructure.osint.osint_identity import source_key, verify_source
+from infrastructure.osint.osint_profile import build_place_profile
+from infrastructure.search.semantic_ranking import _place_text
 
 
 PLACE = {
@@ -145,7 +147,7 @@ def test_cached_candidate_is_rechecked_when_aliases_change():
 
 
 def test_wikimapia_queries_and_cache_follow_profile_changes(monkeypatch):
-    from urbex.infrastructure import wikimapia_discovery as discovery
+    from infrastructure.osint import wikimapia_discovery as discovery
 
     monkeypatch.setattr(discovery, '_cache', OrderedDict())
     calls = []

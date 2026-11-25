@@ -1,6 +1,6 @@
 import pytest
 from urllib.parse import quote
-from urbex.infrastructure import osint
+from infrastructure.osint import service as osint
 
 
 @pytest.mark.parametrize('title', [
@@ -53,7 +53,7 @@ def test_specific_shelter_wikipedia_article_is_not_blocked():
 
 
 def test_wikipedia_commons_photos_require_open_license_and_keep_attribution():
-    from urbex.infrastructure.osint_evidence import _open_commons_license, wikipedia_photos_for_sources
+    from infrastructure.osint.osint_evidence import _open_commons_license, wikipedia_photos_for_sources
 
     assert _open_commons_license('CC BY-SA 4.0')
     assert _open_commons_license('CC BY 4.0')
@@ -245,7 +245,7 @@ def test_manor_does_not_match_namesake_housing(place, title):
 
 
 def test_enrichment_does_not_spend_page_budget_on_unsupported_search_noise(monkeypatch):
-    from urbex.infrastructure import osint_evidence as evidence
+    from infrastructure.osint import osint_evidence as evidence
     noise = [{'url': f'https://example.org/{i}', 'title': 'Общая страница'} for i in range(8)]
     relevant = {'url': 'https://wikimapia.org/123', 'title': 'РЛС Дунай'}
     calls = []

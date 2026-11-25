@@ -1,7 +1,7 @@
 """Exercise upgrade from populated pre-website bot and legacy web databases."""
 import subprocess
 from sqlalchemy import create_engine, text
-from urbex.bootstrap.config import Settings
+from bootstrap.config import Settings
 
 config = Settings()
 assert config.environment == 'test' and config.database_url.endswith('/urbex_test')

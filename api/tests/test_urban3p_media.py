@@ -1,7 +1,8 @@
 import httpx
 import pytest
-from urbex.domain.rules import DomainError
-from urbex.infrastructure import urban3p_media as media, osint_description as description
+from domain.rules import DomainError
+from infrastructure.osint import urban3p_media as media
+from infrastructure.osint import osint_description as description
 
 
 def test_com_gallery_uses_specialized_parser():

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from domain.models import Role
+from infrastructure.models import Role
 
 
 class RolesRepository:

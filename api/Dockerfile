@@ -10,4 +10,4 @@ RUN poetry install --no-root --with dev
 COPY api .
 RUN useradd --uid 10002 --create-home app
 USER app
-CMD ["uvicorn", "urbex.bootstrap.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
+CMD ["uvicorn", "bootstrap.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

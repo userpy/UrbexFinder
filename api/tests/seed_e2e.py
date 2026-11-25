@@ -1,9 +1,9 @@
 """Fixtures for the disposable E2E stack only; never called in development/production."""
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
-from urbex.bootstrap.config import Settings
-from urbex.infrastructure.auth import hasher
-from urbex.infrastructure.models import User, Place
+from bootstrap.config import Settings
+from infrastructure.security.auth import hasher
+from infrastructure.db.models import User, Place
 
 config = Settings()
 assert config.environment == 'test' and config.database_url.endswith('/urbex_test')

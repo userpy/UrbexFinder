@@ -2,8 +2,8 @@ import httpx
 from fastapi.testclient import TestClient
 from conftest import register, PLACE
 from test_elasticsearch import insert
-from urbex.infrastructure import osint
-from urbex.infrastructure.osint_assess import assess_osint_items
+from infrastructure.osint import service as osint
+from infrastructure.osint.osint_assess import assess_osint_items
 
 
 def test_osint_assessment_security_and_condition_signals():
@@ -1098,7 +1098,7 @@ def test_osint_filters_berezki_from_sverdlovsk():
 def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
     place_id = insert(client.app, 'Усадьба Липки')
     url = f'/api/places/{place_id}/osint-report'
-    from urbex.infrastructure.osint_identity import source_key
+    from infrastructure.osint.osint_identity import source_key
     monkeypatch.setattr(osint, 'enrich_candidates', lambda place, rows, refs: [
         dict(row, page_identity={'source_key': source_key(row['url']),
              'latitude': 55.75, 'longitude': 37.62}) for row in rows
@@ -1237,7 +1237,7 @@ def test_osint_report_public_config_and_searxng_results(client, monkeypatch):
 def test_osint_report_keeps_sources_when_images_fail(client, monkeypatch):
     place_id = insert(client.app, 'Усадьба Липки')
     url = f'/api/places/{place_id}/osint-report'
-    from urbex.infrastructure.osint_identity import source_key
+    from infrastructure.osint.osint_identity import source_key
     monkeypatch.setattr(osint, 'enrich_candidates', lambda place, rows, refs: [
         dict(row, page_identity={'source_key': source_key(row['url']),
              'latitude': 55.75, 'longitude': 37.62}) for row in rows
@@ -1338,7 +1338,7 @@ def test_osint_report_hides_pending_from_strangers(client, monkeypatch):
 
 
 def test_links_from_description_parses_markdown_and_bare():
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     links = od.links_from_description(
         'Фото в [группе](https://vk.com/club42) и ещё https://urban3p.ru/place.'
@@ -1354,7 +1354,7 @@ def test_links_from_description_parses_markdown_and_bare():
 
 
 def test_vk_photos_for_links_fetches_wall_album(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     def handler(request: httpx.Request):
         method = request.url.path.rsplit('/', 1)[-1]
@@ -1397,7 +1397,7 @@ def test_vk_photos_for_links_fetches_wall_album(monkeypatch):
 
 
 def test_vk_html_scrape_public_group_without_token(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     html = r'''
     <html><body>
@@ -1421,7 +1421,7 @@ def test_vk_html_scrape_public_group_without_token(monkeypatch):
 
 
 def test_vk_sources_for_links_group_and_wall(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     def handler(request: httpx.Request):
         method = request.url.path.rsplit('/', 1)[-1]
@@ -1472,7 +1472,7 @@ def test_vk_sources_for_links_group_and_wall(monkeypatch):
 
 
 def test_dzen_photos_extracted_from_article_html(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     html = '''
     <html><head>
@@ -1513,7 +1513,7 @@ def test_dzen_photos_extracted_from_article_html(monkeypatch):
 
 
 def test_urban3p_photos_from_object_link(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     html = '''
     <html><head>
@@ -1543,7 +1543,7 @@ def test_urban3p_photos_from_object_link(monkeypatch):
 
 
 def test_urban3p_photos_cover_fallback_when_html_unavailable(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     monkeypatch.setattr(od, '_fetch_urban3p_html', lambda url: '')
     photos = od.urban3p_photos_for_links([
@@ -1561,7 +1561,7 @@ def test_urban3p_photos_cover_fallback_when_html_unavailable(monkeypatch):
 
 
 def test_urban3p_photos_from_blog_and_cdn_link(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     blog_html = '''
     <html><head>
@@ -1626,7 +1626,7 @@ def test_urban3p_photos_from_blog_and_cdn_link(monkeypatch):
 
 
 def test_swalker_photos_from_article_link(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     html = '''
     <html><head>
@@ -1657,7 +1657,7 @@ def test_swalker_photos_from_article_link(monkeypatch):
 
 
 def test_youtube_and_rutube_photos_from_links(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     yt = od.youtube_photos_for_links([
         {'url': 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'title': 'Лагерь обзор'},
@@ -1688,7 +1688,7 @@ def test_youtube_and_rutube_photos_from_links(monkeypatch):
 
 
 def test_site_photos_for_links_combines_sources(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     monkeypatch.setattr(
         od,
@@ -1755,7 +1755,7 @@ def test_site_photos_for_links_combines_sources(monkeypatch):
 
 
 def test_generic_page_photos_from_description_link(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     html = '''
     <html><head>
@@ -1790,7 +1790,7 @@ def test_generic_page_photos_from_description_link(monkeypatch):
 
 
 def test_description_photos_absorb_generic_pages(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     monkeypatch.setattr(od, 'dzen_photos_for_links', lambda *a, **k: [])
     monkeypatch.setattr(od, 'yandex_maps_photos_for_links', lambda *a, **k: [])
@@ -1817,7 +1817,7 @@ def test_description_photos_absorb_generic_pages(monkeypatch):
 
 
 def test_yandex_maps_photos_from_org_link(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     html = '''
     <html><head>
@@ -1862,7 +1862,7 @@ def test_yandex_maps_photos_from_org_link(monkeypatch):
 
 
 def test_yandex_maps_photos_for_place_matches_org(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     html = '''
     <html><head>
@@ -1931,7 +1931,7 @@ def test_osint_report_uses_description_links_without_searxng(monkeypatch):
 
 
 def test_osint_report_fetches_vk_photos_from_description(monkeypatch):
-    from urbex.infrastructure import osint_description as od
+    from infrastructure.osint import osint_description as od
 
     osint.clear_search_cache()
 

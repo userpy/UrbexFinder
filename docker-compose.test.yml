@@ -81,7 +81,7 @@ services:
     command:
     - sh
     - -c
-    - python -m urbex.bootstrap.migrate && python -m urbex.bootstrap.cli init-storage && python -m pytest -q -p
+    - python -m bootstrap.migrate && python -m bootstrap.cli init-storage && python -m pytest -q -p
       no:cacheprovider
     image: urbexfinder-tests-tests:latest
     profiles:
@@ -153,8 +153,8 @@ services:
     command:
     - sh
     - -c
-    - python -m urbex.bootstrap.migrate && python -m urbex.bootstrap.cli init-storage && python -m tests.seed_e2e
-      && uvicorn urbex.bootstrap.main:app --host 0.0.0.0 --port 8000
+    - python -m bootstrap.migrate && python -m bootstrap.cli init-storage && python -m tests.seed_e2e
+      && uvicorn bootstrap.main:app --host 0.0.0.0 --port 8000
     image: urbexfinder-tests-tests:latest
     profiles:
     - e2e
@@ -250,7 +250,7 @@ services:
     command:
     - python
     - -m
-    - urbex.bootstrap.migrate
+    - bootstrap.migrate
     image: urbexfinder-tests-tests:latest
     profiles:
     - bot

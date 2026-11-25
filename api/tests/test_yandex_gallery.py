@@ -1,8 +1,9 @@
 import json
 import pytest
-from urbex.infrastructure import osint, osint_description as description
-from urbex.infrastructure.osint_identity import source_key
-from urbex.infrastructure.yandex_gallery import org_gallery
+from infrastructure.osint import service as osint
+from infrastructure.osint import osint_description as description
+from infrastructure.osint.osint_identity import source_key
+from infrastructure.osint.yandex_gallery import org_gallery
 
 URL = 'https://yandex.com/maps/org/aleksin_bor/110927843327/'
 IMAGE = 'https://avatars.mds.yandex.net/get-altay/123/2a000001abc/%s'
@@ -33,7 +34,7 @@ def tesla_photos(monkeypatch):
 
 
 def test_tesla_towers_gallery_matches_coils_and_recovers_cached_rejections(monkeypatch, tesla_photos):
-    from urbex.infrastructure import source_photos
+    from infrastructure.osint import source_photos
 
     stored = {
         'photos': [], 'items': [], 'photos_total': 0, 'total': 0,
@@ -130,7 +131,7 @@ def test_missing_cached_yandex_gallery_recovers_with_cooldown(monkeypatch):
 
 
 def test_confirmed_maps_gallery_is_available_on_place_card(monkeypatch):
-    from urbex.infrastructure import source_photos
+    from infrastructure.osint import source_photos
     monkeypatch.setattr(source_photos, 'discover_photos', lambda *a: [])
     monkeypatch.setattr(description, '_fetch_ymaps_html', lambda url: html())
     photos = description.yandex_maps_photos_for_links([{'url': URL}])

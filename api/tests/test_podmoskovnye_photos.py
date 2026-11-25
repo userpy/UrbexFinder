@@ -1,6 +1,7 @@
 import pytest
-from urbex.infrastructure import osint, osint_description as description
-from urbex.infrastructure.osint_identity import primary_gallery, catalog_gallery_matches
+from infrastructure.osint import service as osint
+from infrastructure.osint import osint_description as description
+from infrastructure.osint.osint_identity import primary_gallery, catalog_gallery_matches
 
 PAGE = 'http://podmoskovnye.ru/usadba/ysadbi-rossii-po-oblastyam-i-regionam/135-yaroslavskaya/209-shill'
 PHOTO = 'http://podmoskovnye.ru/images/stories/photos/yaroslavskaya/shill/Главный%20дом..jpg'
@@ -50,7 +51,7 @@ def test_catalog_image_alone_does_not_bypass_source_or_scraper_provenance():
 
 
 def test_main_gallery_recovers_only_verified_estate_photos_from_saved_report(monkeypatch):
-    from urbex.infrastructure import source_photos as sources
+    from infrastructure.osint import source_photos as sources
     monkeypatch.setattr(sources, 'generic_page_photos_for_links',
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError('No network needed')))
     photo = {'title': 'Шилля усадьба', 'source_url': PAGE, 'image_url': PHOTO,
@@ -63,7 +64,7 @@ def test_main_gallery_recovers_only_verified_estate_photos_from_saved_report(mon
 
 
 def test_description_link_overrides_conflicting_identity_and_recovers_gallery():
-    from urbex.infrastructure.osint_identity import source_key
+    from infrastructure.osint.osint_identity import source_key
     photo = {'title': 'Шилля усадьба', 'source_url': PAGE, 'image_url': PHOTO,
              'query': PAGE, 'engine': 'web_page', 'gallery_scope': 'primary',
              'page_identity': {'source_key': source_key(PAGE), 'title': 'Шилля усадьба',
@@ -82,7 +83,7 @@ def test_description_link_overrides_conflicting_identity_and_recovers_gallery():
 
 
 def test_description_link_does_not_confirm_other_estates_or_lookalike_hosts():
-    from urbex.infrastructure.osint_identity import verify_source
+    from infrastructure.osint.osint_identity import verify_source
     place = {'name': 'Завод'}
     assert verify_source(place, {'url': PAGE, 'title': 'Усадьба'},
                          [PAGE.replace('209-shill', '210-other')]).status == 'rejected'

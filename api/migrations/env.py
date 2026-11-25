@@ -2,8 +2,8 @@
 from alembic import context
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
-from urbex.bootstrap.config import Settings
-from urbex.infrastructure.models import Base
+from bootstrap.config import Settings
+from infrastructure.db.models import Base
 
 config = context.config
 engine = create_engine(config.attributes.get('database_url') or Settings().database_url)

@@ -3,7 +3,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from domain.models import Role, User
+from infrastructure.models import Role, User
 
 
 class UsersRepository:

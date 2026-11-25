@@ -55,7 +55,7 @@ services:
     command:
     - python
     - -m
-    - urbex.bootstrap.cli
+    - bootstrap.cli
     - init-storage
     depends_on:
       minio:
@@ -281,7 +281,7 @@ services:
     command:
     - python
     - -m
-    - urbex.bootstrap.migrate
+    - bootstrap.migrate
     depends_on:
       db:
         condition: service_healthy

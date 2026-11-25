@@ -3,7 +3,7 @@ from threading import Event
 
 import pytest
 
-from urbex.infrastructure.source_gallery_cache import SourceGalleryCache
+from infrastructure.storage.source_gallery_cache import SourceGalleryCache
 
 
 PLACE = {'id': 3687, 'name': 'Карьер', 'description': 'https://urban3p.ru/object9433/',
@@ -146,9 +146,9 @@ def test_storage_outage_does_not_hide_photos_or_break_memory_cache():
 def test_api_restart_reuses_gallery_and_s3_image_without_source_access(monkeypatch):
     from types import SimpleNamespace
     from fastapi.testclient import TestClient
-    from urbex.bootstrap import main
-    from urbex.bootstrap.config import Settings
-    from urbex.presentation.http import context
+    from bootstrap import main
+    from bootstrap.config import Settings
+    from presentation.http import context
 
     storage = Storage()
     discoveries, downloads = [], []
@@ -178,7 +178,7 @@ def test_api_restart_reuses_gallery_and_s3_image_without_source_access(monkeypat
 
 def test_s3_metadata_has_json_type_and_image_uploads_keep_jpeg_type():
     from types import SimpleNamespace
-    from urbex.infrastructure.storage import S3Storage
+    from infrastructure.storage.s3 import S3Storage
 
     storage = object.__new__(S3Storage)
     storage.bucket = 'test'

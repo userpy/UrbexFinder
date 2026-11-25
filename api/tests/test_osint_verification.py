@@ -1,13 +1,14 @@
 import json
 import pytest
-from urbex.infrastructure.osint_identity import (
+from infrastructure.osint.osint_identity import (
     VERSION,
     extract_page_identity,
     source_key,
     verify_report,
     verify_source,
 )
-from urbex.infrastructure import osint, osint_evidence
+from infrastructure.osint import service as osint
+from infrastructure.osint import osint_evidence
 
 SOURCE = 'http://wikimapia.org/38437817/ru/Убежище'
 PLACE = {'id': 1, 'name': 'Убежище гражданской обороны (ru)',
@@ -300,7 +301,7 @@ def test_search_results_are_audited_and_unverified_pages_are_not_scraped(monkeyp
 
 
 def test_enrichment_does_not_fetch_unknown_hosts_and_failures_are_soft(monkeypatch):
-    from urbex.infrastructure import osint_evidence as evidence
+    from infrastructure.osint import osint_evidence as evidence
     monkeypatch.setattr(evidence.httpx, 'Client', lambda **kwargs: (_ for _ in ()).throw(AssertionError('No request expected')))
     for url in ['http://127.0.0.1/private', 'https://wikimapia.org.evil.example/1',
                 'https://wikimapia.org:9000/1', 'https://user:pass@wikimapia.org/1']:
@@ -310,7 +311,7 @@ def test_enrichment_does_not_fetch_unknown_hosts_and_failures_are_soft(monkeypat
 
 
 def test_article_gallery_excludes_sidebar_ads_and_comments():
-    from urbex.infrastructure.osint_description import _extract_generic_image_urls
+    from infrastructure.osint.osint_description import _extract_generic_image_urls
     url = 'https://example.org/manor'
     html = '''<img src="/header.jpg"><article><img src="/manor.jpg">
     <aside><img src="/nearby.jpg"></aside><div class="related"><img src="/other.jpg"></div>
@@ -353,7 +354,7 @@ def test_compound_camp_name_accepts_matching_map_gallery(name):
 
 
 def test_camp_real_map_offset_and_structured_district_address():
-    from urbex.infrastructure.osint_identity import locality_cues
+    from infrastructure.osint.osint_identity import locality_cues
     place = dict(name='Пионерлагерь «Голубой Факел»', latitude=55.323611,
                  longitude=37.778627, full_address='Красное, городской округ Домодедово, Московская область')
     url = 'https://yandex.com/maps/org/pionerskiy_lager_goluboy_fakel/170329852852/'
@@ -532,7 +533,7 @@ def test_cached_report_recovers_linked_urban_gallery(monkeypatch):
 
 
 def test_source_photos_loads_vk_urban3p_and_wikimapia_links(monkeypatch):
-    from urbex.infrastructure import source_photos as galleries
+    from infrastructure.osint import source_photos as galleries
 
     links = (
         'https://vk.com/album-97053640_272983075',
@@ -572,7 +573,7 @@ def test_source_photos_loads_vk_urban3p_and_wikimapia_links(monkeypatch):
 
 
 def test_incomplete_source_photo_cache_retries_missing_gallery(monkeypatch):
-    from urbex.infrastructure import source_photos as galleries
+    from infrastructure.osint import source_photos as galleries
     monkeypatch.setattr(galleries, 'discover_photos', lambda *a: [])
 
     links = (

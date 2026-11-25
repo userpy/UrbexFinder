@@ -9,11 +9,11 @@ from sqlalchemy import case, delete, func, select, update, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from domain.models import Place as PlaceModel
-from domain.models import PlaceNonexistentReport as PlaceNonexistentReportModel
-from domain.models import PlacePhoto as PlacePhotoModel
-from domain.models import PlaceRating as PlaceRatingModel
-from domain.models import PlaceReview as PlaceReviewModel
+from infrastructure.models import Place as PlaceModel
+from infrastructure.models import PlaceNonexistentReport as PlaceNonexistentReportModel
+from infrastructure.models import PlacePhoto as PlacePhotoModel
+from infrastructure.models import PlaceRating as PlaceRatingModel
+from infrastructure.models import PlaceReview as PlaceReviewModel
 from domain.decimal6 import d6 as Decimal6
 from infrastructure.services.reverse_geocode import reverse_geocode
 

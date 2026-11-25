@@ -85,8 +85,8 @@ def test_telegram_transport_redacts_failure_and_sanitizes_image(monkeypatch):
     import httpx
     from io import BytesIO
     from PIL import Image
-    from urbex.infrastructure.telegram import TelegramPhotos
-    from urbex.domain.rules import DomainError
+    from infrastructure.integrations.telegram import TelegramPhotos
+    from domain.rules import DomainError
     import pytest
     original_client = httpx.Client
     data = BytesIO()

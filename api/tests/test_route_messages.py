@@ -1,8 +1,8 @@
 import json
 import httpx
 import pytest
-from urbex.domain.rules import DomainError
-from urbex.infrastructure.telegram import route_messages, send_route
+from domain.rules import DomainError
+from infrastructure.integrations.telegram import route_messages, send_route
 
 
 def route(count=1, name='Карьер <&>'):
@@ -50,7 +50,7 @@ def test_transport_and_partial_failure(monkeypatch):
         calls.append(json.loads(request.content))
         return httpx.Response(200, json={'ok': not (fail and len(calls) == 2)})
     original = httpx.Client
-    monkeypatch.setattr('urbex.infrastructure.telegram.httpx.Client',
+    monkeypatch.setattr('infrastructure.integrations.telegram.httpx.Client',
                         lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
     data = route(30)
     send_route('test', 123, data)
@@ -75,7 +75,7 @@ def test_network_errors_are_specific_safe_and_not_retried(monkeypatch, caplog, e
         calls.append(request)
         raise error_type('secret-token-url', request=request)
     original = httpx.Client
-    monkeypatch.setattr('urbex.infrastructure.telegram.httpx.Client',
+    monkeypatch.setattr('infrastructure.integrations.telegram.httpx.Client',
                         lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
     with pytest.raises(DomainError, match=expected) as exc:
         send_route('test', 123, route())

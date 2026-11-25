@@ -4,7 +4,7 @@ from typing import Optional, TypedDict
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from domain.models import Resource as ResourceModel
+from infrastructure.models import Resource as ResourceModel
 
 
 class ResourceRow(TypedDict):

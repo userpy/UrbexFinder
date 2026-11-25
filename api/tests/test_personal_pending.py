@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
-from urbex.application.service import Service
+from application.service import Service
 
 
 def test_pending_places_filter_is_applied_with_owner_before_pagination():

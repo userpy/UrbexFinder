@@ -5,9 +5,9 @@ import httpx
 import pytest
 from PIL import Image
 from botocore.exceptions import ClientError
-from urbex.infrastructure.external_images import ExternalImages, supported, download
-from urbex.infrastructure.storage import S3Storage
-from urbex.domain.rules import DomainError
+from infrastructure.storage.external_images import ExternalImages, supported, download
+from infrastructure.storage.s3 import S3Storage
+from domain.rules import DomainError
 
 URL = 'https://avatars.mds.yandex.net/get-altay/123/photo/XXL_height'
 PHOTO = {'image_url': URL, 'source_url': 'https://yandex.ru/maps/org/camp/123/', 'title': 'Лагерь'}
@@ -244,8 +244,8 @@ def test_queue_overflow_never_exposes_original():
 
 def test_http_failure_never_redirects_to_source():
     from fastapi.testclient import TestClient
-    from urbex.bootstrap.main import create_app
-    from urbex.bootstrap.config import Settings
+    from bootstrap.main import create_app
+    from bootstrap.config import Settings
     app = create_app(Settings(environment='test', elasticsearch_url=''), Storage())
     def fail(url):
         raise OSError('unreachable')

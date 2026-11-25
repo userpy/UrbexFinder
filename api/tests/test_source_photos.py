@@ -4,9 +4,9 @@ from fastapi.testclient import TestClient
 from fastapi.responses import JSONResponse
 from types import SimpleNamespace
 
-from urbex.domain.rules import DomainError
-from urbex.infrastructure import source_photos as sources
-from urbex.presentation.http import router, context
+from domain.rules import DomainError
+from infrastructure.osint import source_photos as sources
+from presentation.http import router, context
 
 
 @pytest.fixture(autouse=True)

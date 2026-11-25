@@ -47,7 +47,7 @@ def test_edit_location_address_and_description_atomically(client, moderator):
 
 def test_reverse_address_permissions_errors_and_cache(client, moderator, monkeypatch):
     import httpx
-    from urbex.infrastructure import geocoding
+    from infrastructure.integrations import geocoding
     geocoding.reverse_address.cache_clear()
     monkeypatch.setattr(client.app.state.config, 'geocoder_url', 'https://geocoder.example')
     calls = []

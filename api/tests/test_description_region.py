@@ -1,7 +1,7 @@
 import pytest
-from urbex.domain.rules import DomainError
-from urbex.infrastructure.geocoding import check_description_region
-from urbex.infrastructure.osint_identity import verify_source
+from domain.rules import DomainError
+from infrastructure.integrations.geocoding import check_description_region
+from infrastructure.osint.osint_identity import verify_source
 
 
 @pytest.mark.parametrize('description,region,status', [

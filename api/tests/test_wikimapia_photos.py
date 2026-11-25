@@ -1,7 +1,8 @@
 import pytest
 
-from urbex.infrastructure import osint, osint_description as description
-from urbex.infrastructure.wikimapia import gallery_urls, photo_url
+from infrastructure.osint import service as osint
+from infrastructure.osint import osint_description as description
+from infrastructure.osint.wikimapia import gallery_urls, photo_url
 
 
 def test_gallery_uses_only_photo_host_and_best_available_size():
@@ -20,8 +21,8 @@ def test_gallery_uses_only_photo_host_and_best_available_size():
 def test_gallery_source_opens_selected_object_on_map_without_changing_provenance():
     from copy import deepcopy
     from urllib.parse import parse_qs, urlparse
-    from urbex.infrastructure.wikimapia import gallery_source_links
-    from urbex.infrastructure.osint_identity import source_key
+    from infrastructure.osint.wikimapia import gallery_source_links
+    from infrastructure.osint.osint_identity import source_key
     source = 'https://wikimapia.org/1912109/ru/'
     photo = {'source_url': source, 'image_url': 'https://photos.wikimapia.org/p/00/00/75/53/57_big.jpg',
              'query': source, 'page_identity': {
@@ -45,7 +46,7 @@ def test_gallery_source_opens_selected_object_on_map_without_changing_provenance
 
 
 def test_gallery_map_link_uses_only_same_object_metadata():
-    from urbex.infrastructure.wikimapia import gallery_source_links
+    from infrastructure.osint.wikimapia import gallery_source_links
     photo = {'source_url': 'https://wikimapia.org/123/ru/', 'page_identity': {
         'source_key': 'wikimapia.org:999', 'latitude': 56, 'longitude': 37, 'title': 'Wrong place',
     }}
@@ -58,9 +59,9 @@ def test_gallery_map_link_uses_only_same_object_metadata():
 
 
 def test_wikimapia_map_share_url_resolves_to_object_link():
-    from urbex.infrastructure.osint_description import links_from_description
-    from urbex.infrastructure.osint_identity import source_key
-    from urbex.infrastructure.osint_identity import verify_report
+    from infrastructure.osint.osint_description import links_from_description
+    from infrastructure.osint.osint_identity import source_key
+    from infrastructure.osint.osint_identity import verify_report
     shared = (
         'https://wikimapia.org/#lang=en&lat=55.738250&lon=37.968342&z=16&m=w'
         '&show=/13353625/ru&search=%D0%9E%D0%BB%D1%8C%D0%B3%D0%B8%D0%BD%D0%BE'
@@ -88,8 +89,8 @@ def test_wikimapia_map_share_url_resolves_to_object_link():
     ('/1802949/ru/', '/1802949/ru'),
 ])
 def test_map_photo_share_resolves_to_same_object(shown, expected):
-    from urbex.infrastructure.osint_identity import source_key
-    from urbex.infrastructure.wikimapia import object_url
+    from infrastructure.osint.osint_identity import source_key
+    from infrastructure.osint.wikimapia import object_url
     shared = 'https://wikimapia.org/#lang=en&lat=56.144976&lon=37.407417&show=' + shown
     url = 'https://wikimapia.org' + expected
     assert object_url(shared) == url
@@ -106,13 +107,13 @@ def test_map_photo_share_resolves_to_same_object(shown, expected):
     'https://wikimapia.org/#show=/1802949/photo/not-a-photo-id',
 ])
 def test_invalid_map_photo_shares_are_not_object_links(url):
-    from urbex.infrastructure.wikimapia import object_url
+    from infrastructure.osint.wikimapia import object_url
     assert object_url(url) is None
 
 
 def test_fetch_map_photo_share_requests_object_page(monkeypatch):
     import httpx
-    from urbex.infrastructure.wikimapia import fetch_html
+    from infrastructure.osint.wikimapia import fetch_html
     shared = ('https://wikimapia.org/#lang=en&lat=56.144976&lon=37.407417'
               '&show=/1802949/Former-Starting-Positions-S-25-SA-1-Guild-/photo/1087688')
     html = '<title>Former Starting Positions</title>' + ' ' * 500
@@ -130,7 +131,7 @@ def test_fetch_map_photo_share_requests_object_page(monkeypatch):
 
 
 def test_map_viewport_does_not_override_distant_object_coordinates():
-    from urbex.infrastructure.osint_identity import source_key, verify_report
+    from infrastructure.osint.osint_identity import source_key, verify_report
     shared = ('https://wikimapia.org/#lat=56.145&lon=37.4074'
               '&show=/1802949/Former-Starting-Positions-S-25-SA-1-Guild-/photo/1087688')
     place = {'name': 'Полузаброшенный узел связи у РТЦ С-25',
@@ -225,7 +226,7 @@ def test_saved_wikimapia_gallery_retries_with_cooldown(monkeypatch):
 
 def test_session_refresh_loads_object_without_running_javascript(monkeypatch):
     import httpx
-    from urbex.infrastructure.wikimapia import fetch_html
+    from infrastructure.osint.wikimapia import fetch_html
     calls = []
     html = '<title>РЛС Дунай</title>' + ' ' * 500
     def respond(request):
@@ -255,7 +256,7 @@ def test_session_refresh_loads_object_without_running_javascript(monkeypatch):
 
 def test_session_refresh_follows_canonical_redirect_to_same_object(monkeypatch):
     import httpx
-    from urbex.infrastructure.wikimapia import fetch_html
+    from infrastructure.osint.wikimapia import fetch_html
     calls = []
     html = '<title>Административное здание (Балашиха)</title>' + ' ' * 500
 
@@ -289,7 +290,7 @@ def test_session_refresh_follows_canonical_redirect_to_same_object(monkeypatch):
 
 def test_session_refresh_handles_challenge_after_canonical_redirect(monkeypatch):
     import httpx
-    from urbex.infrastructure.wikimapia import fetch_html
+    from infrastructure.osint.wikimapia import fetch_html
     calls = []
     html = '<title>Детская база отдыха Гагарина</title>' + ' ' * 500
 
@@ -324,7 +325,7 @@ def test_session_refresh_handles_challenge_after_canonical_redirect(monkeypatch)
 
 
 def test_object_meta_coordinates_confirm_dunay_and_ignore_map_and_neighbours():
-    from urbex.infrastructure.osint_identity import extract_page_identity, verify_source
+    from infrastructure.osint.osint_identity import extract_page_identity, verify_source
     url = 'https://wikimapia.org/3787319/ru/'
     html = '''<h1>Территория бывшей РЛС ПРО Дунай-3М</h1>
     <meta property="og:url" content="http://wikimapia.org/3787319/ru/test">
@@ -342,7 +343,7 @@ def test_object_meta_coordinates_confirm_dunay_and_ignore_map_and_neighbours():
 
 def test_session_fetch_does_not_follow_redirect_to_other_hosts_or_objects(monkeypatch):
     import httpx
-    from urbex.infrastructure.wikimapia import fetch_html
+    from infrastructure.osint.wikimapia import fetch_html
     original = httpx.Client
     for target in ['http://127.0.0.1/private', 'https://wikimapia.org/999', 'https://wikimapia.org.evil.test/3787319']:
         calls = []
@@ -439,7 +440,7 @@ def test_gallery_preserves_actual_thumbnail_for_each_original(monkeypatch):
 
 
 def test_broken_translation_recovers_same_objects_english_metadata(monkeypatch):
-    from urbex.infrastructure import wikimapia
+    from infrastructure.osint import wikimapia
     broken = '<title></title>Информация недоступна (ошибка RK n.22)'
     english = '<h1>Former camp</h1><meta property="place:location:latitude" content="55.6">'
     calls = []
@@ -450,7 +451,7 @@ def test_broken_translation_recovers_same_objects_english_metadata(monkeypatch):
 
 
 def test_translation_failure_preserves_original_gallery_and_does_not_loop(monkeypatch):
-    from urbex.infrastructure import wikimapia
+    from infrastructure.osint import wikimapia
     broken = 'Информация недоступна (ошибка RK n.22)'
     calls = []
     monkeypatch.setattr(wikimapia, '_fetch_html', lambda url: calls.append(url) or broken)

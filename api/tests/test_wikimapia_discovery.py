@@ -2,9 +2,9 @@ from copy import deepcopy
 
 import pytest
 
-from urbex.domain.rules import DomainError
-from urbex.infrastructure import wikimapia_discovery as discovery
-from urbex.infrastructure.source_photos import source_photos
+from domain.rules import DomainError
+from infrastructure.osint import wikimapia_discovery as discovery
+from infrastructure.osint.source_photos import source_photos
 
 
 PLACE = {

@@ -29,7 +29,7 @@
 Для OSINT-отчётов API запрашивает Bing, Wikipedia, Google и Яндекс;
 для изображений — Bing Images, Google Images и Яндекс Картинки.
 Google и Яндекс включены в `searxng/settings.yml`; список запрашиваемых
-движков задаётся в `_engines_for()` в `api/urbex/infrastructure/osint.py`.
+движков задаётся в `_engines_for()` в `api/infrastructure/osint/service.py`.
 Доступность зависит от сети сервера: отдельные движки могут возвращать
 отказ в доступе или таймаут, поэтому выдача может быть частичной.
 Кандидаты дополнительно ранжируются локальными BGE-M3 и BGE-Reranker-v2-M3 в
@@ -90,9 +90,17 @@ API-тесты используют профиль `api`, браузерные �
 -----------------
 
 - `api/` - FastAPI-приложение, миграции общей БД и тесты API.
+- `api/infrastructure/db/` - ORM-модели и вспомогательные запросы к БД.
+- `api/infrastructure/repository/` - реализация репозитория SQLAlchemy.
+- `api/infrastructure/search/` - Elasticsearch и семантическое ранжирование.
+- `api/infrastructure/storage/` - S3, обработка изображений и кеш галерей.
+- `api/infrastructure/security/` - адаптер авторизации и хеширование паролей.
+- `api/infrastructure/integrations/` - Telegram и геокодирование.
+- `api/infrastructure/osint/` - сбор, разбор и проверка внешних источников.
 - `frontend/` - веб-приложение на Next.js и браузерные тесты.
 - `shared/` - общий Python-пакет каталога для API и бота.
-- `bot/domain/` - доменные модели (SQLAlchemy ORM).
+- `bot/domain/` - доменные вспомогательные функции.
+- `bot/infrastructure/models/` - модели SQLAlchemy ORM.
 - `bot/application/` - прикладные сервисы и сценарии запуска.
 - `bot/interface/` - адаптеры фреймворка: handlers, middleware, filters.
 - `bot/infrastructure/` - интеграции: БД, логирование, внешние сервисы.
@@ -205,7 +213,7 @@ Compose формирует имена контейнеров из имени п�
 |---|---|
 | `bot` | Основной долгоживущий процесс Telegram-бота. Запускает `python main.py`, получает обновления Telegram через long polling, обрабатывает команды, читает и изменяет данные в PostgreSQL, ищет места через Elasticsearch и отправляет логи в Loki. При включённом `ENQUEUE_PLACES_SYNC_ON_STARTUP` публикует в RabbitMQ команду синхронизации мест. |
 | `places-worker` | Долгоживущий consumer RabbitMQ. По команде `places.bootstrap.requested` при необходимости загружает места из KMZ, удаляет дубликаты, дополняет адреса из CSV и пересоздаёт поисковый индекс Elasticsearch. При временной ошибке сообщение повторяется, а после исчерпания попыток попадает в dead-letter queue. |
-| `migrations` | Одноразовый контейнер: после готовности PostgreSQL выполняет `python -m urbex.bootstrap.migrate` и завершается. `bot` и `places-worker` запускаются только после его успешного завершения. |
+| `migrations` | Одноразовый контейнер: после готовности PostgreSQL выполняет `python -m bootstrap.migrate` и завершается. `bot` и `places-worker` запускаются только после его успешного завершения. |
 | `rabbitmq-topology` | Одноразовый контейнер: после готовности RabbitMQ создаёт durable exchange, основную очередь, retry-очередь, dead-letter-очередь и bindings, затем завершается. `bot` и `places-worker` ждут его успешного завершения. |
 | `db` | PostgreSQL 15 — основное хранилище данных бота: пользователей, ролей, мест и ресурсов. Healthcheck не даёт зависимым сервисам стартовать до готовности БД. В локальном Compose порт `5432` опубликован на хост. |
 | `elasticsearch` | Общий Elasticsearch 7.17.11 для бота и сайта. Единый индекс `urbex_places_v1`, данные в `urbex_search`. Доступ только внутри Docker. |
@@ -280,7 +288,7 @@ Grafana (`3000`) и RabbitMQ Management (`15672`) слушают только
 ```bash
 cd api
 poetry install --with dev
-poetry run uvicorn urbex.bootstrap.main:app --reload
+poetry run uvicorn bootstrap.main:app --reload
 ```
 
 Poetry также устанавливает локальный пакет `../shared`. Зависимости API фиксируются в
@@ -290,7 +298,7 @@ Poetry также устанавливает локальный пакет `../s
 
 Миграции базы данных (API)
 --------------------------
-Единственный владелец миграций — API. Все ревизии находятся в `api/migrations/versions`, включая исторические ревизии бота. Сервис `migrations` использует образ API и команду `python -m urbex.bootstrap.migrate`. Бот, worker и API ждут его успешного завершения.
+Единственный владелец миграций — API. Все ревизии находятся в `api/migrations/versions`, включая исторические ревизии бота. Сервис `migrations` использует образ API и команду `python -m bootstrap.migrate`. Бот, worker и API ждут его успешного завершения.
 
 ```bash
 docker compose run --rm migrations
@@ -302,7 +310,7 @@ docker compose run --rm --no-deps migrations alembic revision -m "описани
 
 Сервис `migrations` обновляет единственную базу через `URBEX_DATABASE_URL`, который Compose формирует из общих `POSTGRES_*`. Бот подключается к той же базе. Отдельного подключения для чтения рейтингов больше нет.
 
-Локально из `api/`: `poetry run python -m urbex.bootstrap.migrate`; передайте `URBEX_DATABASE_URL` через окружение. Автоматический откат общей схемы не предусмотрен: используйте резервную копию и проверенный план восстановления.
+Локально из `api/`: `poetry run python -m bootstrap.migrate`; передайте `URBEX_DATABASE_URL` через окружение. Автоматический откат общей схемы не предусмотрен: используйте резервную копию и проверенный план восстановления.
 
 Elasticsearch читает настройки из `.env`:
 - `ELASTICSEARCH_HOST` (например: `http://elasticsearch:9200`)
@@ -385,7 +393,7 @@ python3 scripts/import_places.py geocaching_places.csv
 docker compose -f docker-compose.prod.yml up -d db
 python3 scripts/import_places.py -f docker-compose.prod.yml bot/geo_data/places.csv
 docker compose -f docker-compose.prod.yml up -d api web
-docker compose -f docker-compose.prod.yml exec api python -m urbex.bootstrap.cli reindex-search
+docker compose -f docker-compose.prod.yml exec api python -m bootstrap.cli reindex-search
 ```
 
 Если используете автоматический CSV-импорт через бота, после обновления кода
@@ -514,7 +522,7 @@ CSRF-токен. FastAPI проверяет источник, сессию и в
 противоречие. Это не определяет границы больших территорий: неоднозначные
 случаи остаются неподтверждёнными.
 
-Общий `PlaceProfile` в `api/urbex/infrastructure/osint_profile.py` строится из
+Общий `PlaceProfile` в `api/infrastructure/osint/osint_profile.py` строится из
 карточки без сетевых запросов. Он содержит исходное и альтернативные названия,
 тип, адрес, населённый пункт, регион, координаты, номера объекта и переданные
 ссылки из описания. Его используют генератор запросов, проверка источников,
@@ -584,7 +592,7 @@ JSON-LD/Microdata. Он предпочитает блок статьи пере�
 тот же внутренний URL, а задача запускается после освобождения места.
 
 Копируются только адреса из точного списка `HOSTS` в
-`api/urbex/infrastructure/external_images.py` (в том числе Яндекс, Wikimapia,
+`api/infrastructure/storage/external_images.py` (в том числе Яндекс, Wikimapia,
 Geocaching, Urban3P и Подмосковные усадьбы). Фотографии других источников не включаются в выдаваемую галерею,
 пока их домены не добавлены в список. Ссылки на страницы источников сохраняются. Перенаправления при скачивании запрещены. Изображения ограничены 8 МБ,
 проверяются Pillow, уменьшаются до 2400×2400 и сохраняются как JPEG без метаданных.

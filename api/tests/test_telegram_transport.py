@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 import pytest
-from urbex.infrastructure.telegram import TelegramPhotos
-from urbex.domain.rules import DomainError
+from infrastructure.integrations.telegram import TelegramPhotos
+from domain.rules import DomainError
 
 
 def test_transient_failure_retried():

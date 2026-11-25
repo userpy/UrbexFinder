@@ -1,9 +1,9 @@
 import pytest
 from sqlalchemy import text
 from fastapi.testclient import TestClient
-from urbex.bootstrap.main import create_app
-from urbex.bootstrap.config import Settings
-from urbex.infrastructure.auth import hasher
+from bootstrap.main import create_app
+from bootstrap.config import Settings
+from infrastructure.security.auth import hasher
 
 
 @pytest.fixture

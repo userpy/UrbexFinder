@@ -1,8 +1,8 @@
 import httpx
 
-from urbex.infrastructure import osint_evidence
-from urbex.infrastructure.semantic_ranking import rank_candidates
-from urbex.infrastructure.osint_identity import verify_source
+from infrastructure.osint import osint_evidence
+from infrastructure.search.semantic_ranking import rank_candidates
+from infrastructure.osint.osint_identity import verify_source
 
 
 class _Response:

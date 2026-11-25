@@ -1,4 +1,5 @@
-from urbex.infrastructure import osint, osint_description as description
+from infrastructure.osint import service as osint
+from infrastructure.osint import osint_description as description
 
 
 def test_cache_gallery_ignores_icons_and_deduplicates_full_size(monkeypatch):

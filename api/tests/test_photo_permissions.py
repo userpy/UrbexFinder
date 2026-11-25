@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 import pytest
-from urbex.application.places import PlacesService
-from urbex.domain.rules import Actor, DomainError
+from application.places import PlacesService
+from domain.rules import Actor, DomainError
 
 
 @pytest.mark.parametrize('role,owner,allowed', [('user',7,True),('user',8,True),('moderator',8,True),('admin',8,True)])

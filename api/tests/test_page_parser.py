@@ -1,6 +1,6 @@
 import json
-from urbex.infrastructure.osint_identity import extract_page_identity, primary_gallery
-from urbex.infrastructure.osint_description import _extract_generic_image_urls
+from infrastructure.osint.osint_identity import extract_page_identity, primary_gallery
+from infrastructure.osint.osint_description import _extract_generic_image_urls
 
 URL = 'https://example.org/estate'
 
@@ -69,7 +69,7 @@ def test_nested_noise_and_protocol_relative_lazy_url():
 
 
 def test_generic_fetch_attaches_identity_and_scope(monkeypatch):
-    from urbex.infrastructure import osint_description as parser
+    from infrastructure.osint import osint_description as parser
     html = structured({'@type': 'Place', 'name': 'Усадьба', 'url': URL,
                        'image': {'@type': 'ImageObject', 'contentUrl': '/estate.jpg'}})
     monkeypatch.setattr(parser, '_fetch_generic_html', lambda url: html)

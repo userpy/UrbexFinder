@@ -1,8 +1,8 @@
 import httpx
 import pytest
 
-from urbex.domain.rules import DomainError
-from urbex.infrastructure import wikimapia_map as maps
+from domain.rules import DomainError
+from infrastructure.osint import wikimapia_map as maps
 
 POINT = (56.145, 37.4074)
 PATH = '/z1/itiles/030/231/010/122/3.xy'

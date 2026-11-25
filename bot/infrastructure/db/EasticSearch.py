@@ -9,7 +9,7 @@ DEFAULT_INDEX_NAME = "urbex_places_v1"
 LEGACY_INDEX_NAME = "places"
 BATCH_SIZE = 500
 
-# Keep in sync with api/urbex/infrastructure/search.py INDEX_BODY.
+# Keep in sync with api/infrastructure/search/elasticsearch.py INDEX_BODY.
 INDEX_BODY = {
     "settings": {"number_of_shards": 1, "number_of_replicas": 0},
     "mappings": {
