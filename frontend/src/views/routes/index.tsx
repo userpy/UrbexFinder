@@ -892,20 +892,6 @@ export function RoutesView() {
                 Скачать GPX
               </Button>
             </div>
-            {manualShare && shareUrl && (
-              <label
-                className="route-share-link"
-                style={{ display: "block", marginTop: 12 }}
-              >
-                Ссылка на маршрут
-                <input
-                  ref={shareLinkInput}
-                  value={shareUrl}
-                  readOnly
-                  onFocus={(event) => event.currentTarget.select()}
-                />
-              </label>
-            )}
             {shareLinkError && (
               <div className="route-share-link" style={{ marginTop: 12 }}>
                 <p role="alert" className="notice">
