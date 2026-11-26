@@ -150,7 +150,7 @@ services:
         NEXT_PUBLIC_MAP_STYLE_URL: ${NEXT_PUBLIC_MAP_STYLE_URL:-}
     environment:
       API_INTERNAL_URL: http://api:8000
-      EXPORT_PUBLIC_ORIGIN: https://will-atm-lanes-festival.trycloudflare.com
+      EXPORT_PUBLIC_ORIGIN: https://glenn-webshots-upper-deliver.trycloudflare.com/
     ports:
     - 0.0.0.0:80:3100
     depends_on:
